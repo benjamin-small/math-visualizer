@@ -25,9 +25,9 @@ fn make_canvas(id: &str) -> HtmlCanvasElement {
 #[wasm_bindgen_test]
 fn engine_constructs_with_a_canvas() {
     make_canvas("test-canvas-construct");
-    let engine = Engine::new("test-canvas-construct").expect("engine constructs");
+    let mut engine = Engine::new("test-canvas-construct").expect("engine constructs");
     // Just calling frame() proves the GL context is usable.
-    engine.frame();
+    engine.frame(0.0);
 }
 
 #[wasm_bindgen_test]

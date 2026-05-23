@@ -1,19 +1,40 @@
+//! The engine ties rule + visualization + playback state together and exposes
+//! the wasm-bindgen surface the JS shell drives.
+
+use std::any::Any;
+
+use serde_json::Value;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
-pub mod playback;
 pub mod erased;
+pub mod playback;
+
+use crate::config::ConfigSchema;
+use crate::rules::color_cycle::{ColorCycleConfig, ColorCycleRule};
+use crate::traits::InputEvent;
+use crate::visualizations::color_cycle::{ColorCycleViz, ColorCycleVizConfig};
+use erased::{ErasedRule, ErasedVisualization};
+use playback::{advance_time, reduce, Command, PlaybackState};
 
 #[wasm_bindgen]
 pub struct Engine {
     gl: WebGl2RenderingContext,
-    clear_color: [f32; 4],
+    rule: Box<dyn ErasedRule>,
+    viz: Box<dyn ErasedVisualization>,
+    rule_cfg: Value,
+    viz_cfg: Value,
+    state: Box<dyn Any>,
+    playback: PlaybackState,
+    last_frame_ms: Option<f64>,
 }
 
 #[wasm_bindgen]
 impl Engine {
-    /// Construct an Engine bound to the canvas with id `canvas_id`.
+    /// Construct an Engine bound to the canvas with id `canvas_id`. Phase 2
+    /// hardwires ColorCycleRule + ColorCycleViz; Phase 3 will introduce a
+    /// rule/viz registry indexed by string id.
     #[wasm_bindgen(constructor)]
     pub fn new(canvas_id: &str) -> Result<Engine, JsValue> {
         let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
@@ -32,52 +53,170 @@ impl Engine {
             .dyn_into::<WebGl2RenderingContext>()
             .map_err(|_| JsValue::from_str("not a WebGL2 context"))?;
 
+        let rule_cfg = ColorCycleConfig::defaults();
+        let viz_cfg = ColorCycleVizConfig::defaults();
+        let max_iter = serde_json::from_value::<ColorCycleConfig>(rule_cfg.clone())
+            .map(|c| c.max_iterations)
+            .unwrap_or(360);
+
+        let rule: Box<dyn ErasedRule> = Box::new(ColorCycleRule);
+        let mut viz: Box<dyn ErasedVisualization> = Box::new(ColorCycleViz);
+
+        viz.init(&gl, &viz_cfg)
+            .map_err(|e| JsValue::from_str(&format!("viz init: {e}")))?;
+
+        let state = rule
+            .init(&rule_cfg, 0)
+            .map_err(|e| JsValue::from_str(&format!("rule init: {e}")))?;
+
         Ok(Engine {
             gl,
-            clear_color: [0.0, 0.0, 0.0, 1.0],
+            rule,
+            viz,
+            rule_cfg,
+            viz_cfg,
+            state,
+            playback: PlaybackState::initial(0, max_iter),
+            last_frame_ms: None,
         })
     }
 
-    /// Render one frame: clear to `clear_color`.
-    pub fn frame(&self) {
-        let [r, g, b, a] = self.clear_color;
-        self.gl.clear_color(r, g, b, a);
-        self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+    /// rAF callback. `now_ms` is `performance.now()` from JS.
+    pub fn frame(&mut self, now_ms: f64) {
+        let dt = match self.last_frame_ms {
+            None => 0.0,
+            Some(prev) => ((now_ms - prev) as f32 / 1000.0).max(0.0),
+        };
+        self.last_frame_ms = Some(now_ms);
+
+        let prev_iter = self.playback.iteration;
+        let rolled = advance_time(&mut self.playback, dt);
+        if rolled > 0 || self.playback.iteration != prev_iter {
+            // advance_time rolled past one or more iterations: bring scene
+            // state up to the new integer iteration.
+            let _ = self.rule.advance_to(
+                self.state.as_mut(),
+                &self.rule_cfg,
+                self.playback.seed,
+                self.playback.iteration,
+            );
+        }
+
+        // Always interpolate within the current iteration.
+        let _ = self.rule.substep(
+            self.state.as_mut(),
+            &self.rule_cfg,
+            self.playback.seed,
+            self.playback.iteration,
+            self.playback.sub_progress,
+        );
+
+        self.viz.tick(dt);
+        let _ = self.viz.render(&self.gl, self.state.as_ref(), &self.viz_cfg);
     }
 
-    pub fn set_clear_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
-        self.clear_color = [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), a.clamp(0.0, 1.0)];
+    /// Receive a Command from JS. `cmd` deserializes to `playback::Command`.
+    pub fn dispatch(&mut self, cmd: JsValue) -> Result<(), JsValue> {
+        let parsed: Command = serde_wasm_bindgen::from_value(cmd)
+            .map_err(|e| JsValue::from_str(&format!("bad command: {e}")))?;
+        let caps = self.rule.capabilities();
+        let r = reduce(self.playback, caps, &parsed);
+        self.playback = r.next;
+
+        if r.iteration_changed {
+            // Cheap-recompute path: rebuild state from scratch up to current.
+            if r.seed_changed || caps.cheap_recompute {
+                let new_state = self
+                    .rule
+                    .init(&self.rule_cfg, self.playback.seed)
+                    .map_err(|e| JsValue::from_str(&format!("rule init: {e}")))?;
+                self.state = new_state;
+            }
+            let _ = self.rule.advance_to(
+                self.state.as_mut(),
+                &self.rule_cfg,
+                self.playback.seed,
+                self.playback.iteration,
+            );
+        }
+        Ok(())
     }
 
-    pub fn resize(&self, width: u32, height: u32) {
-        self.gl.viewport(0, 0, width as i32, height as i32);
+    /// Snapshot the playback state for the UI to read each frame.
+    pub fn snapshot(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.playback).unwrap_or(JsValue::NULL)
     }
-}
 
-/// Pure-Rust testable helper for clamping. Lifted out so we can test the
-/// rule without a WebGL context. Kept module-private; `set_clear_color`
-/// applies the same clamp inline so this stays a unit-test seam.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn clamp_color(c: [f32; 4]) -> [f32; 4] {
-    [
-        c[0].clamp(0.0, 1.0),
-        c[1].clamp(0.0, 1.0),
-        c[2].clamp(0.0, 1.0),
-        c[3].clamp(0.0, 1.0),
-    ]
+    pub fn rule_schema(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.rule.schema()).unwrap_or(JsValue::NULL)
+    }
+
+    pub fn viz_schema(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.viz.schema()).unwrap_or(JsValue::NULL)
+    }
+
+    pub fn rule_config(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.rule_cfg).unwrap_or(JsValue::NULL)
+    }
+
+    pub fn viz_config(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.viz_cfg).unwrap_or(JsValue::NULL)
+    }
+
+    /// Replace the rule config and reset playback. Phase 4's panel will call
+    /// this on structural field edits.
+    pub fn update_rule_config(&mut self, cfg: JsValue) -> Result<(), JsValue> {
+        let parsed: Value = serde_wasm_bindgen::from_value(cfg)
+            .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
+        let new_max = serde_json::from_value::<ColorCycleConfig>(parsed.clone())
+            .map(|c| c.max_iterations.max(1))
+            .unwrap_or(self.playback.max_iterations);
+
+        self.rule_cfg = parsed;
+        self.playback.iteration = 0;
+        self.playback.sub_progress = 0.0;
+        self.playback.playing = false;
+        self.playback.max_iterations = new_max;
+
+        let new_state = self
+            .rule
+            .init(&self.rule_cfg, self.playback.seed)
+            .map_err(|e| JsValue::from_str(&format!("rule init: {e}")))?;
+        self.state = new_state;
+        Ok(())
+    }
+
+    /// Replace the visualization config. Cosmetic-only edits don't reset
+    /// playback; the engine doesn't enforce that distinction yet — the panel
+    /// in Phase 4 will batch cosmetic vs structural separately.
+    pub fn update_viz_config(&mut self, cfg: JsValue) -> Result<(), JsValue> {
+        let parsed: Value = serde_wasm_bindgen::from_value(cfg)
+            .map_err(|e| JsValue::from_str(&format!("bad viz config: {e}")))?;
+        self.viz_cfg = parsed;
+        let _ = self.viz.init(&self.gl, &self.viz_cfg);
+        Ok(())
+    }
+
+    pub fn capabilities(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.rule.capabilities()).unwrap_or(JsValue::NULL)
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.viz.resize(&self.gl, width, height);
+    }
+
+    /// Forward a pointer/keyboard event from the canvas. JS shape matches
+    /// the `InputEvent` enum (`{kind:"PointerMove", x:..., ...}` etc.).
+    pub fn forward_input(&mut self, ev: JsValue) -> Result<(), JsValue> {
+        let parsed: InputEvent = serde_wasm_bindgen::from_value(ev)
+            .map_err(|e| JsValue::from_str(&format!("bad input: {e}")))?;
+        self.viz.handle_input(&parsed);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn clamp_color_clamps_above_one() {
-        assert_eq!(clamp_color([1.5, 0.5, -0.2, 2.0]), [1.0, 0.5, 0.0, 1.0]);
-    }
-
-    #[test]
-    fn clamp_color_passes_through_in_range() {
-        assert_eq!(clamp_color([0.1, 0.2, 0.3, 0.4]), [0.1, 0.2, 0.3, 0.4]);
-    }
+    // No native unit tests for the Engine itself — it requires WebGL. See
+    // crates/viz-core/tests/wasm.rs for browser-side tests (Task 9).
 }
