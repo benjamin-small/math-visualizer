@@ -265,4 +265,35 @@ mod tests {
             _ => panic!("wrong variant"),
         }
     }
+
+    #[test]
+    fn pause_always_sets_playing_false() {
+        let mut s = PlaybackState::initial(0, 10);
+        s.playing = true;
+        s.iteration = 3;
+        let r = reduce(s, caps_full(), &Command::Pause);
+        assert!(!r.next.playing);
+        assert_eq!(r.next.iteration, 3, "pause must not move iteration");
+        assert!(!r.iteration_changed);
+    }
+
+    #[test]
+    fn toggle_play_at_end_stays_paused() {
+        let mut s = PlaybackState::initial(0, 10);
+        s.iteration = 10;
+        s.playing = false;
+        let r = reduce(s, caps_full(), &Command::TogglePlay);
+        assert!(!r.next.playing, "cannot toggle into play when at max_iterations");
+    }
+
+    #[test]
+    fn advance_time_when_paused_is_noop() {
+        let mut s = PlaybackState::initial(0, 10);
+        s.playing = false;
+        s.sub_progress = 0.3;
+        let rolled = advance_time(&mut s, 10.0);
+        assert_eq!(rolled, 0);
+        assert_eq!(s.iteration, 0);
+        assert!((s.sub_progress - 0.3).abs() < 1e-6, "sub_progress unchanged when paused");
+    }
 }
