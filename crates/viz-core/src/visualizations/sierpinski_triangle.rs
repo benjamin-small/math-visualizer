@@ -191,12 +191,15 @@ impl Visualization for SierpinskiTriangle {
         // Dots: trail (many small) + 3 corners (big) + current (small-medium).
         // Order matters for z (later = on top). Trail under, corners + current
         // over so they read against the trail.
-        // Skip the burn-in dots: the chaos orbit hasn't yet converged onto
-        // the Sierpinski set, so those early dots can sit in level-N holes
-        // that get carved out at deeper levels. clamp() so a small
-        // max_iterations + large burn_in just shows nothing rather than
-        // panicking on an out-of-range slice.
-        let skip = (cfg.burn_in_iterations as usize).min(state.trail.len());
+        // Conditional burn-in: the chaos orbit hasn't yet converged onto the
+        // Sierpinski set during the first few iterations, so those early
+        // dots can sit in level-N holes that get carved out at deeper
+        // levels. BUT skipping them only makes sense once the trail is long
+        // enough that the burn-in is a small fraction of what's visible —
+        // otherwise stepping through iterations 1..20 shows nothing, which
+        // defeats the learning use case. Apply skip only past 2× burn-in.
+        let burn_in = cfg.burn_in_iterations as usize;
+        let skip = if state.trail.len() > burn_in * 2 { burn_in } else { 0 };
         let trail_to_show = &state.trail[skip..];
         let mut all_points: Vec<PointInstance> =
             Vec::with_capacity(trail_to_show.len() + 4);
