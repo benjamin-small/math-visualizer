@@ -1,0 +1,23 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# WebAssembly build output
+/crates/*/pkg/
+
+# Node / Vite
+/web/node_modules/
+/web/dist/
+/web/.vite/
+*.log
+.npm/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Claude local state
+.claude/settings.local.json
