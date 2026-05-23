@@ -133,7 +133,7 @@
       <input
         type="range"
         min="0.25"
-        max="240"
+        max="360"
         step="0.25"
         value={snapshot.speed}
         oninput={(e) => dispatch(cmd.setSpeed(Number((e.target as HTMLInputElement).value)))}
@@ -150,7 +150,7 @@
     grid-template-rows: 1fr auto;
     grid-template-areas:
       "info canvas"
-      "bar  bar";
+      "info bar";
     height: 100vh;
   }
   .info {
