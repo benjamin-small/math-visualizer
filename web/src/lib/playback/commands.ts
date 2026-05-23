@@ -8,7 +8,7 @@ export type Command =
   | { kind: 'StepBack' }
   | { kind: 'JumpTo'; iteration: number }
   | { kind: 'SetSpeed'; value: number }
-  | { kind: 'SetSeed'; value: string }   // string-encoded u64; engine parses
+  | { kind: 'SetSeed'; value: number }   // u64 in Rust; JS Number is safe up to 2^53. Phase 4 may revisit for shareable seeds spanning the full u64 range.
   | { kind: 'Reset' };
 
 export const cmd = {
@@ -19,9 +19,7 @@ export const cmd = {
   stepBack:    (): Command => ({ kind: 'StepBack' }),
   jumpTo:      (iteration: number): Command => ({ kind: 'JumpTo', iteration }),
   setSpeed:    (value: number): Command => ({ kind: 'SetSpeed', value }),
-  // Note: SetSeed transit format is decimal-string for u64 range; engine
-  // does the parse. Phase 4 introduces a real seed widget.
-  setSeed:     (value: string): Command => ({ kind: 'SetSeed', value }),
+  setSeed:     (value: number): Command => ({ kind: 'SetSeed', value }),
   reset:       (): Command => ({ kind: 'Reset' }),
 };
 
