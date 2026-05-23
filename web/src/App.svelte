@@ -2,23 +2,30 @@
   import { onMount, onDestroy } from 'svelte';
   import { loadVizCore } from './lib/wasm/loader';
   import type { Engine } from 'viz-core';
+  import { cmd, type PlaybackSnapshot } from './lib/playback/commands';
 
   let canvas: HTMLCanvasElement;
   let engine = $state<Engine | null>(null);
-  let r = $state(0.1);
-  let g = $state(0.1);
-  let b = $state(0.15);
-  let a = $state(1.0);
+  let snapshot = $state<PlaybackSnapshot>({
+    iteration: 0,
+    sub_progress: 0,
+    playing: false,
+    speed: 1.0,
+    seed: 0,
+    max_iterations: 1,
+  });
   let rafId = 0;
 
   onMount(async () => {
     const viz = await loadVizCore();
     engine = new viz.Engine('viz-canvas');
-    sizeCanvas();  // must run after engine assignment so engine.resize() fires
-    engine.set_clear_color(r, g, b, a);
+    sizeCanvas();
 
-    const loop = () => {
-      engine?.frame();
+    const loop = (now: number) => {
+      if (engine) {
+        engine.frame(now);
+        snapshot = engine.snapshot() as PlaybackSnapshot;
+      }
       rafId = requestAnimationFrame(loop);
     };
     rafId = requestAnimationFrame(loop);
@@ -40,26 +47,47 @@
     engine?.resize(canvas.width, canvas.height);
   }
 
-  $effect(() => {
-    engine?.set_clear_color(r, g, b, a);
-  });
+  function dispatch(c: ReturnType<typeof cmd[keyof typeof cmd]>) {
+    engine?.dispatch(c);
+  }
 </script>
 
 <div class="layout">
   <canvas id="viz-canvas" bind:this={canvas}></canvas>
-  <aside class="panel">
-    <h2>Clear color</h2>
-    <label>R <input type="range" min="0" max="1" step="0.01" bind:value={r} /> {r.toFixed(2)}</label>
-    <label>G <input type="range" min="0" max="1" step="0.01" bind:value={g} /> {g.toFixed(2)}</label>
-    <label>B <input type="range" min="0" max="1" step="0.01" bind:value={b} /> {b.toFixed(2)}</label>
-    <label>A <input type="range" min="0" max="1" step="0.01" bind:value={a} /> {a.toFixed(2)}</label>
-  </aside>
+
+  <footer class="playback-bar">
+    <button onclick={() => dispatch(cmd.reset())} title="Reset to iteration 0">↺</button>
+    <button onclick={() => dispatch(cmd.stepBack())} title="Step back">◀</button>
+    <button
+      onclick={() => dispatch(cmd.togglePlay())}
+      title={snapshot.playing ? 'Pause' : 'Play'}
+    >{snapshot.playing ? '⏸' : '▶'}</button>
+    <button onclick={() => dispatch(cmd.stepForward())} title="Step forward">▶▶</button>
+
+    <span class="iteration">
+      {snapshot.iteration} / {snapshot.max_iterations}
+      <span class="sub">{snapshot.sub_progress.toFixed(2)}</span>
+    </span>
+
+    <label class="speed">
+      Speed
+      <input
+        type="range"
+        min="0"
+        max="60"
+        step="0.5"
+        value={snapshot.speed}
+        oninput={(e) => dispatch(cmd.setSpeed(Number((e.target as HTMLInputElement).value)))}
+      />
+      <span class="value">{snapshot.speed.toFixed(1)}</span>
+    </label>
+  </footer>
 </div>
 
 <style>
   .layout {
     display: grid;
-    grid-template-columns: 1fr 280px;
+    grid-template-rows: 1fr auto;
     height: 100vh;
   }
   canvas {
@@ -67,19 +95,46 @@
     height: 100%;
     display: block;
   }
-  .panel {
+  .playback-bar {
     background: #1c1c1f;
-    padding: 1rem;
-    border-left: 1px solid #2a2a2f;
+    border-top: 1px solid #2a2a2f;
+    padding: 0.5rem 1rem;
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 0.75rem;
+    font-size: 0.9rem;
   }
-  label {
-    display: grid;
-    grid-template-columns: 1.5rem 1fr 3rem;
+  .playback-bar button {
+    background: #2a2a2f;
+    color: #eee;
+    border: 1px solid #3a3a40;
+    border-radius: 4px;
+    padding: 0.35rem 0.7rem;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .playback-bar button:hover {
+    background: #34343a;
+  }
+  .iteration {
+    font-variant-numeric: tabular-nums;
+    color: #bbb;
+    min-width: 8rem;
+  }
+  .iteration .sub {
+    color: #666;
+    margin-left: 0.5rem;
+  }
+  .speed {
+    display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 0.85rem;
+    margin-left: auto;
+    color: #bbb;
+  }
+  .speed .value {
+    font-variant-numeric: tabular-nums;
+    width: 2.5rem;
+    text-align: right;
   }
 </style>
