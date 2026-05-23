@@ -21,6 +21,9 @@ pub struct SierpinskiTriangleVizConfig {
     pub trail_size_px: f32,
     pub current_color: [f32; 4],
     pub current_size_px: f32,
+    /// Color of the per-iteration guide line from the previous trail dot
+    /// to the chosen corner. Drawn during substep animation only.
+    pub guide_color: [f32; 4],
     pub padding: f32,
 }
 
@@ -36,6 +39,7 @@ impl Default for SierpinskiTriangleVizConfig {
             trail_size_px: 3.5,
             current_color: [0.95, 0.55, 0.35, 1.0],
             current_size_px: 7.0,
+            guide_color: [0.95, 0.75, 0.35, 0.55],
             padding: 0.1,
         }
     }
@@ -67,6 +71,7 @@ impl ConfigSchema for SierpinskiTriangleVizConfig {
                     default: 7.0, min: 0.5, max: 20.0, step: 0.1,
                     integer: false, cosmetic: true, widget: None,
                 }),
+                "guide_color": color_property("Guide line color", [0.95, 0.75, 0.35, 0.55]),
                 "padding": number_property(NumberOpts {
                     label: "Padding around triangle",
                     default: 0.1, min: 0.0, max: 1.0, step: 0.01,
@@ -78,6 +83,7 @@ impl ConfigSchema for SierpinskiTriangleVizConfig {
                 "corner_color", "corner_highlight_color", "corner_size_px",
                 "trail_color", "trail_size_px",
                 "current_color", "current_size_px",
+                "guide_color",
                 "padding"
             ],
         })
@@ -147,16 +153,25 @@ impl Visualization for SierpinskiTriangle {
         gl.clear_color(cfg.background[0], cfg.background[1], cfg.background[2], cfg.background[3]);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
-        // Triangle edges (3 line segments).
-        let tri_vertices = [
-            LineVertex { position: CORNERS[0], color: cfg.triangle_color },
-            LineVertex { position: CORNERS[1], color: cfg.triangle_color },
-            LineVertex { position: CORNERS[1], color: cfg.triangle_color },
-            LineVertex { position: CORNERS[2], color: cfg.triangle_color },
-            LineVertex { position: CORNERS[2], color: cfg.triangle_color },
-            LineVertex { position: CORNERS[0], color: cfg.triangle_color },
-        ];
-        lines.upload(gl, &tri_vertices);
+        // Triangle edges (3 line segments) + optional guide line from the
+        // current trail position to the chosen corner. Single batch.
+        let mut line_verts: Vec<LineVertex> = Vec::with_capacity(8);
+        line_verts.push(LineVertex { position: CORNERS[0], color: cfg.triangle_color });
+        line_verts.push(LineVertex { position: CORNERS[1], color: cfg.triangle_color });
+        line_verts.push(LineVertex { position: CORNERS[1], color: cfg.triangle_color });
+        line_verts.push(LineVertex { position: CORNERS[2], color: cfg.triangle_color });
+        line_verts.push(LineVertex { position: CORNERS[2], color: cfg.triangle_color });
+        line_verts.push(LineVertex { position: CORNERS[0], color: cfg.triangle_color });
+        if let Some(corner_idx) = state.chosen_corner {
+            // The start of this iteration's move is the last trail dot (or the
+            // initial random position if no iterations have completed). The
+            // guide runs from there to the chosen corner; the new permanent
+            // dot lands at the midpoint.
+            let start = state.trail.last().copied().unwrap_or(state.initial_position);
+            line_verts.push(LineVertex { position: start,             color: cfg.guide_color });
+            line_verts.push(LineVertex { position: CORNERS[corner_idx], color: cfg.guide_color });
+        }
+        lines.upload(gl, &line_verts);
         lines.draw(gl, &proj);
 
         // Dots: trail (many small) + 3 corners (big) + current (small-medium).
@@ -212,6 +227,6 @@ mod tests {
     fn schema_lists_all_required_fields() {
         let schema = SierpinskiTriangleVizConfig::schema();
         let required = schema["required"].as_array().expect("required array");
-        assert_eq!(required.len(), 10);
+        assert_eq!(required.len(), 11);
     }
 }
