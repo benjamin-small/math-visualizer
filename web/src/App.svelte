@@ -59,6 +59,75 @@
       console.warn('update_rule_config failed:', err);
     }
   }
+
+  // Speed ramp: when play starts from iteration 0, linearly ramp speed from
+  // its current value up to RAMP_TARGET over RAMP_DURATION_MS. Any manual
+  // speed change, pause, or reset cancels the ramp.
+  const RAMP_DURATION_MS = 10_000;
+  const RAMP_TARGET = 240;
+  let rampHandle = 0;
+  let rampStartSpeed = 1;
+  let rampStartMs = 0;
+
+  function cancelRamp() {
+    if (rampHandle !== 0) {
+      cancelAnimationFrame(rampHandle);
+      rampHandle = 0;
+    }
+  }
+
+  function startRamp(fromSpeed: number) {
+    cancelRamp();
+    rampStartSpeed = fromSpeed;
+    rampStartMs = performance.now();
+    const tick = (now: number) => {
+      if (rampHandle === 0) return;  // cancelled mid-tick
+      const elapsed = now - rampStartMs;
+      if (elapsed >= RAMP_DURATION_MS) {
+        engine?.dispatch(cmd.setSpeed(RAMP_TARGET));
+        rampHandle = 0;
+        return;
+      }
+      const t = elapsed / RAMP_DURATION_MS;
+      const speed = rampStartSpeed + (RAMP_TARGET - rampStartSpeed) * t;
+      engine?.dispatch(cmd.setSpeed(speed));
+      rampHandle = requestAnimationFrame(tick);
+    };
+    rampHandle = requestAnimationFrame(tick);
+  }
+
+  function onTogglePlay() {
+    const wasPlaying = snapshot.playing;
+    const wasAtStart = snapshot.iteration === 0;
+    dispatch(cmd.togglePlay());
+    if (wasPlaying) {
+      // Just paused — kill any active ramp.
+      cancelRamp();
+    } else if (wasAtStart && snapshot.iteration < snapshot.max_iterations) {
+      // Fresh play from the beginning — kick off the ramp.
+      startRamp(snapshot.speed);
+    }
+  }
+
+  function onSpeedInput(value: number) {
+    cancelRamp();  // user took manual control
+    dispatch(cmd.setSpeed(value));
+  }
+
+  function onReset() {
+    cancelRamp();
+    dispatch(cmd.reset());
+  }
+
+  function onStepBack() {
+    cancelRamp();
+    dispatch(cmd.stepBack());
+  }
+
+  function onStepForward() {
+    cancelRamp();
+    dispatch(cmd.stepForward());
+  }
 </script>
 
 <div class="layout">
@@ -103,13 +172,13 @@
   <canvas id="viz-canvas" bind:this={canvas}></canvas>
 
   <footer class="playback-bar">
-    <button onclick={() => dispatch(cmd.reset())} title="Reset to iteration 0">↺</button>
-    <button onclick={() => dispatch(cmd.stepBack())} title="Step back">◀</button>
+    <button onclick={onReset} title="Reset to iteration 0">↺</button>
+    <button onclick={onStepBack} title="Step back">◀</button>
     <button
-      onclick={() => dispatch(cmd.togglePlay())}
+      onclick={onTogglePlay}
       title={snapshot.playing ? 'Pause' : 'Play'}
     >{snapshot.playing ? '⏸' : '▶'}</button>
-    <button onclick={() => dispatch(cmd.stepForward())} title="Step forward">▶▶</button>
+    <button onclick={onStepForward} title="Step forward">▶▶</button>
 
     <span class="iteration">
       {snapshot.iteration} / {snapshot.max_iterations}
@@ -136,7 +205,7 @@
         max="360"
         step="0.25"
         value={snapshot.speed}
-        oninput={(e) => dispatch(cmd.setSpeed(Number((e.target as HTMLInputElement).value)))}
+        oninput={(e) => onSpeedInput(Number((e.target as HTMLInputElement).value))}
       />
       <span class="value">{snapshot.speed.toFixed(1)}</span>
     </label>
