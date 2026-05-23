@@ -22,9 +22,9 @@ pub mod erased;
 pub mod playback;
 
 use crate::config::ConfigSchema;
-use crate::rules::midpoint_on_circle::{MidpointConfig, MidpointOnCircle};
+use crate::rules::sierpinski_chaos::{ChaosGameConfig, SierpinskiChaos};
 use crate::traits::InputEvent;
-use crate::visualizations::dots_on_circle::{DotsOnCircle, DotsOnCircleVizConfig};
+use crate::visualizations::sierpinski_triangle::{SierpinskiTriangle, SierpinskiTriangleVizConfig};
 use erased::{ErasedRule, ErasedVisualization};
 use playback::{advance_time, reduce, Command, PlaybackState};
 
@@ -43,8 +43,10 @@ pub struct Engine {
 #[wasm_bindgen]
 impl Engine {
     /// Construct an Engine bound to the canvas with id `canvas_id`. Phase 3
-    /// hardwires MidpointOnCircle + DotsOnCircle; Phase 4 will introduce a
-    /// rule/viz registry + selector UI so the JS layer can pick the pair.
+    /// hardwires SierpinskiChaos + SierpinskiTriangle; Phase 4 will introduce
+    /// a rule/viz registry + selector UI so the JS layer can pick the pair
+    /// (the midpoint-on-circle and color-cycle rules stay in the codebase as
+    /// alternative options).
     #[wasm_bindgen(constructor)]
     pub fn new(canvas_id: &str) -> Result<Engine, JsValue> {
         let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
@@ -63,14 +65,14 @@ impl Engine {
             .dyn_into::<WebGl2RenderingContext>()
             .map_err(|_| JsValue::from_str("not a WebGL2 context"))?;
 
-        let rule_cfg = MidpointConfig::defaults();
-        let viz_cfg = DotsOnCircleVizConfig::defaults();
-        let max_iter = serde_json::from_value::<MidpointConfig>(rule_cfg.clone())
+        let rule_cfg = ChaosGameConfig::defaults();
+        let viz_cfg = SierpinskiTriangleVizConfig::defaults();
+        let max_iter = serde_json::from_value::<ChaosGameConfig>(rule_cfg.clone())
             .map(|c| c.max_iterations)
-            .unwrap_or(100);
+            .unwrap_or(1000);
 
-        let rule: Box<dyn ErasedRule> = Box::new(MidpointOnCircle);
-        let mut viz: Box<dyn ErasedVisualization> = Box::new(DotsOnCircle::new());
+        let rule: Box<dyn ErasedRule> = Box::new(SierpinskiChaos);
+        let mut viz: Box<dyn ErasedVisualization> = Box::new(SierpinskiTriangle::new());
 
         viz.init(&gl, &viz_cfg)
             .map_err(|e| JsValue::from_str(&format!("viz init: {e}")))?;
@@ -184,7 +186,7 @@ impl Engine {
     pub fn update_rule_config(&mut self, cfg: JsValue) -> Result<(), JsValue> {
         let parsed: Value = serde_wasm_bindgen::from_value(cfg)
             .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
-        let new_max = serde_json::from_value::<MidpointConfig>(parsed.clone())
+        let new_max = serde_json::from_value::<ChaosGameConfig>(parsed.clone())
             .map(|c| c.max_iterations.max(1))
             .unwrap_or(self.playback.max_iterations);
 

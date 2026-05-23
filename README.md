@@ -2,7 +2,7 @@
 
 Interactive math visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI.
 
-> **Status:** Phase 3 — the midpoint-on-circle visualization. A unit circle, deterministic seeded reference points, and a growing field of midpoints driven by the Phase 2 playback engine. The Phase 2 ColorCycle rule + viz remain in the codebase as a second working example. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
+> **Status:** Phase 3 — the Sierpinski Chaos Game visualization. Three triangle corners, a deterministic seeded starting point, and each iteration moves halfway toward a uniformly-chosen corner; thousands of dots converge on the Sierpinski attractor. The midpoint-on-circle rule and Phase 2 ColorCycle rule remain in the codebase as alternative working examples (Phase 4's selector UI will let you switch between them). See [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
 
 ## Prerequisites
 
@@ -102,10 +102,12 @@ math-visualizer/
 │   │   │   ├── sdf_circle.rs         # Single-quad antialiased stroked circle
 │   │   │   └── line_batch.rs         # Colored line segment batch
 │   │   ├── rules/
-│   │   │   ├── midpoint_on_circle.rs # Phase 3 flagship rule (seeded RNG)
-│   │   │   └── color_cycle.rs        # Phase 2 demo rule (still works)
+│   │   │   ├── sierpinski_chaos.rs   # Default flagship rule (Chaos Game)
+│   │   │   ├── midpoint_on_circle.rs # Alternative rule (still works)
+│   │   │   └── color_cycle.rs        # Phase 2 demo rule
 │   │   └── visualizations/
-│   │       ├── dots_on_circle.rs     # Phase 3 viz (SdfCircle + InstancedPoints + LineBatch)
+│   │       ├── sierpinski_triangle.rs# Default viz (triangle + chaos trail)
+│   │       ├── dots_on_circle.rs     # Alternative viz (paired with midpoint)
 │   │       └── color_cycle.rs        # Phase 2 demo viz
 │   └── tests/wasm.rs                 # Browser smoke tests (Engine + dispatch round-trip)
 └── web/                              # Vite + Svelte 5 app
