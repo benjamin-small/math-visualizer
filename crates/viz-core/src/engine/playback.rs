@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::traits::Capabilities;
 
+/// Minimum allowed playback speed (iterations per second). Going to literal
+/// zero looks indistinguishable from "broken" — at this floor the slowest
+/// playback still ticks one iteration every 4 seconds, slow enough to study
+/// each step but fast enough to obviously not be stuck.
+pub const MIN_SPEED: f32 = 0.25;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PlaybackState {
     pub iteration: u32,
@@ -98,7 +104,7 @@ pub fn reduce(prev: PlaybackState, caps: Capabilities, cmd: &Command) -> ReduceR
             }
         }
         Command::SetSpeed { value } => {
-            next.speed = value.max(0.0);
+            next.speed = value.max(MIN_SPEED);
         }
         Command::SetSeed { value } => {
             if *value != prev.seed {
@@ -254,10 +260,16 @@ mod tests {
     }
 
     #[test]
-    fn set_speed_clamps_negative_to_zero() {
+    fn set_speed_clamps_to_min_speed() {
         let s = PlaybackState::initial(0, 10);
-        let r = reduce(s, caps_full(), &Command::SetSpeed { value: -3.5 });
-        assert_eq!(r.next.speed, 0.0);
+        let below = reduce(s, caps_full(), &Command::SetSpeed { value: -3.5 });
+        assert_eq!(below.next.speed, MIN_SPEED);
+        let zero = reduce(s, caps_full(), &Command::SetSpeed { value: 0.0 });
+        assert_eq!(zero.next.speed, MIN_SPEED, "exactly zero is rejected too");
+        let small = reduce(s, caps_full(), &Command::SetSpeed { value: 0.1 });
+        assert_eq!(small.next.speed, MIN_SPEED, "values below MIN_SPEED clamp up");
+        let normal = reduce(s, caps_full(), &Command::SetSpeed { value: 5.0 });
+        assert_eq!(normal.next.speed, 5.0, "in-range values pass through");
     }
 
     #[test]

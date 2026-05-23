@@ -73,9 +73,9 @@
       Speed
       <input
         type="range"
-        min="0"
+        min="0.25"
         max="60"
-        step="0.5"
+        step="0.25"
         value={snapshot.speed}
         oninput={(e) => dispatch(cmd.setSpeed(Number((e.target as HTMLInputElement).value)))}
       />
