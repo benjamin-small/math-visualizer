@@ -2,7 +2,7 @@
 
 Interactive math visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI.
 
-> **Status:** Phase 1 — toolchain and clear-color canvas. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
+> **Status:** Phase 2 — core abstractions (Rule, Visualization, ConfigSchema) and playback engine, validated with a demo ColorCycleRule + ColorCycleViz. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
 
 ## Prerequisites
 
@@ -86,17 +86,28 @@ Outputs a static SPA to `web/dist/`.
 
 ```
 math-visualizer/
-├── crates/viz-core/      # Rust crate compiled to WebAssembly
+├── crates/viz-core/                  # Rust crate compiled to WebAssembly
 │   ├── src/
-│   │   ├── lib.rs        # wasm-bindgen entry point
-│   │   └── engine/       # Engine struct (WebGL2 context owner)
-│   └── tests/wasm.rs     # wasm-bindgen-test browser smoke tests
-└── web/                  # Vite + Svelte 5 app
+│   │   ├── lib.rs                    # wasm-bindgen entry point
+│   │   ├── traits.rs                 # SceneState, Rule, Visualization, Capabilities, InputEvent
+│   │   ├── config/                   # ConfigSchema trait + JSON Schema helpers
+│   │   ├── engine/
+│   │   │   ├── mod.rs                # Engine: orchestrates rule + viz + playback
+│   │   │   ├── playback.rs           # PlaybackState, Command, pure reducer
+│   │   │   └── erased.rs             # Type-erased dispatch over Rule/Visualization
+│   │   ├── rules/
+│   │   │   └── color_cycle.rs        # Demo rule (replaced by midpoint rule in Phase 3)
+│   │   └── visualizations/
+│   │       └── color_cycle.rs        # Demo viz using gl.clear + HSL (Phase 3 adds real renderers)
+│   └── tests/wasm.rs                 # Browser smoke tests (Engine construction + dispatch round-trip)
+└── web/                              # Vite + Svelte 5 app
     ├── src/
-    │   ├── App.svelte    # Canvas + UI shell
-    │   ├── main.ts       # Svelte 5 mount entry
+    │   ├── App.svelte                # Canvas + playback control bar
+    │   ├── main.ts                   # Svelte 5 mount entry
     │   └── lib/
-    │       └── wasm/loader.ts  # Single-flight WASM module loader
+    │       ├── playback/commands.ts  # Typed Command builders for engine.dispatch
+    │       ├── wasm/loader.ts        # Single-flight WASM module loader
+    │       └── components/__tests__/ # Component mount tests (vitest + @testing-library/svelte)
     ├── package.json
     └── vite.config.ts
 ```
