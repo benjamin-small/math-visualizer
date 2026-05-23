@@ -62,6 +62,37 @@
 </script>
 
 <div class="layout">
+  <aside class="info">
+    <h2>Sierpinski Chaos Game</h2>
+    <p>
+      Three triangle corners, plus a deterministic random starting point
+      somewhere inside. Each iteration:
+    </p>
+    <ol>
+      <li>Pick one of the three corners uniformly at random.</li>
+      <li>Move halfway from the current position toward that corner.</li>
+      <li>Drop a permanent dot at the new position.</li>
+    </ol>
+    <p>
+      After a few thousand iterations the dots converge on the
+      <strong>Sierpinski triangle</strong> — a fractal attractor with three
+      self-similar copies of itself nested inside.
+    </p>
+    <h3>What you're seeing</h3>
+    <ul>
+      <li><span class="swatch corner"></span> Triangle corners (anchors)</li>
+      <li><span class="swatch highlight"></span> Highlighted corner (chosen this iteration)</li>
+      <li><span class="swatch guide"></span> Guide line from current position to the chosen corner</li>
+      <li><span class="swatch current"></span> In-flight dot, moving toward the halfway point</li>
+      <li><span class="swatch trail"></span> Trail of permanent dots</li>
+    </ul>
+    <p class="tip">
+      Slow down to <em>1 iter/sec</em> to study each step; crank to
+      <em>240</em> to race through 10k+ iterations and watch the pattern
+      resolve.
+    </p>
+  </aside>
+
   <canvas id="viz-canvas" bind:this={canvas}></canvas>
 
   <footer class="playback-bar">
@@ -108,15 +139,80 @@
 <style>
   .layout {
     display: grid;
+    grid-template-columns: 320px 1fr;
     grid-template-rows: 1fr auto;
+    grid-template-areas:
+      "info canvas"
+      "bar  bar";
     height: 100vh;
   }
+  .info {
+    grid-area: info;
+    background: #14141a;
+    border-right: 1px solid #2a2a2f;
+    padding: 1.25rem 1.25rem 1rem;
+    overflow-y: auto;
+    color: #c9c9d0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .info h2 {
+    margin: 0 0 0.75rem;
+    color: #f0f0f5;
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+  .info h3 {
+    margin: 1.25rem 0 0.5rem;
+    color: #f0f0f5;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .info p { margin: 0 0 0.75rem; }
+  .info ol, .info ul {
+    margin: 0 0 0.75rem;
+    padding-left: 1.25rem;
+  }
+  .info li { margin-bottom: 0.35rem; }
+  .info ul { list-style: none; padding-left: 0; }
+  .info ul li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .info .tip {
+    margin-top: 1rem;
+    padding: 0.6rem 0.75rem;
+    background: #1c1c24;
+    border-left: 2px solid #4a4a55;
+    border-radius: 2px;
+    font-size: 0.8rem;
+    color: #a0a0aa;
+  }
+  .info em { color: #d5d5db; font-style: normal; font-weight: 500; }
+  .info strong { color: #f0f0f5; }
+  .swatch {
+    display: inline-block;
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .swatch.corner    { background: #d9d9e0; }
+  .swatch.highlight { background: #fad94d; }
+  .swatch.guide     { background: linear-gradient(90deg, transparent 0, #f2bf59 30%, #f2bf59 70%, transparent 100%); border-radius: 0; height: 2px; align-self: center; }
+  .swatch.current   { background: #f28c5a; }
+  .swatch.trail     { background: #a6daf2; }
   canvas {
+    grid-area: canvas;
     width: 100%;
     height: 100%;
     display: block;
   }
   .playback-bar {
+    grid-area: bar;
     background: #1c1c1f;
     border-top: 1px solid #2a2a2f;
     padding: 0.5rem 1rem;
