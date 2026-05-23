@@ -87,3 +87,16 @@ fn engine_schema_round_trip() {
         .expect("string");
     assert_eq!(ty, "object");
 }
+
+#[wasm_bindgen_test]
+fn default_rule_schema_has_max_iterations_field() {
+    make_canvas("test-canvas-defaults");
+    let engine = Engine::new("test-canvas-defaults").expect("engine constructs");
+
+    let schema = engine.rule_schema();
+    let props = js_sys::Reflect::get(&schema, &JsValue::from_str("properties"))
+        .expect("properties field");
+    let max_iter = js_sys::Reflect::get(&props, &JsValue::from_str("max_iterations"))
+        .expect("max_iterations property");
+    assert!(!max_iter.is_undefined() && !max_iter.is_null());
+}
