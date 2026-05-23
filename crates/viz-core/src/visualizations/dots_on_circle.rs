@@ -40,8 +40,8 @@ impl Default for DotsOnCircleVizConfig {
             midpoint_color: [0.90, 0.90, 0.95, 1.0],
             preview_color: [0.75, 0.90, 0.45, 1.0],
             line_color: [0.55, 0.55, 0.60, 0.8],
-            dot_size_px: 3.0,
-            ref_dot_size_px: 7.0,
+            dot_size_px: 5.0,
+            ref_dot_size_px: 8.0,
             padding: 0.1,
         }
     }
@@ -66,12 +66,12 @@ impl ConfigSchema for DotsOnCircleVizConfig {
                 "line_color": color_property("Reference line color", [0.55, 0.55, 0.60, 0.8]),
                 "dot_size_px": number_property(NumberOpts {
                     label: "Midpoint dot size (px)",
-                    default: 3.0, min: 0.5, max: 20.0, step: 0.1,
+                    default: 5.0, min: 0.5, max: 20.0, step: 0.1,
                     integer: false, cosmetic: true, widget: None,
                 }),
                 "ref_dot_size_px": number_property(NumberOpts {
                     label: "Reference dot size (px)",
-                    default: 7.0, min: 0.5, max: 30.0, step: 0.1,
+                    default: 8.0, min: 0.5, max: 30.0, step: 0.1,
                     integer: false, cosmetic: true, widget: None,
                 }),
                 "padding": number_property(NumberOpts {
@@ -229,7 +229,7 @@ mod tests {
         let v: DotsOnCircleVizConfig =
             serde_json::from_value(DotsOnCircleVizConfig::defaults()).unwrap();
         assert!((v.padding - 0.1).abs() < 1e-6);
-        assert_eq!(v.dot_size_px, 3.0);
+        assert_eq!(v.dot_size_px, 5.0);
     }
 
     #[test]

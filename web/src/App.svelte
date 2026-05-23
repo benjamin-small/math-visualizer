@@ -50,6 +50,15 @@
   function dispatch(c: ReturnType<typeof cmd[keyof typeof cmd]>) {
     engine?.dispatch(c);
   }
+
+  function updateMaxIterations(n: number) {
+    if (!engine || !Number.isFinite(n) || n < 1) return;
+    try {
+      engine.update_rule_config({ max_iterations: Math.floor(n) });
+    } catch (err) {
+      console.warn('update_rule_config failed:', err);
+    }
+  }
 </script>
 
 <div class="layout">
@@ -68,6 +77,18 @@
       {snapshot.iteration} / {snapshot.max_iterations}
       <span class="sub">{snapshot.sub_progress.toFixed(2)}</span>
     </span>
+
+    <label class="iterations">
+      Iterations
+      <input
+        type="number"
+        min="1"
+        max="10000"
+        step="1"
+        value={snapshot.max_iterations}
+        onchange={(e) => updateMaxIterations(Number((e.target as HTMLInputElement).value))}
+      />
+    </label>
 
     <label class="speed">
       Speed
@@ -124,6 +145,21 @@
   .iteration .sub {
     color: #666;
     margin-left: 0.5rem;
+  }
+  .iterations {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #bbb;
+  }
+  .iterations input {
+    background: #2a2a2f;
+    color: #eee;
+    border: 1px solid #3a3a40;
+    border-radius: 4px;
+    padding: 0.25rem 0.4rem;
+    width: 5rem;
+    font-variant-numeric: tabular-nums;
   }
   .speed {
     display: flex;
