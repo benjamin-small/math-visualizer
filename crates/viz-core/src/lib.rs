@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 
 pub mod config;
 pub mod engine;
+pub mod render;
 pub mod rules;
 pub mod traits;
 pub mod visualizations;

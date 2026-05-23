@@ -22,6 +22,11 @@ features = [
     "Document",
     "HtmlCanvasElement",
     "WebGl2RenderingContext",
+    "WebGlProgram",
+    "WebGlShader",
+    "WebGlUniformLocation",
+    "WebGlBuffer",
+    "WebGlVertexArrayObject",
     "console",
 ]
 
