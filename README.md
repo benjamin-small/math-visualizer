@@ -2,7 +2,7 @@
 
 Interactive math visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI.
 
-> **Status:** Phase 2 — core abstractions (Rule, Visualization, ConfigSchema) and playback engine, validated with a demo ColorCycleRule + ColorCycleViz. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
+> **Status:** Phase 3 — the midpoint-on-circle visualization. A unit circle, deterministic seeded reference points, and a growing field of midpoints driven by the Phase 2 playback engine. The Phase 2 ColorCycle rule + viz remain in the codebase as a second working example. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
 
 ## Prerequisites
 
@@ -95,11 +95,19 @@ math-visualizer/
 │   │   │   ├── mod.rs                # Engine: orchestrates rule + viz + playback
 │   │   │   ├── playback.rs           # PlaybackState, Command, pure reducer
 │   │   │   └── erased.rs             # Type-erased dispatch over Rule/Visualization
+│   │   ├── render/
+│   │   │   ├── camera_2d.rs          # 2D ortho camera with fit-to-bbox
+│   │   │   ├── shader.rs             # WebGL2 shader compile/link wrapper
+│   │   │   ├── instanced_points.rs   # Per-instance position+color+radius dots
+│   │   │   ├── sdf_circle.rs         # Single-quad antialiased stroked circle
+│   │   │   └── line_batch.rs         # Colored line segment batch
 │   │   ├── rules/
-│   │   │   └── color_cycle.rs        # Demo rule (replaced by midpoint rule in Phase 3)
+│   │   │   ├── midpoint_on_circle.rs # Phase 3 flagship rule (seeded RNG)
+│   │   │   └── color_cycle.rs        # Phase 2 demo rule (still works)
 │   │   └── visualizations/
-│   │       └── color_cycle.rs        # Demo viz using gl.clear + HSL (Phase 3 adds real renderers)
-│   └── tests/wasm.rs                 # Browser smoke tests (Engine construction + dispatch round-trip)
+│   │       ├── dots_on_circle.rs     # Phase 3 viz (SdfCircle + InstancedPoints + LineBatch)
+│   │       └── color_cycle.rs        # Phase 2 demo viz
+│   └── tests/wasm.rs                 # Browser smoke tests (Engine + dispatch round-trip)
 └── web/                              # Vite + Svelte 5 app
     ├── src/
     │   ├── App.svelte                # Canvas + playback control bar
