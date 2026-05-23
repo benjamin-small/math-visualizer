@@ -54,6 +54,7 @@ impl Engine {
 /// Pure-Rust testable helper for clamping. Lifted out so we can test the
 /// rule without a WebGL context. Kept module-private; `set_clear_color`
 /// applies the same clamp inline so this stays a unit-test seam.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn clamp_color(c: [f32; 4]) -> [f32; 4] {
     [
         c[0].clamp(0.0, 1.0),
