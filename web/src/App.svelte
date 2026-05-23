@@ -91,6 +91,13 @@
       <em>240</em> to race through 10k+ iterations and watch the pattern
       resolve.
     </p>
+    <p class="tip">
+      The first ~20 dots are hidden — the chaos orbit converges onto the
+      Sierpinski set at rate <em>(1/2)<sup>n</sup></em>, so very early
+      dots can sit in regions that get "carved out" only at deeper levels.
+      By ~iteration 20 the dot is in a sub-triangle smaller than a pixel
+      and everything past that traces the true attractor.
+    </p>
   </aside>
 
   <canvas id="viz-canvas" bind:this={canvas}></canvas>

@@ -24,6 +24,13 @@ pub struct SierpinskiTriangleVizConfig {
     /// Color of the per-iteration guide line from the previous trail dot
     /// to the chosen corner. Drawn during substep animation only.
     pub guide_color: [f32; 4],
+    /// Skip this many early trail dots from rendering — the chaos-game orbit
+    /// converges onto the Sierpinski set at rate (1/2)^n, so the first few
+    /// iterations look like stray dots in "forbidden" regions of higher-level
+    /// holes. By ~iteration 20 the dot is in a sub-triangle smaller than a
+    /// pixel, so anything past the burn-in is visually indistinguishable
+    /// from the true attractor.
+    pub burn_in_iterations: u32,
     pub padding: f32,
 }
 
@@ -40,6 +47,7 @@ impl Default for SierpinskiTriangleVizConfig {
             current_color: [0.95, 0.55, 0.35, 1.0],
             current_size_px: 7.0,
             guide_color: [0.95, 0.75, 0.35, 0.55],
+            burn_in_iterations: 20,
             padding: 0.1,
         }
     }
@@ -72,6 +80,11 @@ impl ConfigSchema for SierpinskiTriangleVizConfig {
                     integer: false, cosmetic: true, widget: None,
                 }),
                 "guide_color": color_property("Guide line color", [0.95, 0.75, 0.35, 0.55]),
+                "burn_in_iterations": number_property(NumberOpts {
+                    label: "Skip first N iterations (burn-in)",
+                    default: 20.0, min: 0.0, max: 1000.0, step: 1.0,
+                    integer: true, cosmetic: true, widget: None,
+                }),
                 "padding": number_property(NumberOpts {
                     label: "Padding around triangle",
                     default: 0.1, min: 0.0, max: 1.0, step: 0.01,
@@ -84,6 +97,7 @@ impl ConfigSchema for SierpinskiTriangleVizConfig {
                 "trail_color", "trail_size_px",
                 "current_color", "current_size_px",
                 "guide_color",
+                "burn_in_iterations",
                 "padding"
             ],
         })
@@ -177,9 +191,16 @@ impl Visualization for SierpinskiTriangle {
         // Dots: trail (many small) + 3 corners (big) + current (small-medium).
         // Order matters for z (later = on top). Trail under, corners + current
         // over so they read against the trail.
+        // Skip the burn-in dots: the chaos orbit hasn't yet converged onto
+        // the Sierpinski set, so those early dots can sit in level-N holes
+        // that get carved out at deeper levels. clamp() so a small
+        // max_iterations + large burn_in just shows nothing rather than
+        // panicking on an out-of-range slice.
+        let skip = (cfg.burn_in_iterations as usize).min(state.trail.len());
+        let trail_to_show = &state.trail[skip..];
         let mut all_points: Vec<PointInstance> =
-            Vec::with_capacity(state.trail.len() + 4);
-        for p in &state.trail {
+            Vec::with_capacity(trail_to_show.len() + 4);
+        for p in trail_to_show {
             all_points.push(PointInstance {
                 position: *p,
                 color: cfg.trail_color,
@@ -227,6 +248,6 @@ mod tests {
     fn schema_lists_all_required_fields() {
         let schema = SierpinskiTriangleVizConfig::schema();
         let required = schema["required"].as_array().expect("required array");
-        assert_eq!(required.len(), 11);
+        assert_eq!(required.len(), 12);
     }
 }
