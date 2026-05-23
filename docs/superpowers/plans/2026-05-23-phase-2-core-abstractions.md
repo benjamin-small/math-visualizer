@@ -684,7 +684,7 @@ pub mod playback;
 cargo test --workspace
 ```
 
-Expected: 18 passing total (6 prior + 12 new in `engine::playback::tests`).
+Expected: 21 passing total (6 prior + 15 new in `engine::playback::tests`; the spec block shows 12 tests; 3 additional tests were added during P2/T3 code review for Pause/TogglePlay/advance_time-when-paused coverage).
 
 - [ ] **Step 4: Commit**
 
@@ -889,7 +889,7 @@ pub mod erased;
 cargo test --workspace
 ```
 
-Expected: 18 passing (no new tests in this task; just compile-time checks). The build must succeed — if it fails, the most likely cause is a type-bound mismatch between the blanket impl and the trait definition.
+Expected: 21 passing (no new tests in this task; just compile-time checks). The build must succeed — if it fails, the most likely cause is a type-bound mismatch between the blanket impl and the trait definition.
 
 - [ ] **Step 4: Commit**
 
@@ -1098,7 +1098,7 @@ pub fn start() {
 cargo test --workspace
 ```
 
-Expected: 23 passing total (18 prior + 5 new in `rules::color_cycle::tests`).
+Expected: 26 passing total (21 prior + 5 new in `rules::color_cycle::tests`).
 
 - [ ] **Step 5: Commit**
 
@@ -1322,7 +1322,7 @@ pub fn start() {
 cargo test --workspace
 ```
 
-Expected: 27 passing (23 prior + 4 new in `visualizations::color_cycle::tests`).
+Expected: 30 passing (26 prior + 4 new in `visualizations::color_cycle::tests`).
 
 - [ ] **Step 5: Commit**
 
@@ -1577,7 +1577,7 @@ Note: the old Phase 1 `clamp_color` helper and its tests are removed by this rew
 cargo test --workspace
 ```
 
-Expected: 25 tests pass. (Lost 2 from `clamp_color_*` removal; gained 0 in Engine itself; the prior count of 27 minus 2 = 25.)
+Expected: 28 tests pass. (Lost 2 from `clamp_color_*` removal; gained 0 in Engine itself; the prior count of 30 minus 2 = 28.)
 
 If the test count is off, double-check that the old `clamp_color` tests were the only ones removed.
 
@@ -2089,7 +2089,7 @@ math-visualizer/
 From the repo root:
 
 ```bash
-# Rust unit tests — expect 25 passing
+# Rust unit tests — expect 28 passing
 cargo test --workspace
 
 # WASM browser tests — expect 5 passing (use --chromedriver=PATH if needed)
@@ -2140,7 +2140,7 @@ git commit -m "docs: README update and Phase 2 acceptance"
 
 After Task 10 the following must all be true. Do not call Phase 2 done until each is verified:
 
-- [ ] `cargo test --workspace` → 25 tests pass.
+- [ ] `cargo test --workspace` → 28 tests pass.
 - [ ] `wasm-pack test --chrome --headless crates/viz-core` → 5 tests pass.
 - [ ] `cd web && npm run test` → 3 tests pass.
 - [ ] `cd web && npm run check` → 0 errors / 0 warnings.
