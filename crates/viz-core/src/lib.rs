@@ -1,4 +1,12 @@
-/// Sanity helper used by the bootstrap test. Removed once we have real code.
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn start() {
+    console_error_panic_hook::set_once();
+}
+
+/// Sanity helper exported to JS so we can prove the binding round-trips.
+#[wasm_bindgen]
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
 }
