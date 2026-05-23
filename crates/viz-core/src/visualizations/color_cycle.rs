@@ -29,13 +29,22 @@ impl Default for ColorCycleVizConfig {
     fn default() -> Self {
         Self {
             saturation: 0.65,
-            lightness_min: 0.20,
+            // Narrow lightness range centered around 0.5 so stepping one
+            // iteration always lands on a clearly visible color (the wide
+            // 0.20..0.55 range from the original draft meant sub_progress=0
+            // looked black-ish, indistinguishable from the idle color).
+            lightness_min: 0.45,
             lightness_max: 0.55,
             idle_color: [0.10, 0.10, 0.15, 1.0],
             smooth_hue: true,
         }
     }
 }
+
+/// Hue advanced per integer iteration. 30° = 12 distinct colors per cycle;
+/// each step is obviously a different color. The original 1°/iter (one full
+/// cycle over 360 iterations) was visually smooth but invisible to stepping.
+const HUE_PER_ITERATION: f32 = 30.0;
 
 impl ConfigSchema for ColorCycleVizConfig {
     fn schema() -> serde_json::Value {
@@ -49,7 +58,7 @@ impl ConfigSchema for ColorCycleVizConfig {
                 }),
                 "lightness_min": number_property(NumberOpts {
                     label: "Lightness min",
-                    default: 0.20, min: 0.0, max: 1.0, step: 0.01,
+                    default: 0.45, min: 0.0, max: 1.0, step: 0.01,
                     integer: false, cosmetic: true, widget: None,
                 }),
                 "lightness_max": number_property(NumberOpts {
@@ -88,12 +97,9 @@ impl Visualization for ColorCycleViz {
         let color = if state.iteration == 0 && state.sub_progress == 0.0 {
             cfg.idle_color
         } else {
-            let hue_position = if cfg.smooth_hue {
-                (state.iteration as f32 + state.sub_progress) / 360.0
-            } else {
-                state.iteration as f32 / 360.0
-            };
-            let hue = (hue_position * 360.0).rem_euclid(360.0);
+            let iter_position = state.iteration as f32
+                + if cfg.smooth_hue { state.sub_progress } else { 0.0 };
+            let hue = (iter_position * HUE_PER_ITERATION).rem_euclid(360.0);
             let lightness = cfg.lightness_min
                 + (cfg.lightness_max - cfg.lightness_min) * state.sub_progress;
             let [r, g, b] = hsl_to_rgb(hue, cfg.saturation.clamp(0.0, 1.0), lightness.clamp(0.0, 1.0));
