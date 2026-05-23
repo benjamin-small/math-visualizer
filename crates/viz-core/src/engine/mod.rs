@@ -3,10 +3,20 @@
 
 use std::any::Any;
 
+use serde::Serialize;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
+
+/// Serialize a Rust value to a plain JS Object (not Map). serde-wasm-bindgen's
+/// default treats serde maps as JS Maps, which doesn't play nicely with the
+/// panel's normal property access; flipping this once means every getter
+/// below returns a plain Object.
+fn to_js(value: &impl Serialize) -> JsValue {
+    let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    value.serialize(&serializer).unwrap_or(JsValue::NULL)
+}
 
 pub mod erased;
 pub mod playback;
@@ -150,23 +160,23 @@ impl Engine {
 
     /// Snapshot the playback state for the UI to read each frame.
     pub fn snapshot(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.playback).unwrap_or(JsValue::NULL)
+        to_js(&self.playback)
     }
 
     pub fn rule_schema(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.rule.schema()).unwrap_or(JsValue::NULL)
+        to_js(&self.rule.schema())
     }
 
     pub fn viz_schema(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.viz.schema()).unwrap_or(JsValue::NULL)
+        to_js(&self.viz.schema())
     }
 
     pub fn rule_config(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.rule_cfg).unwrap_or(JsValue::NULL)
+        to_js(&self.rule_cfg)
     }
 
     pub fn viz_config(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.viz_cfg).unwrap_or(JsValue::NULL)
+        to_js(&self.viz_cfg)
     }
 
     /// Replace the rule config and reset playback. Phase 4's panel will call
@@ -206,7 +216,7 @@ impl Engine {
     }
 
     pub fn capabilities(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.rule.capabilities()).unwrap_or(JsValue::NULL)
+        to_js(&self.rule.capabilities())
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

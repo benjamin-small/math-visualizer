@@ -1,7 +1,8 @@
 //! Browser-side smoke tests. Run with:
-//!   wasm-pack test crates/viz-core --chrome --headless
+//!   wasm-pack test --chrome --headless crates/viz-core
 
 use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 use web_sys::HtmlCanvasElement;
 use viz_core::Engine;
@@ -22,6 +23,10 @@ fn make_canvas(id: &str) -> HtmlCanvasElement {
     canvas
 }
 
+fn cmd(json: &str) -> JsValue {
+    js_sys::JSON::parse(json).expect("valid JSON")
+}
+
 #[wasm_bindgen_test]
 fn engine_constructs_with_a_canvas() {
     make_canvas("test-canvas-construct");
@@ -34,4 +39,51 @@ fn engine_constructs_with_a_canvas() {
 fn engine_errors_when_canvas_missing() {
     let result = Engine::new("definitely-not-a-canvas-id");
     assert!(result.is_err());
+}
+
+#[wasm_bindgen_test]
+fn engine_step_forward_increments_iteration() {
+    make_canvas("test-canvas-stepfwd");
+    let mut engine = Engine::new("test-canvas-stepfwd").expect("engine constructs");
+
+    engine.dispatch(cmd(r#"{"kind":"StepForward"}"#)).expect("dispatch");
+
+    let snap = engine.snapshot();
+    let iter = js_sys::Reflect::get(&snap, &JsValue::from_str("iteration"))
+        .expect("iteration field")
+        .as_f64()
+        .expect("number");
+    assert_eq!(iter as u32, 1);
+}
+
+#[wasm_bindgen_test]
+fn engine_reset_returns_to_zero() {
+    make_canvas("test-canvas-reset");
+    let mut engine = Engine::new("test-canvas-reset").expect("engine constructs");
+
+    engine.dispatch(cmd(r#"{"kind":"StepForward"}"#)).expect("dispatch");
+    engine.dispatch(cmd(r#"{"kind":"StepForward"}"#)).expect("dispatch");
+    engine.dispatch(cmd(r#"{"kind":"Reset"}"#)).expect("dispatch");
+
+    let snap = engine.snapshot();
+    let iter = js_sys::Reflect::get(&snap, &JsValue::from_str("iteration"))
+        .expect("iteration field")
+        .as_f64()
+        .expect("number");
+    assert_eq!(iter as u32, 0);
+}
+
+#[wasm_bindgen_test]
+fn engine_schema_round_trip() {
+    make_canvas("test-canvas-schema");
+    let engine = Engine::new("test-canvas-schema").expect("engine constructs");
+
+    let schema = engine.rule_schema();
+    assert!(!schema.is_null());
+    // Top-level "type" should be "object".
+    let ty = js_sys::Reflect::get(&schema, &JsValue::from_str("type"))
+        .expect("type field")
+        .as_string()
+        .expect("string");
+    assert_eq!(ty, "object");
 }
