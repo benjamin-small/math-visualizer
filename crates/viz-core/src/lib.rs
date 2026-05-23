@@ -1,6 +1,8 @@
 use wasm_bindgen::prelude::*;
 
+pub mod config;
 pub mod engine;
+pub mod traits;
 
 pub use engine::Engine;
 
