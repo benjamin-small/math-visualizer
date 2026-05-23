@@ -94,25 +94,31 @@ impl Engine {
         if rolled > 0 || self.playback.iteration != prev_iter {
             // advance_time rolled past one or more iterations: bring scene
             // state up to the new integer iteration.
-            let _ = self.rule.advance_to(
+            if let Err(e) = self.rule.advance_to(
                 self.state.as_mut(),
                 &self.rule_cfg,
                 self.playback.seed,
                 self.playback.iteration,
-            );
+            ) {
+                warn(&format!("rule.advance_to failed: {e}"));
+            }
         }
 
         // Always interpolate within the current iteration.
-        let _ = self.rule.substep(
+        if let Err(e) = self.rule.substep(
             self.state.as_mut(),
             &self.rule_cfg,
             self.playback.seed,
             self.playback.iteration,
             self.playback.sub_progress,
-        );
+        ) {
+            warn(&format!("rule.substep failed: {e}"));
+        }
 
         self.viz.tick(dt);
-        let _ = self.viz.render(&self.gl, self.state.as_ref(), &self.viz_cfg);
+        if let Err(e) = self.viz.render(&self.gl, self.state.as_ref(), &self.viz_cfg) {
+            warn(&format!("viz.render failed: {e}"));
+        }
     }
 
     /// Receive a Command from JS. `cmd` deserializes to `playback::Command`.
@@ -193,7 +199,9 @@ impl Engine {
         let parsed: Value = serde_wasm_bindgen::from_value(cfg)
             .map_err(|e| JsValue::from_str(&format!("bad viz config: {e}")))?;
         self.viz_cfg = parsed;
-        let _ = self.viz.init(&self.gl, &self.viz_cfg);
+        self.viz
+            .init(&self.gl, &self.viz_cfg)
+            .map_err(|e| JsValue::from_str(&format!("viz init: {e}")))?;
         Ok(())
     }
 
@@ -213,6 +221,14 @@ impl Engine {
         self.viz.handle_input(&parsed);
         Ok(())
     }
+}
+
+/// Log a warning to the browser console. Used by `frame()` to surface
+/// errors from rule/viz dispatch that would otherwise be silent. (In Phase 2
+/// these can't happen at runtime — the rule + viz are hardwired — but Phase
+/// 3+ multiple rules make this real.)
+fn warn(msg: &str) {
+    web_sys::console::warn_1(&JsValue::from_str(msg));
 }
 
 #[cfg(test)]
