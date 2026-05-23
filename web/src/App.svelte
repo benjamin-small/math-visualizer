@@ -78,7 +78,10 @@
 
   function startRamp(fromSpeed: number) {
     cancelRamp();
-    rampStartSpeed = fromSpeed;
+    // Skip ramp if user already has speed at or above the target (e.g. they
+    // cranked the slider, then reset + played — ramping DOWN would feel weird).
+    if (fromSpeed >= RAMP_TARGET) return;
+    rampStartSpeed = Math.max(fromSpeed, 0.01);  // log(0) would explode
     rampStartMs = performance.now();
     const tick = (now: number) => {
       if (rampHandle === 0) return;  // cancelled mid-tick
@@ -88,8 +91,13 @@
         rampHandle = 0;
         return;
       }
+      // Exponential (perceptually-logarithmic) ramp:
+      //   speed(t) = start * (target/start)^(t/duration)
+      // Doubles every (duration * log(2) / log(target/start)) seconds, so the
+      // ear/eye feel a constant rate of change rather than the linear shape's
+      // huge early jump.
       const t = elapsed / RAMP_DURATION_MS;
-      const speed = rampStartSpeed + (RAMP_TARGET - rampStartSpeed) * t;
+      const speed = rampStartSpeed * Math.pow(RAMP_TARGET / rampStartSpeed, t);
       engine?.dispatch(cmd.setSpeed(speed));
       rampHandle = requestAnimationFrame(tick);
     };
