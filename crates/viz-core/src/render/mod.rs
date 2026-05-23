@@ -3,8 +3,10 @@
 
 pub mod camera_2d;
 pub mod instanced_points;
+pub mod sdf_circle;
 pub mod shader;
 
 pub use camera_2d::Camera2D;
 pub use instanced_points::{InstancedPoints, PointInstance};
+pub use sdf_circle::SdfCircle;
 pub use shader::ShaderProgram;
