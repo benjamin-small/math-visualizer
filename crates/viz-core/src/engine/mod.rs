@@ -22,9 +22,9 @@ pub mod erased;
 pub mod playback;
 
 use crate::config::ConfigSchema;
-use crate::rules::color_cycle::{ColorCycleConfig, ColorCycleRule};
+use crate::rules::midpoint_on_circle::{MidpointConfig, MidpointOnCircle};
 use crate::traits::InputEvent;
-use crate::visualizations::color_cycle::{ColorCycleViz, ColorCycleVizConfig};
+use crate::visualizations::dots_on_circle::{DotsOnCircle, DotsOnCircleVizConfig};
 use erased::{ErasedRule, ErasedVisualization};
 use playback::{advance_time, reduce, Command, PlaybackState};
 
@@ -63,14 +63,14 @@ impl Engine {
             .dyn_into::<WebGl2RenderingContext>()
             .map_err(|_| JsValue::from_str("not a WebGL2 context"))?;
 
-        let rule_cfg = ColorCycleConfig::defaults();
-        let viz_cfg = ColorCycleVizConfig::defaults();
-        let max_iter = serde_json::from_value::<ColorCycleConfig>(rule_cfg.clone())
+        let rule_cfg = MidpointConfig::defaults();
+        let viz_cfg = DotsOnCircleVizConfig::defaults();
+        let max_iter = serde_json::from_value::<MidpointConfig>(rule_cfg.clone())
             .map(|c| c.max_iterations)
-            .unwrap_or(360);
+            .unwrap_or(100);
 
-        let rule: Box<dyn ErasedRule> = Box::new(ColorCycleRule);
-        let mut viz: Box<dyn ErasedVisualization> = Box::new(ColorCycleViz);
+        let rule: Box<dyn ErasedRule> = Box::new(MidpointOnCircle);
+        let mut viz: Box<dyn ErasedVisualization> = Box::new(DotsOnCircle::new());
 
         viz.init(&gl, &viz_cfg)
             .map_err(|e| JsValue::from_str(&format!("viz init: {e}")))?;
@@ -184,7 +184,7 @@ impl Engine {
     pub fn update_rule_config(&mut self, cfg: JsValue) -> Result<(), JsValue> {
         let parsed: Value = serde_wasm_bindgen::from_value(cfg)
             .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
-        let new_max = serde_json::from_value::<ColorCycleConfig>(parsed.clone())
+        let new_max = serde_json::from_value::<MidpointConfig>(parsed.clone())
             .map(|c| c.max_iterations.max(1))
             .unwrap_or(self.playback.max_iterations);
 
