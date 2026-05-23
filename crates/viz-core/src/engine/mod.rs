@@ -3,6 +3,7 @@ use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
 pub mod playback;
+pub mod erased;
 
 #[wasm_bindgen]
 pub struct Engine {
