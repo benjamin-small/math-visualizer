@@ -67,7 +67,8 @@ pub fn reduce(prev: PlaybackState, caps: Capabilities, cmd: &Command) -> ReduceR
             next.playing = !prev.playing && prev.iteration < prev.max_iterations;
         }
         Command::StepForward => {
-            next.playing = false;
+            // Step preserves play state — scrubbing while playing keeps the
+            // animation running from the new iteration.
             next.sub_progress = 0.0;
             if prev.iteration < prev.max_iterations {
                 next.iteration = prev.iteration + 1;
@@ -78,7 +79,6 @@ pub fn reduce(prev: PlaybackState, caps: Capabilities, cmd: &Command) -> ReduceR
             if !caps.supports_scrub {
                 // Rule doesn't support going backward; ignore.
             } else {
-                next.playing = false;
                 next.sub_progress = 0.0;
                 if prev.iteration > 0 {
                     next.iteration = prev.iteration - 1;
@@ -161,12 +161,18 @@ mod tests {
     }
 
     #[test]
-    fn step_forward_increments_and_pauses() {
-        let s = PlaybackState::initial(0, 10);
-        let r = reduce(s, caps_full(), &Command::StepForward);
+    fn step_forward_increments_without_changing_play_state() {
+        let paused = PlaybackState::initial(0, 10);
+        let r = reduce(paused, caps_full(), &Command::StepForward);
         assert_eq!(r.next.iteration, 1);
-        assert!(!r.next.playing);
+        assert!(!r.next.playing, "stepping while paused stays paused");
         assert!(r.iteration_changed);
+
+        let mut playing = PlaybackState::initial(0, 10);
+        playing.playing = true;
+        let r = reduce(playing, caps_full(), &Command::StepForward);
+        assert_eq!(r.next.iteration, 1);
+        assert!(r.next.playing, "stepping while playing keeps playing");
     }
 
     #[test]
