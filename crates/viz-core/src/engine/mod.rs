@@ -42,9 +42,9 @@ pub struct Engine {
 
 #[wasm_bindgen]
 impl Engine {
-    /// Construct an Engine bound to the canvas with id `canvas_id`. Phase 2
-    /// hardwires ColorCycleRule + ColorCycleViz; Phase 3 will introduce a
-    /// rule/viz registry indexed by string id.
+    /// Construct an Engine bound to the canvas with id `canvas_id`. Phase 3
+    /// hardwires MidpointOnCircle + DotsOnCircle; Phase 4 will introduce a
+    /// rule/viz registry + selector UI so the JS layer can pick the pair.
     #[wasm_bindgen(constructor)]
     pub fn new(canvas_id: &str) -> Result<Engine, JsValue> {
         let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
