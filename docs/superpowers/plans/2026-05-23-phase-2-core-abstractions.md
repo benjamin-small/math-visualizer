@@ -684,7 +684,7 @@ pub mod playback;
 cargo test --workspace
 ```
 
-Expected: 17 passing total (6 prior + 11 new in `engine::playback::tests`).
+Expected: 18 passing total (6 prior + 12 new in `engine::playback::tests`).
 
 - [ ] **Step 4: Commit**
 
@@ -889,7 +889,7 @@ pub mod erased;
 cargo test --workspace
 ```
 
-Expected: 17 passing (no new tests in this task; just compile-time checks). The build must succeed — if it fails, the most likely cause is a type-bound mismatch between the blanket impl and the trait definition.
+Expected: 18 passing (no new tests in this task; just compile-time checks). The build must succeed — if it fails, the most likely cause is a type-bound mismatch between the blanket impl and the trait definition.
 
 - [ ] **Step 4: Commit**
 
@@ -1098,7 +1098,7 @@ pub fn start() {
 cargo test --workspace
 ```
 
-Expected: 22 passing total (17 prior + 5 new in `rules::color_cycle::tests`).
+Expected: 23 passing total (18 prior + 5 new in `rules::color_cycle::tests`).
 
 - [ ] **Step 5: Commit**
 
@@ -1322,7 +1322,7 @@ pub fn start() {
 cargo test --workspace
 ```
 
-Expected: 26 passing (22 prior + 4 new in `visualizations::color_cycle::tests`).
+Expected: 27 passing (23 prior + 4 new in `visualizations::color_cycle::tests`).
 
 - [ ] **Step 5: Commit**
 
@@ -1577,7 +1577,7 @@ Note: the old Phase 1 `clamp_color` helper and its tests are removed by this rew
 cargo test --workspace
 ```
 
-Expected: 24 tests pass. (Lost 2 from `clamp_color_*` removal; gained 0 in Engine itself; still have the 22 from earlier tasks plus 2 from `traits.rs`. Final count: 24.)
+Expected: 25 tests pass. (Lost 2 from `clamp_color_*` removal; gained 0 in Engine itself; the prior count of 27 minus 2 = 25.)
 
 If the test count is off, double-check that the old `clamp_color` tests were the only ones removed.
 
@@ -2089,7 +2089,7 @@ math-visualizer/
 From the repo root:
 
 ```bash
-# Rust unit tests — expect 24 passing
+# Rust unit tests — expect 25 passing
 cargo test --workspace
 
 # WASM browser tests — expect 5 passing (use --chromedriver=PATH if needed)
@@ -2140,7 +2140,7 @@ git commit -m "docs: README update and Phase 2 acceptance"
 
 After Task 10 the following must all be true. Do not call Phase 2 done until each is verified:
 
-- [ ] `cargo test --workspace` → 24 tests pass.
+- [ ] `cargo test --workspace` → 25 tests pass.
 - [ ] `wasm-pack test --chrome --headless crates/viz-core` → 5 tests pass.
 - [ ] `cd web && npm run test` → 3 tests pass.
 - [ ] `cd web && npm run check` → 0 errors / 0 warnings.
