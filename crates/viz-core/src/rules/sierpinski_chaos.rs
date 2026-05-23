@@ -141,8 +141,13 @@ impl Rule for SierpinskiChaos {
         let sub = sub.clamp(0.0, 1.0);
         state.chosen_corner = Some(corner_idx);
         if sub < 0.33 {
-            // Phase 1: chosen corner lights up, dot still at start.
-            state.current_position = Some(start_pos);
+            // Phase 1: corner highlights, but the dot hasn't moved yet — the
+            // "start" is either a trail dot (already rendered) or the initial
+            // random point. Showing a separate in-flight marker here just
+            // looks like a stray dot in the wrong place, especially when the
+            // initial position lands in a Sierpinski forbidden region. So we
+            // hide it until the move actually starts.
+            state.current_position = None;
         } else {
             // Phase 2: dot lerps from start to the halfway point.
             let t = ((sub - 0.33) / 0.67).clamp(0.0, 1.0);
@@ -260,22 +265,25 @@ mod tests {
     }
 
     #[test]
-    fn substep_sets_chosen_corner_and_current_position() {
+    fn substep_highlights_corner_then_moves_dot() {
         let rule = SierpinskiChaos;
         let cfg = ChaosGameConfig::default();
         let mut state = rule.init(&cfg, 0);
         rule.advance_to(&mut state, &cfg, 7, 5);
+
+        // Phase 1 (sub < 0.33): corner highlighted, no in-flight dot yet.
         rule.substep(&mut state, &cfg, 7, 5, 0.10);
         assert!(state.chosen_corner.is_some());
-        assert!(state.current_position.is_some());
+        assert!(state.current_position.is_none(),
+            "in-flight dot suppressed until move actually starts");
 
+        // Phase 2 (sub >= 0.33): dot appears mid-flight, moved off start.
         rule.substep(&mut state, &cfg, 7, 5, 0.80);
         assert!(state.chosen_corner.is_some());
-        let cp = state.current_position.unwrap();
-        // sub 0.80 means dot has moved most of the way toward the halfway
-        // point — it should NOT equal the starting trail dot any more.
+        let cp = state.current_position.expect("current position set during move");
         let start = state.trail[4];
-        assert!((cp[0] - start[0]).hypot(cp[1] - start[1]) > 1e-4);
+        assert!((cp[0] - start[0]).hypot(cp[1] - start[1]) > 1e-4,
+            "dot moved away from start by sub=0.80");
     }
 
     #[test]
