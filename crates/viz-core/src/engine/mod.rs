@@ -69,7 +69,7 @@ impl Engine {
         let viz_cfg = SierpinskiTriangleVizConfig::defaults();
         let max_iter = serde_json::from_value::<ChaosGameConfig>(rule_cfg.clone())
             .map(|c| c.max_iterations)
-            .unwrap_or(1000);
+            .unwrap_or(50_000);
 
         let rule: Box<dyn ErasedRule> = Box::new(SierpinskiChaos);
         let mut viz: Box<dyn ErasedVisualization> = Box::new(SierpinskiTriangle::new());

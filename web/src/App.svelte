@@ -114,7 +114,7 @@
       <input
         type="number"
         min="1"
-        max="10000"
+        max="200000"
         step="1"
         value={snapshot.max_iterations}
         onchange={(e) => updateMaxIterations(Number((e.target as HTMLInputElement).value))}

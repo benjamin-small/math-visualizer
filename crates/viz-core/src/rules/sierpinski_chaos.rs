@@ -26,9 +26,12 @@ pub struct ChaosGameConfig {
 
 impl Default for ChaosGameConfig {
     fn default() -> Self {
-        // 1000 iterations clearly resolves the Sierpinski pattern. The slider
-        // in the playback bar tops out at 50k for users who want it dense.
-        Self { max_iterations: 1000 }
+        // 50k iterations produces a dense, clearly-resolved fractal out of
+        // the box. At default playback speed it'd take forever to animate
+        // through, but the per-iteration substep animation is the point of
+        // the visualization at low max_iterations; for the full pattern,
+        // users typically crank the speed slider.
+        Self { max_iterations: 50_000 }
     }
 }
 
@@ -39,9 +42,9 @@ impl ConfigSchema for ChaosGameConfig {
             "properties": {
                 "max_iterations": number_property(NumberOpts {
                     label: "Iterations",
-                    default: 1000.0,
+                    default: 50_000.0,
                     min: 1.0,
-                    max: 50_000.0,
+                    max: 200_000.0,
                     step: 1.0,
                     integer: true,
                     cosmetic: false,
