@@ -116,6 +116,7 @@ pub trait ErasedVisualization {
     fn resize(&mut self, gl: &WebGl2RenderingContext, w: u32, h: u32);
     fn handle_input(&mut self, ev: &InputEvent);
     fn tick(&mut self, dt: f32);
+    fn set_zoom(&mut self, zoom: f32);
 }
 
 impl<V> ErasedVisualization for V
@@ -155,6 +156,10 @@ where
 
     fn tick(&mut self, dt: f32) {
         Visualization::tick(self, dt);
+    }
+
+    fn set_zoom(&mut self, zoom: f32) {
+        Visualization::set_zoom(self, zoom);
     }
 }
 

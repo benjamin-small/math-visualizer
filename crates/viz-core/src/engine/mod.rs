@@ -225,6 +225,13 @@ impl Engine {
         self.viz.resize(&self.gl, width, height);
     }
 
+    /// Apply a multiplicative zoom to the active visualization. 1.0 = the
+    /// viz's default fit-to-content framing; >1 zooms in. Vizzes that don't
+    /// support zoom silently ignore this.
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.viz.set_zoom(zoom);
+    }
+
     /// Forward a pointer/keyboard event from the canvas. JS shape matches
     /// the `InputEvent` enum (`{kind:"PointerMove", x:..., ...}` etc.).
     pub fn forward_input(&mut self, ev: JsValue) -> Result<(), JsValue> {

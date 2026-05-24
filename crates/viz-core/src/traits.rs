@@ -71,6 +71,11 @@ pub trait Visualization {
     /// Called once per frame with wall-clock dt (seconds). For camera inertia
     /// and viz-side animations; rule state belongs to the Rule.
     fn tick(&mut self, _dt: f32) {}
+
+    /// Multiplicative zoom factor — 1.0 means fit-to-content (the viz's
+    /// default framing); >1 zooms in, <1 zooms out. Visualizations that
+    /// support zoom override this; default is no-op.
+    fn set_zoom(&mut self, _zoom: f32) {}
 }
 
 /// Pointer / keyboard input forwarded from the canvas to the active viz.

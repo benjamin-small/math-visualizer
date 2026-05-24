@@ -136,6 +136,26 @@
     cancelRamp();
     dispatch(cmd.stepForward());
   }
+
+  // Zoom: simple geometric step on each +/- click. JS owns the level; the
+  // viz clamps to [0.25, 20] in Rust so we don't need to repeat the bounds.
+  const ZOOM_STEP = 1.25;
+  let zoomLevel = $state(1.0);
+
+  function zoomIn() {
+    zoomLevel = Math.min(zoomLevel * ZOOM_STEP, 20);
+    engine?.set_zoom(zoomLevel);
+  }
+
+  function zoomOut() {
+    zoomLevel = Math.max(zoomLevel / ZOOM_STEP, 0.25);
+    engine?.set_zoom(zoomLevel);
+  }
+
+  function zoomReset() {
+    zoomLevel = 1.0;
+    engine?.set_zoom(zoomLevel);
+  }
 </script>
 
 <div class="layout">
@@ -177,7 +197,15 @@
     </p>
   </aside>
 
-  <canvas id="viz-canvas" bind:this={canvas}></canvas>
+  <div class="canvas-wrap">
+    <canvas id="viz-canvas" bind:this={canvas}></canvas>
+    <div class="zoom-controls">
+      <button onclick={zoomIn} title="Zoom in">+</button>
+      <button onclick={zoomOut} title="Zoom out">−</button>
+      <button onclick={zoomReset} title="Reset zoom" disabled={zoomLevel === 1.0}>⌖</button>
+      <span class="zoom-readout">{zoomLevel.toFixed(2)}×</span>
+    </div>
+  </div>
 
   <footer class="playback-bar">
     <button onclick={onReset} title="Reset to iteration 0">↺</button>
@@ -289,11 +317,57 @@
   .swatch.guide     { background: linear-gradient(90deg, transparent 0, #f2bf59 30%, #f2bf59 70%, transparent 100%); border-radius: 0; height: 2px; align-self: center; }
   .swatch.current   { background: #f28c5a; }
   .swatch.trail     { background: #a6daf2; }
-  canvas {
+  .canvas-wrap {
     grid-area: canvas;
+    position: relative;
+    overflow: hidden;
+  }
+  canvas {
     width: 100%;
     height: 100%;
     display: block;
+  }
+  .zoom-controls {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+    background: rgba(28, 28, 31, 0.75);
+    backdrop-filter: blur(4px);
+    border: 1px solid #2a2a2f;
+    border-radius: 6px;
+    padding: 0.35rem;
+  }
+  .zoom-controls button {
+    background: #2a2a2f;
+    color: #eee;
+    border: 1px solid #3a3a40;
+    border-radius: 4px;
+    width: 2rem;
+    height: 2rem;
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .zoom-controls button:hover:not(:disabled) {
+    background: #34343a;
+  }
+  .zoom-controls button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .zoom-readout {
+    font-size: 0.7rem;
+    color: #aaa;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    padding-top: 0.15rem;
   }
   .playback-bar {
     grid-area: bar;

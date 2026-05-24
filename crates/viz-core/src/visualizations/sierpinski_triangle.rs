@@ -110,6 +110,9 @@ impl ConfigSchema for SierpinskiTriangleVizConfig {
 
 pub struct SierpinskiTriangle {
     camera: Camera2D,
+    /// Multiplicative zoom — 1.0 fits the triangle to the viewport, >1
+    /// zooms in. Updated via the Visualization::set_zoom trait method.
+    zoom: f32,
     points: Option<InstancedPoints>,
     lines: Option<LineBatch>,
 }
@@ -118,6 +121,7 @@ impl SierpinskiTriangle {
     pub fn new() -> Self {
         Self {
             camera: Camera2D::new(),
+            zoom: 1.0,
             points: None,
             lines: None,
         }
@@ -160,6 +164,8 @@ impl Visualization for SierpinskiTriangle {
         let bbox_min = [CORNERS[1][0], CORNERS[1][1]];
         let bbox_max = [CORNERS[2][0], CORNERS[0][1]];
         self.camera.fit_to_bbox(bbox_min, bbox_max, cfg.padding.max(0.0));
+        // Apply zoom after fit: larger zoom shrinks half_width → zooms in.
+        self.camera.half_width /= self.zoom.max(0.1);
         let proj = self.camera.projection();
         let viewport = self.camera.viewport_px;
 
@@ -232,6 +238,12 @@ impl Visualization for SierpinskiTriangle {
     fn resize(&mut self, gl: &WebGl2RenderingContext, w: u32, h: u32) {
         self.camera.resize(w, h);
         gl.viewport(0, 0, w as i32, h as i32);
+    }
+
+    fn set_zoom(&mut self, zoom: f32) {
+        // Clamp to a sensible range: 0.25× (zoomed way out, triangle is
+        // tiny) to 20× (zoomed in tight on a sub-region).
+        self.zoom = zoom.clamp(0.25, 20.0);
     }
 }
 

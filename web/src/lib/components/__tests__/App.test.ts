@@ -31,6 +31,7 @@ vi.mock('../../wasm/loader', () => ({
         capabilities() { return { supports_scrub: true, cheap_recompute: true, checkpoint_every: null }; }
         resize(_w: number, _h: number) {}
         forward_input(_ev: unknown) {}
+        set_zoom(_z: number) {}
       },
     } as unknown as typeof import('viz-core'))
   ),
