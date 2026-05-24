@@ -156,10 +156,13 @@
     zoomLevel = 1.0;
     engine?.set_zoom(zoomLevel);
   }
+
+  // Info drawer (mobile only — desktop always shows the panel inline)
+  let infoOpen = $state(false);
 </script>
 
-<div class="layout">
-  <aside class="info">
+<div class="layout" class:info-open={infoOpen}>
+  <aside class="info" class:open={infoOpen}>
     <h2>Sierpinski Chaos Game</h2>
     <p>
       Three triangle corners, plus a deterministic random starting point
@@ -205,6 +208,19 @@
       <button onclick={zoomReset} title="Reset zoom" disabled={zoomLevel === 1.0}>⌖</button>
       <span class="zoom-readout">{zoomLevel.toFixed(2)}×</span>
     </div>
+    <button
+      class="info-toggle"
+      onclick={() => (infoOpen = !infoOpen)}
+      title={infoOpen ? 'Hide description' : 'Show description'}
+      aria-label={infoOpen ? 'Hide description' : 'Show description'}
+    >{infoOpen ? '✕' : 'ⓘ'}</button>
+    {#if infoOpen}
+      <button
+        class="info-backdrop"
+        onclick={() => (infoOpen = false)}
+        aria-label="Close description"
+      ></button>
+    {/if}
   </div>
 
   <footer class="playback-bar">
@@ -257,6 +273,11 @@
       "info canvas"
       "info bar";
     height: 100vh;
+    height: 100dvh;  /* dynamic vh so mobile address bars don't clip */
+  }
+  /* Hide the info-toggle button on desktop — info panel is always visible. */
+  .info-toggle, .info-backdrop {
+    display: none;
   }
   .info {
     grid-area: info;
@@ -426,5 +447,85 @@
     font-variant-numeric: tabular-nums;
     width: 2.5rem;
     text-align: right;
+  }
+
+  /* ===== Mobile ===== */
+  @media (max-width: 768px) {
+    /* Canvas + playback bar fill the viewport. Info panel becomes a
+       slide-in drawer triggered by the info-toggle button. */
+    .layout {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr auto;
+      grid-template-areas:
+        "canvas"
+        "bar";
+    }
+    .info {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: min(320px, 88vw);
+      height: 100dvh;
+      transform: translateX(-100%);
+      transition: transform 0.22s ease;
+      z-index: 30;
+      box-shadow: 0 0 24px rgba(0, 0, 0, 0.55);
+    }
+    .info.open {
+      transform: translateX(0);
+    }
+    .info-toggle {
+      display: inline-flex;
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      z-index: 31;
+      align-items: center;
+      justify-content: center;
+      background: rgba(28, 28, 31, 0.85);
+      backdrop-filter: blur(4px);
+      color: #eee;
+      border: 1px solid #2a2a2f;
+      border-radius: 6px;
+      width: 2.25rem;
+      height: 2.25rem;
+      font-size: 1.05rem;
+      cursor: pointer;
+      padding: 0;
+    }
+    .info-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      border: none;
+      cursor: pointer;
+      z-index: 29;
+    }
+    /* Let the playback bar wrap to multiple rows; align center so it
+       balances vertically when items wrap. */
+    .playback-bar {
+      flex-wrap: wrap;
+      justify-content: center;
+      row-gap: 0.5rem;
+    }
+    .speed {
+      margin-left: 0;          /* no more push-to-right with wrapping */
+      flex-basis: 100%;        /* speed slider takes its own row */
+      justify-content: center;
+    }
+    .speed input {
+      flex: 1;                 /* stretch the slider on narrow screens */
+      max-width: 18rem;
+    }
+    .iteration {
+      min-width: 0;            /* allow shrinking */
+    }
+    /* Slightly smaller zoom panel on tight screens. */
+    .zoom-controls button {
+      width: 1.75rem;
+      height: 1.75rem;
+      font-size: 0.95rem;
+    }
   }
 </style>
