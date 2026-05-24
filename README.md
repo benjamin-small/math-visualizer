@@ -1,5 +1,7 @@
 # Math Visualizer
 
+**🎨 Live demo: <https://benjamin-small.github.io/math-visualizer/>**
+
 Interactive math visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI.
 
 > **Status:** Phase 3 — the Sierpinski Chaos Game visualization. Three triangle corners, a deterministic seeded starting point, and each iteration moves halfway toward a uniformly-chosen corner; thousands of dots converge on the Sierpinski attractor. The midpoint-on-circle rule and Phase 2 ColorCycle rule remain in the codebase as alternative working examples (Phase 4's selector UI will let you switch between them). See [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
