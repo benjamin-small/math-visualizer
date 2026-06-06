@@ -6,6 +6,7 @@ pub mod camera_3d;
 pub mod instanced_points;
 pub mod instanced_points_3d;
 pub mod line_batch;
+pub mod line_batch_3d;
 pub mod sdf_circle;
 pub mod shader;
 
@@ -14,5 +15,6 @@ pub use camera_3d::Camera3D;
 pub use instanced_points::{InstancedPoints, PointInstance};
 pub use instanced_points_3d::{InstancedPoints3D, PointInstance3D};
 pub use line_batch::{LineBatch, LineVertex};
+pub use line_batch_3d::{LineBatch3D, LineVertex3D};
 pub use sdf_circle::SdfCircle;
 pub use shader::ShaderProgram;
