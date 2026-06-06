@@ -2,9 +2,10 @@
 //! view-projection matrix for shader upload.
 //!
 //! Conventions: right-handed; +Y is up; the camera looks down -Z in view
-//! space. Azimuth is rotation around the Y axis (0 looks down -Z toward the
-//! target from +Z); elevation is tilt above the equator (positive = looking
-//! down from above). Both in radians.
+//! space. Azimuth is rotation around the Y axis (0 places the eye on +Z,
+//! looking toward the target at the origin); elevation is the eye's tilt
+//! above the equator — positive lifts the eye above +Y, so the camera
+//! looks down at the target. Both in radians.
 
 const DRAG_SENS_RAD_PER_PX: f32 = 0.005;
 const ELEVATION_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
@@ -65,7 +66,8 @@ impl Camera3D {
         ]
     }
 
-    /// Column-major 4×4 view × projection matrix for shader upload.
+    /// Column-major 4×4 view-projection matrix (projection × view, so that
+    /// `clip = vp * vec4(world, 1.0)` in the shader). For shader upload.
     pub fn view_projection(&self) -> [f32; 16] {
         let view = look_at(self.eye(), self.target, [0.0, 1.0, 0.0]);
         let proj = perspective(self.fov_y, self.aspect(), 0.05, 100.0);
