@@ -162,7 +162,13 @@ impl InstancedPoints3D {
         gl.bind_vertex_array(Some(&self.vao));
         gl.enable(Gl::BLEND);
         gl.blend_func(Gl::SRC_ALPHA, Gl::ONE_MINUS_SRC_ALPHA);
+        // Alpha-blended discs read depth (so the wireframe + corner anchors
+        // can occlude them), but they don't write depth — otherwise the
+        // antialiased rim would write semi-transparent depth values that
+        // produce halos around later-drawn geometry.
+        gl.depth_mask(false);
         gl.draw_arrays_instanced(Gl::TRIANGLE_STRIP, 0, 4, self.instance_count as i32);
+        gl.depth_mask(true);
         gl.bind_vertex_array(None);
     }
 }

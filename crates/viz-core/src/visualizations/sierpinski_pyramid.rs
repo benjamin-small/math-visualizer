@@ -150,6 +150,10 @@ pub struct SierpinskiPyramid {
     zoom: f32,
     points: Option<InstancedPoints3D>,
     lines: Option<LineBatch3D>,
+    /// Reusable scratch buffer for the per-frame point-instance list. Cleared
+    /// each frame; never re-allocated. Avoids ~MB/frame heap churn at large
+    /// trail sizes.
+    points_scratch: Vec<PointInstance3D>,
 }
 
 impl SierpinskiPyramid {
@@ -167,6 +171,7 @@ impl SierpinskiPyramid {
             zoom: 1.0,
             points: None,
             lines: None,
+            points_scratch: Vec::new(),
         }
     }
 
@@ -232,8 +237,10 @@ impl Visualization for SierpinskiPyramid {
         let burn_in = cfg.burn_in_iterations as usize;
         let skip = if state.trail.len() > burn_in * 2 { burn_in } else { 0 };
 
-        let mut points_data: Vec<PointInstance3D> =
-            Vec::with_capacity(state.trail.len().saturating_sub(skip) + 4);
+        // Reuse the persistent scratch buffer.
+        let points_data = &mut self.points_scratch;
+        points_data.clear();
+        points_data.reserve(state.trail.len().saturating_sub(skip) + 4);
 
         for i in skip..state.trail.len() {
             let p = state.trail[i];
