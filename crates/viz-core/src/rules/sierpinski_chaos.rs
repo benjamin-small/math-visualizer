@@ -1,28 +1,19 @@
-//! Sierpinski Chaos Game: pick one of three triangle corners uniformly at
-//! random, move halfway toward it, drop a dot, repeat. Thousands of dots
-//! converge on the Sierpinski-triangle attractor.
+//! Sierpinski Chaos Game (3D): pick one of four tetrahedron corners
+//! uniformly at random, move halfway toward it, drop a dot, repeat.
+//! Thousands of dots converge on the Sierpinski-tetrahedron attractor.
 //!
-//! Per-iteration RNG = `splitmix64(seed ^ iter)`. The current position at
-//! iteration n depends on the whole sequence 0..n, so `advance_to` is O(n).
-//! Cheap enough for the cheap-recompute path.
+//! Per-iteration RNG = `splitmix64(seed ^ iter)`. `advance_to(n)` is O(n);
+//! cheap enough for the cheap-recompute path.
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::{number_property, ConfigSchema, NumberOpts};
 use crate::traits::{Capabilities, Rule, SceneState};
 
-/// Equilateral triangle with edge length 1, centered at the origin.
-/// Top, bottom-left, bottom-right.
-pub const CORNERS: [[f32; 2]; 3] = [
-    [0.0,  0.5773502691896258],   //  sqrt(3) / 3
-    [-0.5, -0.2886751345948129],  // -sqrt(3) / 6
-    [0.5,  -0.2886751345948129],
-];
-
 /// Regular tetrahedron, edge length 1, centered at the origin.
 /// Vertices are `(±1, ±1, ±1)` with an even number of minus signs (so they
 /// pick out a tetrahedron rather than a cube), then scaled by `1/(2√2)`.
-pub const CORNERS_3D: [[f32; 3]; 4] = {
+pub const CORNERS: [[f32; 3]; 4] = {
     // 1 / (2 * sqrt(2)) = 0.3535533905932738
     const K: f32 = 0.353_553_39;
     [
@@ -76,30 +67,6 @@ impl ConfigSchema for ChaosGameConfig {
 
 #[derive(Debug, Default)]
 pub struct ChaosGameState {
-    /// Random starting point inside the triangle (deterministic from seed).
-    pub initial_position: [f32; 2],
-    /// One entry per completed iteration: the dot placed by that iteration.
-    pub trail: Vec<[f32; 2]>,
-    /// Animation dot — set by `substep`, lerps from previous trail dot toward
-    /// the next halfway point as sub progresses. `None` between iterations.
-    pub current_position: Option<[f32; 2]>,
-    /// Index of the corner highlighted during the current substep (0/1/2).
-    pub chosen_corner: Option<usize>,
-    pub current_iteration: u32,
-}
-
-impl SceneState for ChaosGameState {
-    fn clear(&mut self) {
-        self.initial_position = [0.0, 0.0];
-        self.trail.clear();
-        self.current_position = None;
-        self.chosen_corner = None;
-        self.current_iteration = 0;
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct ChaosGameState3D {
     pub initial_position: [f32; 3],
     pub trail: Vec<[f32; 3]>,
     /// One entry per trail dot: the index (0..4) of the corner the dot
@@ -111,7 +78,7 @@ pub struct ChaosGameState3D {
     pub current_iteration: u32,
 }
 
-impl SceneState for ChaosGameState3D {
+impl SceneState for ChaosGameState {
     fn clear(&mut self) {
         self.initial_position = [0.0, 0.0, 0.0];
         self.trail.clear();
@@ -143,17 +110,21 @@ impl Rule for SierpinskiChaos {
         n: u32,
     ) {
         state.trail.clear();
+        state.corner_for_dot.clear();
         state.chosen_corner = None;
 
         let target = n.min(cfg.max_iterations);
         state.current_iteration = target;
 
-        let mut pos = random_inside_triangle(seed);
+        let mut pos = random_inside_tetrahedron(seed);
         state.initial_position = pos;
+        state.trail.reserve(target as usize);
+        state.corner_for_dot.reserve(target as usize);
         for i in 0..target {
             let corner_idx = pick_corner(seed, i);
             pos = halfway(pos, CORNERS[corner_idx]);
             state.trail.push(pos);
+            state.corner_for_dot.push(corner_idx as u8);
         }
         state.current_position = Some(pos);
     }
@@ -174,108 +145,21 @@ impl Rule for SierpinskiChaos {
         let start_pos = if n == 0 {
             state.initial_position
         } else {
-            // Safe lookup: if state hasn't been advanced yet, fall back to the
-            // initial position. The engine always calls advance_to first.
             state.trail.get((n - 1) as usize).copied().unwrap_or(state.initial_position)
         };
         let end_pos = halfway(start_pos, CORNERS[corner_idx]);
         let sub = sub.clamp(0.0, 1.0);
         state.chosen_corner = Some(corner_idx);
         if sub < 0.33 {
-            // Phase 1: corner highlights, but the dot hasn't moved yet — the
-            // "start" is either a trail dot (already rendered) or the initial
-            // random point. Showing a separate in-flight marker here just
-            // looks like a stray dot in the wrong place, especially when the
-            // initial position lands in a Sierpinski forbidden region. So we
-            // hide it until the move actually starts.
             state.current_position = None;
         } else {
-            // Phase 2: dot lerps from start to the halfway point.
             let t = ((sub - 0.33) / 0.67).clamp(0.0, 1.0);
             state.current_position = Some(lerp(start_pos, end_pos, t));
         }
     }
 }
 
-pub struct ChaosGame3D;
-
-impl Rule for ChaosGame3D {
-    type Config = ChaosGameConfig;
-    type State = ChaosGameState3D;
-
-    fn id(&self) -> &'static str { "sierpinski-chaos-3d" }
-    fn capabilities(&self) -> Capabilities { Capabilities::cheap_scrubbable() }
-
-    fn init(&self, _cfg: &Self::Config, _seed: u64) -> Self::State {
-        ChaosGameState3D::default()
-    }
-
-    fn advance_to(
-        &self,
-        state: &mut Self::State,
-        cfg: &Self::Config,
-        seed: u64,
-        n: u32,
-    ) {
-        state.trail.clear();
-        state.corner_for_dot.clear();
-        state.chosen_corner = None;
-
-        let target = n.min(cfg.max_iterations);
-        state.current_iteration = target;
-
-        let mut pos = random_inside_tetrahedron(seed);
-        state.initial_position = pos;
-        state.trail.reserve(target as usize);
-        state.corner_for_dot.reserve(target as usize);
-        for i in 0..target {
-            let corner_idx = pick_corner_4(seed, i);
-            pos = halfway_3d(pos, CORNERS_3D[corner_idx]);
-            state.trail.push(pos);
-            state.corner_for_dot.push(corner_idx as u8);
-        }
-        state.current_position = Some(pos);
-    }
-
-    fn substep(
-        &self,
-        state: &mut Self::State,
-        cfg: &Self::Config,
-        seed: u64,
-        n: u32,
-        sub: f32,
-    ) {
-        if n >= cfg.max_iterations {
-            state.chosen_corner = None;
-            return;
-        }
-        let corner_idx = pick_corner_4(seed, n);
-        let start_pos = if n == 0 {
-            state.initial_position
-        } else {
-            state.trail.get((n - 1) as usize).copied().unwrap_or(state.initial_position)
-        };
-        let end_pos = halfway_3d(start_pos, CORNERS_3D[corner_idx]);
-        let sub = sub.clamp(0.0, 1.0);
-        state.chosen_corner = Some(corner_idx);
-        if sub < 0.33 {
-            state.current_position = None;
-        } else {
-            let t = ((sub - 0.33) / 0.67).clamp(0.0, 1.0);
-            state.current_position = Some(lerp_3d(start_pos, end_pos, t));
-        }
-    }
-}
-
-fn halfway(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
-    [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]
-}
-
-fn lerp(a: [f32; 2], b: [f32; 2], t: f32) -> [f32; 2] {
-    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
-}
-
-fn halfway_3d(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+fn halfway(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [
         (a[0] + b[0]) * 0.5,
         (a[1] + b[1]) * 0.5,
@@ -283,7 +167,7 @@ fn halfway_3d(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-fn lerp_3d(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+fn lerp(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [
         a[0] + (b[0] - a[0]) * t,
         a[1] + (b[1] - a[1]) * t,
@@ -299,40 +183,11 @@ fn splitmix64(mut z: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// Pick a corner index (0/1/2) uniformly for iteration `i`. Uses the top
-/// 8 bits of a splitmix64 mixed value, which is better-distributed than
-/// low bits when taking modulo a small number.
-fn pick_corner(seed: u64, i: u32) -> usize {
-    let raw = splitmix64(seed ^ (i as u64));
-    (raw >> 56) as usize % 3
-}
-
 /// Pick a corner index in `0..4` uniformly for iteration `i`. Uses the top
 /// 8 bits of `splitmix64(seed ^ i)` mod 4 — bias-free because 4 divides 256.
-pub fn pick_corner_4(seed: u64, i: u32) -> usize {
+pub fn pick_corner(seed: u64, i: u32) -> usize {
     let raw = splitmix64(seed ^ (i as u64));
     (raw >> 56) as usize & 0b11
-}
-
-/// Deterministic uniformly-random point strictly inside the triangle.
-/// Barycentric sampling: u, v ~ U[0, 1); if u + v > 1, reflect to keep
-/// inside. Then p = w*A + u*B + v*C with w = 1 - u - v.
-fn random_inside_triangle(seed: u64) -> [f32; 2] {
-    // Mix the seed differently from per-iteration sampling so iteration 0's
-    // corner pick doesn't correlate with the initial position.
-    let s = splitmix64(seed.wrapping_add(0xA5A5_A5A5_A5A5_A5A5));
-    let mut u = bits_to_unit_f32(s);
-    let s2 = splitmix64(s);
-    let mut v = bits_to_unit_f32(s2);
-    if u + v > 1.0 {
-        u = 1.0 - u;
-        v = 1.0 - v;
-    }
-    let w = 1.0 - u - v;
-    [
-        w * CORNERS[0][0] + u * CORNERS[1][0] + v * CORNERS[2][0],
-        w * CORNERS[0][1] + u * CORNERS[1][1] + v * CORNERS[2][1],
-    ]
 }
 
 /// Deterministic uniform point strictly inside the tetrahedron.
@@ -355,10 +210,10 @@ fn random_inside_tetrahedron(seed: u64) -> [f32; 3] {
     let w1 = xs[1] - xs[0];
     let w2 = xs[2] - xs[1];
     let w3 = 1.0 - xs[2];
-    let a = CORNERS_3D[0];
-    let b = CORNERS_3D[1];
-    let c = CORNERS_3D[2];
-    let d = CORNERS_3D[3];
+    let a = CORNERS[0];
+    let b = CORNERS[1];
+    let c = CORNERS[2];
+    let d = CORNERS[3];
     [
         w0 * a[0] + w1 * b[0] + w2 * c[0] + w3 * d[0],
         w0 * a[1] + w1 * b[1] + w2 * c[1] + w3 * d[1],
@@ -376,22 +231,51 @@ mod tests {
 
     #[test]
     fn pick_corner_distribution_is_roughly_uniform() {
-        let mut counts = [0u32; 3];
-        for i in 0..3000 {
+        let mut counts = [0u32; 4];
+        for i in 0..4000 {
             counts[pick_corner(42, i)] += 1;
         }
-        // Each corner should land near 1000 ± noise. Allow ±20% tolerance for
-        // a 3000-sample chi-square-style sanity check.
+        // 4000 / 4 = 1000 ± noise; allow ±20%.
         for c in counts {
             assert!(c > 800 && c < 1200, "corner counts: {counts:?}");
         }
     }
 
     #[test]
-    fn initial_position_is_inside_triangle() {
-        for seed in 0u64..20 {
-            let p = random_inside_triangle(seed);
-            assert!(point_in_triangle(p), "seed {seed}: {p:?}");
+    fn corners_edges_have_unit_length() {
+        // Every pair of corners is one edge of a regular tetrahedron.
+        for i in 0..4 {
+            for j in (i + 1)..4 {
+                let dx = CORNERS[i][0] - CORNERS[j][0];
+                let dy = CORNERS[i][1] - CORNERS[j][1];
+                let dz = CORNERS[i][2] - CORNERS[j][2];
+                let d = (dx * dx + dy * dy + dz * dz).sqrt();
+                assert!((d - 1.0).abs() < 1e-5, "edge {i}-{j} length {d}");
+            }
+        }
+    }
+
+    #[test]
+    fn corners_centroid_is_origin() {
+        let mut s = [0.0f32; 3];
+        for c in CORNERS {
+            s[0] += c[0]; s[1] += c[1]; s[2] += c[2];
+        }
+        for k in 0..3 {
+            assert!((s[k] / 4.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn halfway_is_the_midpoint() {
+        assert_eq!(halfway([0.0, 0.0, 0.0], [2.0, 4.0, 6.0]), [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn random_inside_tetrahedron_is_inside_for_many_seeds() {
+        for seed in 0u64..40 {
+            let p = random_inside_tetrahedron(seed);
+            assert!(point_in_tetrahedron(p), "seed {seed}: {p:?}");
         }
     }
 
@@ -399,12 +283,13 @@ mod tests {
     fn advance_to_is_deterministic() {
         let rule = SierpinskiChaos;
         let cfg = ChaosGameConfig::default();
-        let mut a = rule.init(&cfg, 0);
+        let mut a = rule.init(&cfg, 17);
         rule.advance_to(&mut a, &cfg, 17, 100);
-        let mut b = rule.init(&cfg, 0);
+        let mut b = rule.init(&cfg, 17);
         rule.advance_to(&mut b, &cfg, 17, 100);
         assert_eq!(a.trail, b.trail);
         assert_eq!(a.initial_position, b.initial_position);
+        assert_eq!(a.corner_for_dot, b.corner_for_dot);
     }
 
     #[test]
@@ -419,156 +304,20 @@ mod tests {
     }
 
     #[test]
-    fn trail_length_matches_iterations_and_clamps() {
+    fn corner_for_dot_matches_pick_corner() {
         let rule = SierpinskiChaos;
-        let cfg = ChaosGameConfig { max_iterations: 50 };
-        let mut state = rule.init(&cfg, 0);
-        rule.advance_to(&mut state, &cfg, 7, 50);
-        assert_eq!(state.trail.len(), 50);
-        rule.advance_to(&mut state, &cfg, 7, 999);
-        assert_eq!(state.trail.len(), 50, "advance past max should clamp");
-    }
-
-    #[test]
-    fn substep_highlights_corner_then_moves_dot() {
-        let rule = SierpinskiChaos;
-        let cfg = ChaosGameConfig::default();
-        let mut state = rule.init(&cfg, 0);
-        rule.advance_to(&mut state, &cfg, 7, 5);
-
-        // Phase 1 (sub < 0.33): corner highlighted, no in-flight dot yet.
-        rule.substep(&mut state, &cfg, 7, 5, 0.10);
-        assert!(state.chosen_corner.is_some());
-        assert!(state.current_position.is_none(),
-            "in-flight dot suppressed until move actually starts");
-
-        // Phase 2 (sub >= 0.33): dot appears mid-flight, moved off start.
-        rule.substep(&mut state, &cfg, 7, 5, 0.80);
-        assert!(state.chosen_corner.is_some());
-        let cp = state.current_position.expect("current position set during move");
-        let start = state.trail[4];
-        assert!((cp[0] - start[0]).hypot(cp[1] - start[1]) > 1e-4,
-            "dot moved away from start by sub=0.80");
-    }
-
-    #[test]
-    fn substep_at_or_past_max_clears_animation() {
-        let rule = SierpinskiChaos;
-        let cfg = ChaosGameConfig { max_iterations: 5 };
-        let mut state = rule.init(&cfg, 0);
-        rule.advance_to(&mut state, &cfg, 0, 5);
-        rule.substep(&mut state, &cfg, 0, 5, 0.5);
-        assert!(state.chosen_corner.is_none());
-    }
-
-    #[test]
-    fn halfway_is_the_midpoint() {
-        let m = halfway([0.0, 0.0], [2.0, 4.0]);
-        assert_eq!(m, [1.0, 2.0]);
-    }
-
-    fn point_in_triangle(p: [f32; 2]) -> bool {
-        let a = CORNERS[0];
-        let b = CORNERS[1];
-        let c = CORNERS[2];
-        let denom = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
-        let u = ((b[1] - c[1]) * (p[0] - c[0]) + (c[0] - b[0]) * (p[1] - c[1])) / denom;
-        let v = ((c[1] - a[1]) * (p[0] - c[0]) + (a[0] - c[0]) * (p[1] - c[1])) / denom;
-        let w = 1.0 - u - v;
-        u >= 0.0 && v >= 0.0 && w >= 0.0
-    }
-
-    // ---- 3D tetrahedron tests ----
-
-    #[test]
-    fn pick_corner_4_distribution_is_roughly_uniform() {
-        let mut counts = [0u32; 4];
-        for i in 0..4000 {
-            counts[pick_corner_4(42, i)] += 1;
-        }
-        // 4000 / 4 = 1000 ± noise; allow ±20%.
-        for c in counts {
-            assert!(c > 800 && c < 1200, "corner counts: {counts:?}");
-        }
-    }
-
-    #[test]
-    fn corners_3d_edges_have_unit_length() {
-        // Every pair of corners is one edge of a regular tetrahedron.
-        for i in 0..4 {
-            for j in (i + 1)..4 {
-                let dx = CORNERS_3D[i][0] - CORNERS_3D[j][0];
-                let dy = CORNERS_3D[i][1] - CORNERS_3D[j][1];
-                let dz = CORNERS_3D[i][2] - CORNERS_3D[j][2];
-                let d = (dx * dx + dy * dy + dz * dz).sqrt();
-                assert!((d - 1.0).abs() < 1e-5, "edge {i}-{j} length {d}");
-            }
-        }
-    }
-
-    #[test]
-    fn corners_3d_centroid_is_origin() {
-        let mut s = [0.0f32; 3];
-        for c in CORNERS_3D {
-            s[0] += c[0]; s[1] += c[1]; s[2] += c[2];
-        }
-        for k in 0..3 {
-            assert!((s[k] / 4.0).abs() < 1e-6);
-        }
-    }
-
-    #[test]
-    fn halfway_3d_is_the_midpoint() {
-        assert_eq!(halfway_3d([0.0, 0.0, 0.0], [2.0, 4.0, 6.0]), [1.0, 2.0, 3.0]);
-    }
-
-    #[test]
-    fn random_inside_tetrahedron_is_inside_for_many_seeds() {
-        for seed in 0u64..40 {
-            let p = random_inside_tetrahedron(seed);
-            assert!(point_in_tetrahedron(p), "seed {seed}: {p:?}");
-        }
-    }
-
-    #[test]
-    fn rule_3d_advance_to_is_deterministic() {
-        let rule = ChaosGame3D;
-        let cfg = ChaosGameConfig::default();
-        let mut a = rule.init(&cfg, 17);
-        rule.advance_to(&mut a, &cfg, 17, 100);
-        let mut b = rule.init(&cfg, 17);
-        rule.advance_to(&mut b, &cfg, 17, 100);
-        assert_eq!(a.trail, b.trail);
-        assert_eq!(a.initial_position, b.initial_position);
-        assert_eq!(a.corner_for_dot, b.corner_for_dot);
-    }
-
-    #[test]
-    fn rule_3d_advance_to_is_jump_safe() {
-        let rule = ChaosGame3D;
-        let cfg = ChaosGameConfig::default();
-        let mut direct = rule.init(&cfg, 99);
-        rule.advance_to(&mut direct, &cfg, 99, 50);
-        let mut backward = rule.init(&cfg, 99);
-        rule.advance_to(&mut backward, &cfg, 99, 25);
-        assert_eq!(&direct.trail[..25], &backward.trail[..]);
-    }
-
-    #[test]
-    fn rule_3d_corner_for_dot_matches_pick_corner() {
-        let rule = ChaosGame3D;
         let cfg = ChaosGameConfig::default();
         let mut state = rule.init(&cfg, 7);
         rule.advance_to(&mut state, &cfg, 7, 100);
         assert_eq!(state.corner_for_dot.len(), 100);
         for i in 0..100 {
-            assert_eq!(state.corner_for_dot[i] as usize, pick_corner_4(7, i as u32));
+            assert_eq!(state.corner_for_dot[i] as usize, pick_corner(7, i as u32));
         }
     }
 
     #[test]
-    fn rule_3d_substep_highlights_corner_then_moves_dot() {
-        let rule = ChaosGame3D;
+    fn substep_highlights_corner_then_moves_dot() {
+        let rule = SierpinskiChaos;
         let cfg = ChaosGameConfig::default();
         let mut state = rule.init(&cfg, 0);
         rule.advance_to(&mut state, &cfg, 7, 5);
@@ -588,14 +337,35 @@ mod tests {
         assert!(d > 1e-4, "dot moved away from start by sub=0.80");
     }
 
+    #[test]
+    fn trail_length_matches_iterations_and_clamps() {
+        let rule = SierpinskiChaos;
+        let cfg = ChaosGameConfig { max_iterations: 50 };
+        let mut state = rule.init(&cfg, 0);
+        rule.advance_to(&mut state, &cfg, 7, 50);
+        assert_eq!(state.trail.len(), 50);
+        rule.advance_to(&mut state, &cfg, 7, 999);
+        assert_eq!(state.trail.len(), 50, "advance past max should clamp");
+    }
+
+    #[test]
+    fn substep_at_or_past_max_clears_animation() {
+        let rule = SierpinskiChaos;
+        let cfg = ChaosGameConfig { max_iterations: 5 };
+        let mut state = rule.init(&cfg, 0);
+        rule.advance_to(&mut state, &cfg, 0, 5);
+        rule.substep(&mut state, &cfg, 0, 5, 0.5);
+        assert!(state.chosen_corner.is_none());
+    }
+
     fn point_in_tetrahedron(p: [f32; 3]) -> bool {
         // Barycentric check: solve for weights w_i ≥ 0 summing to 1 such that
-        // p = sum_i w_i * CORNERS_3D[i]. With 4 unknowns and 4 equations
+        // p = sum_i w_i * CORNERS[i]. With 4 unknowns and 4 equations
         // (3 coords + sum-to-1), we get a unique solution.
-        let a = CORNERS_3D[0];
-        let b = CORNERS_3D[1];
-        let c = CORNERS_3D[2];
-        let d = CORNERS_3D[3];
+        let a = CORNERS[0];
+        let b = CORNERS[1];
+        let c = CORNERS[2];
+        let d = CORNERS[3];
         let v0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let v1 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
         let v2 = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];

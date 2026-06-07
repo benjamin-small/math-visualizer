@@ -8,7 +8,7 @@ use web_sys::WebGl2RenderingContext;
 
 use crate::config::{color_property, number_property, ConfigSchema, NumberOpts};
 use crate::render::{Camera3D, InstancedPoints3D, LineBatch3D, LineVertex3D, PointInstance3D};
-use crate::rules::sierpinski_chaos::{ChaosGameState3D, CORNERS_3D};
+use crate::rules::sierpinski_chaos::{ChaosGameState, CORNERS};
 use crate::traits::{InputEvent, Visualization};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,7 +190,7 @@ impl Default for SierpinskiPyramid {
 
 impl Visualization for SierpinskiPyramid {
     type Config = SierpinskiPyramidVizConfig;
-    type State = ChaosGameState3D;
+    type State = ChaosGameState;
 
     fn id(&self) -> &'static str { "sierpinski-pyramid" }
 
@@ -225,8 +225,8 @@ impl Visualization for SierpinskiPyramid {
         let mut line_verts: Vec<LineVertex3D> = Vec::with_capacity(14);
         for i in 0..4 {
             for j in (i + 1)..4 {
-                line_verts.push(LineVertex3D { position: CORNERS_3D[i], color: cfg.edge_color });
-                line_verts.push(LineVertex3D { position: CORNERS_3D[j], color: cfg.edge_color });
+                line_verts.push(LineVertex3D { position: CORNERS[i], color: cfg.edge_color });
+                line_verts.push(LineVertex3D { position: CORNERS[j], color: cfg.edge_color });
             }
         }
         if let Some(corner_idx) = state.chosen_corner {
@@ -234,7 +234,7 @@ impl Visualization for SierpinskiPyramid {
             // if no iterations have completed). End point: the picked corner.
             let start = state.trail.last().copied().unwrap_or(state.initial_position);
             line_verts.push(LineVertex3D { position: start,                  color: cfg.guide_color });
-            line_verts.push(LineVertex3D { position: CORNERS_3D[corner_idx], color: cfg.guide_color });
+            line_verts.push(LineVertex3D { position: CORNERS[corner_idx], color: cfg.guide_color });
         }
         lines.upload(gl, &line_verts);
         lines.draw(gl, &vp);
@@ -272,7 +272,7 @@ impl Visualization for SierpinskiPyramid {
         }
 
         // Corner anchors over the trail.
-        for (i, &corner) in CORNERS_3D.iter().enumerate() {
+        for (i, &corner) in CORNERS.iter().enumerate() {
             let highlighted = state.chosen_corner == Some(i);
             let color = if highlighted { cfg.corner_highlight_color } else { cfg.corner_colors[i] };
             points_data.push(PointInstance3D {

@@ -22,7 +22,7 @@ pub mod erased;
 pub mod playback;
 
 use crate::config::ConfigSchema;
-use crate::rules::sierpinski_chaos::{ChaosGame3D, ChaosGameConfig};
+use crate::rules::sierpinski_chaos::{ChaosGameConfig, SierpinskiChaos};
 use crate::traits::InputEvent;
 use crate::visualizations::sierpinski_pyramid::{SierpinskiPyramid, SierpinskiPyramidVizConfig};
 use erased::{ErasedRule, ErasedVisualization};
@@ -43,7 +43,7 @@ pub struct Engine {
 #[wasm_bindgen]
 impl Engine {
     /// Construct an Engine bound to the canvas with id `canvas_id`. Phase 3
-    /// hardwires ChaosGame3D + SierpinskiPyramid (a rotating 3D Sierpinski
+    /// hardwires SierpinskiChaos + SierpinskiPyramid (a rotating 3D Sierpinski
     /// tetrahedron); Phase 4 will introduce a rule/viz registry + selector
     /// UI so the JS layer can pick the pair (the midpoint-on-circle and
     /// color-cycle rules stay in the codebase as alternative options).
@@ -71,7 +71,7 @@ impl Engine {
             .map(|c| c.max_iterations)
             .unwrap_or(50_000);
 
-        let rule: Box<dyn ErasedRule> = Box::new(ChaosGame3D);
+        let rule: Box<dyn ErasedRule> = Box::new(SierpinskiChaos);
         let mut viz: Box<dyn ErasedVisualization> = Box::new(SierpinskiPyramid::new());
 
         viz.init(&gl, &viz_cfg)
