@@ -4,7 +4,17 @@
 
 Interactive math visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI.
 
-> **Status:** Phase 3 — the Sierpinski Chaos Game visualization. Three triangle corners, a deterministic seeded starting point, and each iteration moves halfway toward a uniformly-chosen corner; thousands of dots converge on the Sierpinski attractor. The midpoint-on-circle rule and Phase 2 ColorCycle rule remain in the codebase as alternative working examples (Phase 4's selector UI will let you switch between them). See [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
+> **Status:** Phase 3 (3D) — a rotating Sierpinski tetrahedron. Four corners
+> of a regular tetrahedron, a deterministic seeded starting point, and each
+> iteration moves halfway toward a uniformly-picked corner; thousands of dots
+> converge on the 3D Sierpinski attractor. The tetrahedron auto-spins around
+> its vertical axis — click-drag the canvas to orbit. Each dot is tinted by
+> which corner produced it, making the four self-similar sub-tetrahedra
+> visually distinct. The midpoint-on-circle rule and Phase 2 ColorCycle rule
+> remain in the codebase as alternative working examples (Phase 4's selector
+> UI will let you switch between them). See [`docs/superpowers/specs/`](docs/superpowers/specs/)
+> for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for
+> execution plans.
 
 ## Prerequisites
 
@@ -104,11 +114,11 @@ math-visualizer/
 │   │   │   ├── sdf_circle.rs         # Single-quad antialiased stroked circle
 │   │   │   └── line_batch.rs         # Colored line segment batch
 │   │   ├── rules/
-│   │   │   ├── sierpinski_chaos.rs   # Default flagship rule (Chaos Game)
+│   │   │   ├── sierpinski_chaos.rs   # Default flagship rule (3D Chaos Game)
 │   │   │   ├── midpoint_on_circle.rs # Alternative rule (still works)
 │   │   │   └── color_cycle.rs        # Phase 2 demo rule
 │   │   └── visualizations/
-│   │       ├── sierpinski_triangle.rs# Default viz (triangle + chaos trail)
+│   │       ├── sierpinski_pyramid.rs # Default viz (rotating 3D tetrahedron)
 │   │       ├── dots_on_circle.rs     # Alternative viz (paired with midpoint)
 │   │       └── color_cycle.rs        # Phase 2 demo viz
 │   └── tests/wasm.rs                 # Browser smoke tests (Engine + dispatch round-trip)
