@@ -1,0 +1,251 @@
+//! 3D Sierpinski tetrahedron visualization. Renders the 4 corners, the chaos
+//! game trail (tinted per corner), the per-substep guide line + current
+//! position dot, and a turntable camera that auto-rotates and accepts
+//! pointer drags for orbit.
+
+use serde::{Deserialize, Serialize};
+use web_sys::WebGl2RenderingContext;
+
+use crate::config::{color_property, number_property, ConfigSchema, NumberOpts};
+use crate::render::{Camera3D, InstancedPoints3D, LineBatch3D};
+use crate::rules::sierpinski_chaos::ChaosGameState3D;
+use crate::traits::{InputEvent, Visualization};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SierpinskiPyramidVizConfig {
+    pub background: [f32; 4],
+    pub edge_color: [f32; 4],
+
+    /// One color per corner. Used both for the corner anchor dot and as
+    /// the tint applied to trail dots that landed halfway toward it.
+    pub corner_colors: [[f32; 4]; 4],
+    pub corner_highlight_color: [f32; 4],
+    pub corner_size_px: f32,
+
+    pub trail_color: [f32; 4],
+    /// 0.0 = trail dots are monochrome (trail_color);
+    /// 1.0 = trail dots are pure corner_colors[k].
+    pub trail_tint: f32,
+    pub trail_size_px: f32,
+
+    pub current_color: [f32; 4],
+    pub current_size_px: f32,
+
+    pub guide_color: [f32; 4],
+    pub burn_in_iterations: u32,
+
+    /// Radians/sec. 0 stops the auto-spin; default 0.25 ≈ 25s per revolution.
+    pub auto_rotate_speed: f32,
+    pub padding: f32,
+}
+
+impl Default for SierpinskiPyramidVizConfig {
+    fn default() -> Self {
+        Self {
+            background: [0.07, 0.07, 0.09, 1.0],
+            edge_color: [0.55, 0.55, 0.60, 0.8],
+            corner_colors: [
+                [0.30, 0.85, 0.95, 1.0], // cyan
+                [0.95, 0.45, 0.85, 1.0], // magenta
+                [0.98, 0.78, 0.30, 1.0], // amber
+                [0.55, 0.90, 0.45, 1.0], // lime
+            ],
+            corner_highlight_color: [1.00, 0.98, 0.85, 1.0],
+            corner_size_px: 10.0,
+            trail_color: [0.65, 0.85, 0.95, 1.0],
+            trail_tint: 0.65,
+            trail_size_px: 3.5,
+            current_color: [0.95, 0.55, 0.35, 1.0],
+            current_size_px: 7.0,
+            guide_color: [0.95, 0.75, 0.35, 0.55],
+            burn_in_iterations: 20,
+            auto_rotate_speed: 0.25,
+            padding: 0.1,
+        }
+    }
+}
+
+impl ConfigSchema for SierpinskiPyramidVizConfig {
+    fn schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "background":               color_property("Background",              [0.07, 0.07, 0.09, 1.0]),
+                "edge_color":               color_property("Tetrahedron edge color",  [0.55, 0.55, 0.60, 0.8]),
+                "corner_colors": {
+                    "type": "array",
+                    "title": "Corner colors (4)",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": color_property("Corner color", [0.30, 0.85, 0.95, 1.0]),
+                },
+                "corner_highlight_color":   color_property("Highlighted corner color", [1.00, 0.98, 0.85, 1.0]),
+                "corner_size_px": number_property(NumberOpts {
+                    label: "Corner dot size (px)",
+                    default: 10.0, min: 1.0, max: 30.0, step: 0.5,
+                    integer: false, cosmetic: true, widget: None,
+                }),
+                "trail_color":              color_property("Trail base color",        [0.65, 0.85, 0.95, 1.0]),
+                "trail_tint": number_property(NumberOpts {
+                    label: "Per-corner trail tint (0 mono -> 1 full)",
+                    default: 0.65, min: 0.0, max: 1.0, step: 0.05,
+                    integer: false, cosmetic: true, widget: None,
+                }),
+                "trail_size_px": number_property(NumberOpts {
+                    label: "Trail dot size (px)",
+                    default: 3.5, min: 0.5, max: 20.0, step: 0.1,
+                    integer: false, cosmetic: true, widget: None,
+                }),
+                "current_color":            color_property("Current dot color",       [0.95, 0.55, 0.35, 1.0]),
+                "current_size_px": number_property(NumberOpts {
+                    label: "Current dot size (px)",
+                    default: 7.0, min: 0.5, max: 20.0, step: 0.1,
+                    integer: false, cosmetic: true, widget: None,
+                }),
+                "guide_color":              color_property("Guide line color",        [0.95, 0.75, 0.35, 0.55]),
+                "burn_in_iterations": number_property(NumberOpts {
+                    label: "Skip first N iterations (burn-in)",
+                    default: 20.0, min: 0.0, max: 1000.0, step: 1.0,
+                    integer: true, cosmetic: true, widget: None,
+                }),
+                "auto_rotate_speed": number_property(NumberOpts {
+                    label: "Auto-rotate speed (rad/s, 0 = stop)",
+                    default: 0.25, min: 0.0, max: 3.0, step: 0.05,
+                    integer: false, cosmetic: true, widget: None,
+                }),
+                "padding": number_property(NumberOpts {
+                    label: "Padding (unused -- fit handled by camera distance)",
+                    default: 0.1, min: 0.0, max: 1.0, step: 0.01,
+                    integer: false, cosmetic: true, widget: None,
+                }),
+            },
+            "required": [
+                "background", "edge_color",
+                "corner_colors", "corner_highlight_color", "corner_size_px",
+                "trail_color", "trail_tint", "trail_size_px",
+                "current_color", "current_size_px",
+                "guide_color", "burn_in_iterations",
+                "auto_rotate_speed", "padding"
+            ],
+        })
+    }
+
+    fn defaults() -> serde_json::Value {
+        serde_json::to_value(SierpinskiPyramidVizConfig::default()).unwrap()
+    }
+}
+
+const BASE_CAMERA_DISTANCE: f32 = 2.5;
+
+pub struct SierpinskiPyramid {
+    camera: Camera3D,
+    /// Accumulated by tick(dt); drives the auto-spin around the Y axis.
+    auto_azimuth: f32,
+    /// User-controlled offset from drag. Added to auto_azimuth at render time.
+    azimuth_offset: f32,
+    /// User-controlled elevation. Clamped at the poles inside Camera3D.
+    elevation: f32,
+    is_dragging: bool,
+    /// 1.0 = default fit; >1 zooms in (camera distance shrinks).
+    zoom: f32,
+    points: Option<InstancedPoints3D>,
+    lines: Option<LineBatch3D>,
+}
+
+impl SierpinskiPyramid {
+    pub fn new() -> Self {
+        let mut camera = Camera3D::new();
+        camera.distance = BASE_CAMERA_DISTANCE;
+        Self {
+            camera,
+            // Start with a 30 deg azimuth + slight downward tilt so the first
+            // frame shows three faces rather than a flat profile.
+            auto_azimuth: std::f32::consts::FRAC_PI_6,
+            azimuth_offset: 0.0,
+            elevation: -0.35,
+            is_dragging: false,
+            zoom: 1.0,
+            points: None,
+            lines: None,
+        }
+    }
+
+    fn ensure_resources(&mut self, gl: &WebGl2RenderingContext) -> Result<(), String> {
+        if self.points.is_none() { self.points = Some(InstancedPoints3D::new(gl)?); }
+        if self.lines.is_none()  { self.lines  = Some(LineBatch3D::new(gl)?); }
+        Ok(())
+    }
+}
+
+impl Default for SierpinskiPyramid {
+    fn default() -> Self { Self::new() }
+}
+
+impl Visualization for SierpinskiPyramid {
+    type Config = SierpinskiPyramidVizConfig;
+    type State = ChaosGameState3D;
+
+    fn id(&self) -> &'static str { "sierpinski-pyramid" }
+
+    fn init(&mut self, gl: &WebGl2RenderingContext, _cfg: &Self::Config) {
+        let _ = self.ensure_resources(gl);
+    }
+
+    fn render(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        _state: &Self::State,
+        cfg: &Self::Config,
+    ) {
+        if self.ensure_resources(gl).is_err() { return; }
+
+        // Background only for now -- edges/dots/etc land in Tasks 6-8.
+        gl.clear_color(cfg.background[0], cfg.background[1], cfg.background[2], cfg.background[3]);
+        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+    }
+
+    fn resize(&mut self, gl: &WebGl2RenderingContext, w: u32, h: u32) {
+        self.camera.resize(w, h);
+        gl.viewport(0, 0, w as i32, h as i32);
+    }
+
+    fn set_zoom(&mut self, zoom: f32) {
+        self.zoom = zoom.clamp(0.25, 20.0);
+    }
+
+    fn tick(&mut self, _dt: f32) {
+        // Auto-rotate wires up in Task 8.
+    }
+
+    fn handle_input(&mut self, _ev: &InputEvent) {
+        // Drag wires up in Task 8.
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ConfigSchema;
+
+    #[test]
+    fn defaults_round_trip() {
+        let v: SierpinskiPyramidVizConfig =
+            serde_json::from_value(SierpinskiPyramidVizConfig::defaults()).unwrap();
+        assert!((v.padding - 0.1).abs() < 1e-6);
+        assert_eq!(v.trail_size_px, 3.5);
+        assert_eq!(v.corner_colors.len(), 4);
+        assert!(v.auto_rotate_speed > 0.0);
+        assert!((0.0..=1.0).contains(&v.trail_tint));
+    }
+
+    #[test]
+    fn schema_lists_all_required_fields() {
+        let schema = SierpinskiPyramidVizConfig::schema();
+        let required = schema["required"].as_array().expect("required array");
+        // background, edge_color, corner_colors, corner_highlight_color,
+        // corner_size_px, trail_color, trail_tint, trail_size_px,
+        // current_color, current_size_px, guide_color, burn_in_iterations,
+        // auto_rotate_speed, padding = 14 fields.
+        assert_eq!(required.len(), 14);
+    }
+}
