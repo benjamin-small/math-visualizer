@@ -109,10 +109,13 @@ math-visualizer/
 │   │   │   └── erased.rs             # Type-erased dispatch over Rule/Visualization
 │   │   ├── render/
 │   │   │   ├── camera_2d.rs          # 2D ortho camera with fit-to-bbox
+│   │   │   ├── camera_3d.rs          # 3D turntable camera (azimuth/elevation/distance)
 │   │   │   ├── shader.rs             # WebGL2 shader compile/link wrapper
-│   │   │   ├── instanced_points.rs   # Per-instance position+color+radius dots
+│   │   │   ├── instanced_points.rs   # 2D per-instance position+color+radius dots
+│   │   │   ├── instanced_points_3d.rs# 3D dots, pixel radius constant with depth
 │   │   │   ├── sdf_circle.rs         # Single-quad antialiased stroked circle
-│   │   │   └── line_batch.rs         # Colored line segment batch
+│   │   │   ├── line_batch.rs         # 2D colored line segment batch
+│   │   │   └── line_batch_3d.rs      # 3D colored line segment batch
 │   │   ├── rules/
 │   │   │   ├── sierpinski_chaos.rs   # Default flagship rule (3D Chaos Game)
 │   │   │   ├── midpoint_on_circle.rs # Alternative rule (still works)

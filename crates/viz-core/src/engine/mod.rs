@@ -42,11 +42,11 @@ pub struct Engine {
 
 #[wasm_bindgen]
 impl Engine {
-    /// Construct an Engine bound to the canvas with id `canvas_id`. Phase 3
+    /// Construct an Engine bound to the canvas with id `canvas_id`. Currently
     /// hardwires SierpinskiChaos + SierpinskiPyramid (a rotating 3D Sierpinski
-    /// tetrahedron); Phase 4 will introduce a rule/viz registry + selector
-    /// UI so the JS layer can pick the pair (the midpoint-on-circle and
-    /// color-cycle rules stay in the codebase as alternative options).
+    /// tetrahedron); a future rule/viz registry + selector UI will let the JS
+    /// layer pick the pair (the midpoint-on-circle and color-cycle rules stay
+    /// in the codebase as alternative options).
     #[wasm_bindgen(constructor)]
     pub fn new(canvas_id: &str) -> Result<Engine, JsValue> {
         let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
