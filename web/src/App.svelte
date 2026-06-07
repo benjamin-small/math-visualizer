@@ -6,6 +6,7 @@
 
   let canvas: HTMLCanvasElement;
   let engine = $state<Engine | null>(null);
+  let lastPointer: { x: number; y: number } | null = null;
   let snapshot = $state<PlaybackSnapshot>({
     iteration: 0,
     sub_progress: 0,
@@ -157,51 +158,114 @@
     engine?.set_zoom(zoomLevel);
   }
 
+  // Canvas pointer events — forward to the engine so the viz can drag-to-orbit.
+  // Payload shapes mirror the Rust InputEvent enum (serde tag = "kind").
+  function pointerEventCommon(e: PointerEvent) {
+    const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      button: e.button,
+      buttons: e.buttons,
+    };
+  }
+
+  function onCanvasPointerDown(e: PointerEvent) {
+    const target = e.currentTarget as HTMLCanvasElement;
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch { /* capture unavailable — ignore */ }
+    const c = pointerEventCommon(e);
+    lastPointer = { x: c.x, y: c.y };
+    engine?.forward_input({ kind: 'PointerDown', x: c.x, y: c.y, button: c.button });
+  }
+
+  function onCanvasPointerMove(e: PointerEvent) {
+    const c = pointerEventCommon(e);
+    const dx = lastPointer ? c.x - lastPointer.x : 0;
+    const dy = lastPointer ? c.y - lastPointer.y : 0;
+    lastPointer = { x: c.x, y: c.y };
+    engine?.forward_input({
+      kind: 'PointerMove',
+      x: c.x,
+      y: c.y,
+      dx,
+      dy,
+      buttons: c.buttons,
+    });
+  }
+
+  function onCanvasPointerUp(e: PointerEvent) {
+    const c = pointerEventCommon(e);
+    lastPointer = null;
+    try {
+      (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+    } catch { /* not captured — ignore */ }
+    engine?.forward_input({ kind: 'PointerUp', x: c.x, y: c.y, button: c.button });
+  }
+
   // Info drawer (mobile only — desktop always shows the panel inline)
   let infoOpen = $state(false);
 </script>
 
 <div class="layout" class:info-open={infoOpen}>
   <aside class="info" class:open={infoOpen}>
-    <h2>Sierpinski Chaos Game</h2>
+    <h2>Sierpinski Pyramid</h2>
     <p>
-      Three triangle corners, plus a deterministic random starting point
-      somewhere inside. Each iteration:
+      Four tetrahedron corners in 3D, plus a deterministic random starting
+      point somewhere inside. Each iteration:
     </p>
     <ol>
-      <li>Pick one of the three corners uniformly at random.</li>
+      <li>Pick one of the four corners uniformly at random.</li>
       <li>Move halfway from the current position toward that corner.</li>
-      <li>Drop a permanent dot at the new position.</li>
+      <li>Drop a permanent dot at the new position, tinted with the
+        chosen corner's color.</li>
     </ol>
     <p>
       After a few thousand iterations the dots converge on the
-      <strong>Sierpinski triangle</strong> — a fractal attractor with three
-      self-similar copies of itself nested inside.
+      <strong>Sierpinski tetrahedron</strong> — a 3D fractal attractor with
+      four self-similar sub-pyramids nested inside. Because each dot inherits
+      the color of the corner it moved toward, the four sub-pyramids paint
+      themselves in distinct hues.
     </p>
     <h3>What you're seeing</h3>
     <ul>
-      <li><span class="swatch corner"></span> Triangle corners (anchors)</li>
+      <li><span class="swatch corner"></span> Tetrahedron corners (anchors)</li>
       <li><span class="swatch highlight"></span> Highlighted corner (chosen this iteration)</li>
       <li><span class="swatch guide"></span> Guide line from current position to the chosen corner</li>
       <li><span class="swatch current"></span> In-flight dot, moving toward the halfway point</li>
-      <li><span class="swatch trail"></span> Trail of permanent dots</li>
+      <li><span class="swatch trail"></span> Trail of permanent dots (color-tinted per corner)</li>
     </ul>
     <p class="tip">
+      The pyramid turntables on its own so you can see the structure from
+      every angle. <em>Click and drag the canvas</em> to grab the camera
+      and rotate it yourself — horizontal drag spins the azimuth, vertical
+      drag tilts the elevation.
+    </p>
+    <p class="tip">
       Slow down to <em>1 iter/sec</em> to study each step; crank to
-      <em>240</em> to race through 10k+ iterations and watch the pattern
-      resolve.
+      <em>240</em> to race through 10k+ iterations and watch the four
+      sub-pyramids resolve.
     </p>
     <p class="tip">
       The first ~20 dots are hidden — the chaos orbit converges onto the
       Sierpinski set at rate <em>(1/2)<sup>n</sup></em>, so very early
       dots can sit in regions that get "carved out" only at deeper levels.
-      By ~iteration 20 the dot is in a sub-triangle smaller than a pixel
+      By ~iteration 20 the dot is in a sub-tetrahedron smaller than a pixel
       and everything past that traces the true attractor.
     </p>
   </aside>
 
   <div class="canvas-wrap">
-    <canvas id="viz-canvas" bind:this={canvas}></canvas>
+    <canvas
+      id="viz-canvas"
+      bind:this={canvas}
+      onpointerdown={onCanvasPointerDown}
+      onpointermove={onCanvasPointerMove}
+      onpointerup={onCanvasPointerUp}
+      onpointercancel={onCanvasPointerUp}
+      onpointerleave={onCanvasPointerUp}
+    ></canvas>
     <div class="zoom-controls">
       <button onclick={zoomIn} title="Zoom in">+</button>
       <button onclick={zoomOut} title="Zoom out">−</button>
@@ -347,6 +411,7 @@
     width: 100%;
     height: 100%;
     display: block;
+    touch-action: none;
   }
   .zoom-controls {
     position: absolute;
