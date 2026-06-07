@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use web_sys::WebGl2RenderingContext;
 
 use crate::config::{color_property, number_property, ConfigSchema, NumberOpts};
-use crate::render::{Camera3D, InstancedPoints3D, LineBatch3D};
-use crate::rules::sierpinski_chaos::ChaosGameState3D;
+use crate::render::{Camera3D, InstancedPoints3D, LineBatch3D, LineVertex3D, PointInstance3D};
+use crate::rules::sierpinski_chaos::{ChaosGameState3D, CORNERS_3D};
 use crate::traits::{InputEvent, Visualization};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,14 +194,49 @@ impl Visualization for SierpinskiPyramid {
     fn render(
         &mut self,
         gl: &WebGl2RenderingContext,
-        _state: &Self::State,
+        state: &Self::State,
         cfg: &Self::Config,
     ) {
         if self.ensure_resources(gl).is_err() { return; }
+        let points = self.points.as_mut().unwrap();
+        let lines  = self.lines.as_mut().unwrap();
 
-        // Background only for now -- edges/dots/etc land in Tasks 6-8.
+        // Camera placement.
+        self.camera.distance = BASE_CAMERA_DISTANCE / self.zoom.max(0.1);
+        self.camera.azimuth = self.auto_azimuth + self.azimuth_offset;
+        self.camera.elevation = self.elevation;
+        let vp = self.camera.view_projection();
+        let viewport = self.camera.viewport_px;
+
+        // Clear color + depth, enable depth test for occlusion.
+        gl.enable(WebGl2RenderingContext::DEPTH_TEST);
         gl.clear_color(cfg.background[0], cfg.background[1], cfg.background[2], cfg.background[3]);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+
+        // ---- Edges: 6 segments connecting every pair of corners. ----
+        let mut line_verts: Vec<LineVertex3D> = Vec::with_capacity(12);
+        for i in 0..4 {
+            for j in (i + 1)..4 {
+                line_verts.push(LineVertex3D { position: CORNERS_3D[i], color: cfg.edge_color });
+                line_verts.push(LineVertex3D { position: CORNERS_3D[j], color: cfg.edge_color });
+            }
+        }
+        lines.upload(gl, &line_verts);
+        lines.draw(gl, &vp);
+
+        // ---- Corner dots. ----
+        let mut points_data: Vec<PointInstance3D> = Vec::with_capacity(4);
+        for (i, &corner) in CORNERS_3D.iter().enumerate() {
+            let highlighted = state.chosen_corner == Some(i);
+            let color = if highlighted { cfg.corner_highlight_color } else { cfg.corner_colors[i] };
+            points_data.push(PointInstance3D {
+                position: corner,
+                color,
+                radius_px: cfg.corner_size_px * 0.5,
+            });
+        }
+        points.upload(gl, &points_data);
+        points.draw(gl, &vp, viewport);
     }
 
     fn resize(&mut self, gl: &WebGl2RenderingContext, w: u32, h: u32) {
