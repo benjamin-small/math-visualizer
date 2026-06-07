@@ -154,6 +154,9 @@ pub struct SierpinskiPyramid {
     /// each frame; never re-allocated. Avoids ~MB/frame heap churn at large
     /// trail sizes.
     points_scratch: Vec<PointInstance3D>,
+    /// Cached from the last `render()` call so `tick(dt)` can integrate
+    /// auto-rotation without seeing the config. Set every frame in `render()`.
+    cached_auto_speed: f32,
 }
 
 impl SierpinskiPyramid {
@@ -172,6 +175,7 @@ impl SierpinskiPyramid {
             points: None,
             lines: None,
             points_scratch: Vec::new(),
+            cached_auto_speed: 0.25,
         }
     }
 
@@ -208,6 +212,7 @@ impl Visualization for SierpinskiPyramid {
 
         // Camera placement.
         self.camera.distance = BASE_CAMERA_DISTANCE / self.zoom.max(0.1);
+        self.cached_auto_speed = cfg.auto_rotate_speed;
         self.camera.azimuth = self.auto_azimuth + self.azimuth_offset;
         self.camera.elevation = self.elevation;
         let vp = self.camera.view_projection();
@@ -218,13 +223,20 @@ impl Visualization for SierpinskiPyramid {
         gl.clear_color(cfg.background[0], cfg.background[1], cfg.background[2], cfg.background[3]);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
 
-        // ---- Edges: 6 segments connecting every pair of corners. ----
-        let mut line_verts: Vec<LineVertex3D> = Vec::with_capacity(12);
+        // ---- Edges (6 segments) + optional guide line (1 segment). ----
+        let mut line_verts: Vec<LineVertex3D> = Vec::with_capacity(14);
         for i in 0..4 {
             for j in (i + 1)..4 {
                 line_verts.push(LineVertex3D { position: CORNERS_3D[i], color: cfg.edge_color });
                 line_verts.push(LineVertex3D { position: CORNERS_3D[j], color: cfg.edge_color });
             }
+        }
+        if let Some(corner_idx) = state.chosen_corner {
+            // Start point: the most recent trail dot (or the initial position
+            // if no iterations have completed). End point: the picked corner.
+            let start = state.trail.last().copied().unwrap_or(state.initial_position);
+            line_verts.push(LineVertex3D { position: start,                  color: cfg.guide_color });
+            line_verts.push(LineVertex3D { position: CORNERS_3D[corner_idx], color: cfg.guide_color });
         }
         lines.upload(gl, &line_verts);
         lines.draw(gl, &vp);
@@ -272,6 +284,14 @@ impl Visualization for SierpinskiPyramid {
             });
         }
 
+        if let Some(p) = state.current_position {
+            points_data.push(PointInstance3D {
+                position: p,
+                color: cfg.current_color,
+                radius_px: cfg.current_size_px * 0.5,
+            });
+        }
+
         points.upload(gl, &points_data);
         points.draw(gl, &vp, viewport);
     }
@@ -285,12 +305,34 @@ impl Visualization for SierpinskiPyramid {
         self.zoom = zoom.clamp(0.25, 20.0);
     }
 
-    fn tick(&mut self, _dt: f32) {
-        // Auto-rotate wires up in Task 8.
+    fn tick(&mut self, dt: f32) {
+        // Auto-rotate always advances. Drag adds an offset on top — it
+        // does not pause the auto-spin.
+        self.auto_azimuth += self.cached_auto_speed * dt;
     }
 
-    fn handle_input(&mut self, _ev: &InputEvent) {
-        // Drag wires up in Task 8.
+    fn handle_input(&mut self, ev: &InputEvent) {
+        match ev {
+            InputEvent::PointerDown { .. } => {
+                self.is_dragging = true;
+            }
+            InputEvent::PointerMove { dx, dy, buttons, .. } => {
+                // Primary button held (bit 0) — drag to orbit.
+                if *buttons & 1 != 0 {
+                    self.is_dragging = true;
+                    self.azimuth_offset += *dx * 0.005;
+                    self.elevation = (self.elevation + *dy * 0.005)
+                        .clamp(
+                            -std::f32::consts::FRAC_PI_2 + 0.01,
+                            std::f32::consts::FRAC_PI_2 - 0.01,
+                        );
+                }
+            }
+            InputEvent::PointerUp { .. } => {
+                self.is_dragging = false;
+            }
+            _ => {}
+        }
     }
 }
 
