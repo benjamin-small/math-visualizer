@@ -145,7 +145,6 @@ pub struct SierpinskiPyramid {
     azimuth_offset: f32,
     /// User-controlled elevation. Clamped at the poles inside Camera3D.
     elevation: f32,
-    is_dragging: bool,
     /// 1.0 = default fit; >1 zooms in (camera distance shrinks).
     zoom: f32,
     points: Option<InstancedPoints3D>,
@@ -170,7 +169,6 @@ impl SierpinskiPyramid {
             auto_azimuth: std::f32::consts::FRAC_PI_6,
             azimuth_offset: 0.0,
             elevation: -0.35,
-            is_dragging: false,
             zoom: 1.0,
             points: None,
             lines: None,
@@ -313,23 +311,13 @@ impl Visualization for SierpinskiPyramid {
 
     fn handle_input(&mut self, ev: &InputEvent) {
         match ev {
-            InputEvent::PointerDown { .. } => {
-                self.is_dragging = true;
-            }
-            InputEvent::PointerMove { dx, dy, buttons, .. } => {
-                // Primary button held (bit 0) — drag to orbit.
-                if *buttons & 1 != 0 {
-                    self.is_dragging = true;
-                    self.azimuth_offset += *dx * 0.005;
-                    self.elevation = (self.elevation + *dy * 0.005)
-                        .clamp(
-                            -std::f32::consts::FRAC_PI_2 + 0.01,
-                            std::f32::consts::FRAC_PI_2 - 0.01,
-                        );
-                }
-            }
-            InputEvent::PointerUp { .. } => {
-                self.is_dragging = false;
+            InputEvent::PointerMove { dx, dy, buttons, .. } if *buttons & 1 != 0 => {
+                self.azimuth_offset += *dx * 0.005;
+                self.elevation = (self.elevation + *dy * 0.005)
+                    .clamp(
+                        -std::f32::consts::FRAC_PI_2 + 0.01,
+                        std::f32::consts::FRAC_PI_2 - 0.01,
+                    );
             }
             _ => {}
         }
