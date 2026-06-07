@@ -224,8 +224,37 @@ impl Visualization for SierpinskiPyramid {
         lines.upload(gl, &line_verts);
         lines.draw(gl, &vp);
 
-        // ---- Corner dots. ----
-        let mut points_data: Vec<PointInstance3D> = Vec::with_capacity(4);
+        // ---- Build the full point list: trail (under) then corners (over). ----
+        // The chaos orbit converges onto the Sierpinski set at rate (1/2)^n,
+        // so the first ~20 iterations can sit in level-N holes. Skip them
+        // only past 2× burn-in so a fresh playthrough at iter=1..20 still
+        // shows the dot moving.
+        let burn_in = cfg.burn_in_iterations as usize;
+        let skip = if state.trail.len() > burn_in * 2 { burn_in } else { 0 };
+
+        let mut points_data: Vec<PointInstance3D> =
+            Vec::with_capacity(state.trail.len().saturating_sub(skip) + 4);
+
+        for i in skip..state.trail.len() {
+            let p = state.trail[i];
+            let corner_idx = *state.corner_for_dot.get(i).unwrap_or(&0) as usize;
+            let target = cfg.corner_colors[corner_idx & 0b11];
+            let base = cfg.trail_color;
+            let t = cfg.trail_tint.clamp(0.0, 1.0);
+            let color = [
+                base[0] + (target[0] - base[0]) * t,
+                base[1] + (target[1] - base[1]) * t,
+                base[2] + (target[2] - base[2]) * t,
+                base[3] + (target[3] - base[3]) * t,
+            ];
+            points_data.push(PointInstance3D {
+                position: p,
+                color,
+                radius_px: cfg.trail_size_px * 0.5,
+            });
+        }
+
+        // Corner anchors over the trail.
         for (i, &corner) in CORNERS_3D.iter().enumerate() {
             let highlighted = state.chosen_corner == Some(i);
             let color = if highlighted { cfg.corner_highlight_color } else { cfg.corner_colors[i] };
@@ -235,6 +264,7 @@ impl Visualization for SierpinskiPyramid {
                 radius_px: cfg.corner_size_px * 0.5,
             });
         }
+
         points.upload(gl, &points_data);
         points.draw(gl, &vp, viewport);
     }
