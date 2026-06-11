@@ -276,22 +276,31 @@ impl Visualization for SierpinskiPyramid {
         points_data.clear();
         points_data.reserve(state.trail.len().saturating_sub(skip) + 4);
 
-        for i in skip..state.trail.len() {
-            let p = state.trail[i];
-            let corner_idx = *state.corner_for_dot.get(i).unwrap_or(&0) as usize;
-            let target = cfg.corner_colors[corner_idx & 0b11];
-            let base = cfg.trail_color;
-            let t = cfg.trail_tint.clamp(0.0, 1.0);
-            let color = [
+        // The rule pushes corner_for_dot in lockstep with trail and every
+        // value is in 0..4 by construction (pick_corner masks with & 0b11),
+        // so direct indexing is correct — a panic here would mean a real
+        // rule/viz invariant violation, which we want to surface.
+        debug_assert_eq!(state.corner_for_dot.len(), state.trail.len());
+        // Precompute the four corner tints once instead of recomputing the
+        // RGBA lerp per dot — only four distinct results across the loop.
+        let t = cfg.trail_tint.clamp(0.0, 1.0);
+        let base = cfg.trail_color;
+        let tinted: [[f32; 4]; 4] = std::array::from_fn(|k| {
+            let target = cfg.corner_colors[k];
+            [
                 base[0] + (target[0] - base[0]) * t,
                 base[1] + (target[1] - base[1]) * t,
                 base[2] + (target[2] - base[2]) * t,
                 base[3] + (target[3] - base[3]) * t,
-            ];
+            ]
+        });
+        let trail_radius = cfg.trail_size_px * 0.5;
+        for i in skip..state.trail.len() {
+            let corner_idx = state.corner_for_dot[i] as usize;
             points_data.push(PointInstance3D {
-                position: p,
-                color,
-                radius_px: cfg.trail_size_px * 0.5,
+                position: state.trail[i],
+                color: tinted[corner_idx],
+                radius_px: trail_radius,
             });
         }
 
@@ -383,5 +392,55 @@ mod tests {
         // current_color, current_size_px, guide_color, burn_in_iterations,
         // auto_rotate_speed, padding = 14 fields.
         assert_eq!(required.len(), 14);
+    }
+
+    fn move_event(dx: f32, dy: f32, buttons: u8) -> InputEvent {
+        InputEvent::PointerMove { x: 0.0, y: 0.0, dx, dy, buttons }
+    }
+
+    #[test]
+    fn drag_with_primary_button_updates_azimuth_offset_and_elevation() {
+        let mut viz = SierpinskiPyramid::new();
+        let az0 = viz.azimuth_offset;
+        let el0 = viz.elevation;
+        viz.handle_input(&move_event(40.0, 20.0, 1));
+        let daz = viz.azimuth_offset - az0;
+        let del = viz.elevation - el0;
+        // Sensitivity is 0.005 rad/px (mirrors Camera3D::DRAG_SENS_RAD_PER_PX).
+        assert!((daz - 40.0 * 0.005).abs() < 1e-6, "azimuth_offset Δ = {daz}");
+        assert!((del - 20.0 * 0.005).abs() < 1e-6, "elevation Δ = {del}");
+    }
+
+    #[test]
+    fn drag_without_primary_button_is_ignored() {
+        let mut viz = SierpinskiPyramid::new();
+        let az0 = viz.azimuth_offset;
+        let el0 = viz.elevation;
+        // Hover (no buttons held): must not orbit.
+        viz.handle_input(&move_event(40.0, 20.0, 0));
+        // Middle button only: also must not orbit (we listen for bit 0 only).
+        viz.handle_input(&move_event(40.0, 20.0, 4));
+        assert_eq!(viz.azimuth_offset, az0);
+        assert_eq!(viz.elevation, el0);
+    }
+
+    #[test]
+    fn elevation_clamps_at_the_poles() {
+        let mut viz = SierpinskiPyramid::new();
+        viz.handle_input(&move_event(0.0, 100_000.0, 1));
+        assert!(viz.elevation < std::f32::consts::FRAC_PI_2);
+        viz.handle_input(&move_event(0.0, -1_000_000.0, 1));
+        assert!(viz.elevation > -std::f32::consts::FRAC_PI_2);
+    }
+
+    #[test]
+    fn pointer_down_and_up_do_not_perturb_orientation() {
+        let mut viz = SierpinskiPyramid::new();
+        let az0 = viz.azimuth_offset;
+        let el0 = viz.elevation;
+        viz.handle_input(&InputEvent::PointerDown { x: 0.0, y: 0.0, button: 0 });
+        viz.handle_input(&InputEvent::PointerUp { x: 0.0, y: 0.0, button: 0 });
+        assert_eq!(viz.azimuth_offset, az0);
+        assert_eq!(viz.elevation, el0);
     }
 }
