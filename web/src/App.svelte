@@ -264,7 +264,6 @@
       onpointermove={onCanvasPointerMove}
       onpointerup={onCanvasPointerUp}
       onpointercancel={onCanvasPointerUp}
-      onpointerleave={onCanvasPointerUp}
     ></canvas>
     <div class="zoom-controls">
       <button onclick={zoomIn} title="Zoom in">+</button>

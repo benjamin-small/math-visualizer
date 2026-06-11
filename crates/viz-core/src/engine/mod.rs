@@ -195,6 +195,9 @@ impl Engine {
         self.playback.sub_progress = 0.0;
         self.playback.playing = false;
         self.playback.max_iterations = new_max;
+        // The user may have spent seconds in a config panel before committing;
+        // the next frame() must not feed that gap as `dt` into viz.tick().
+        self.last_frame_ms = None;
 
         let new_state = self
             .rule
@@ -214,6 +217,8 @@ impl Engine {
         self.viz
             .init(&self.gl, &self.viz_cfg)
             .map_err(|e| JsValue::from_str(&format!("viz init: {e}")))?;
+        // Same rationale as update_rule_config: don't feed a stale dt to tick.
+        self.last_frame_ms = None;
         Ok(())
     }
 

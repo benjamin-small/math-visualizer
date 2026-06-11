@@ -96,7 +96,13 @@ impl LineBatch3D {
         gl.bind_vertex_array(Some(&self.vao));
         gl.enable(Gl::BLEND);
         gl.blend_func(Gl::SRC_ALPHA, Gl::ONE_MINUS_SRC_ALPHA);
+        // Translucent lines read depth (so opaque geometry can occlude them),
+        // but don't write depth — otherwise an alpha-0.8 edge fragment writes
+        // its full geometry depth and any trail dot drawn afterwards behind
+        // that edge fails the depth test and disappears.
+        gl.depth_mask(false);
         gl.draw_arrays(Gl::LINES, 0, self.vertex_count as i32);
+        gl.depth_mask(true);
         gl.bind_vertex_array(None);
     }
 }

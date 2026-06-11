@@ -139,6 +139,9 @@ impl Rule for SierpinskiChaos {
     ) {
         if n >= cfg.max_iterations {
             state.chosen_corner = None;
+            // Otherwise the in-flight orange dot stays pinned at the final
+            // trail position forever after playback completes.
+            state.current_position = None;
             return;
         }
         let corner_idx = pick_corner(seed, n);
@@ -356,6 +359,8 @@ mod tests {
         rule.advance_to(&mut state, &cfg, 0, 5);
         rule.substep(&mut state, &cfg, 0, 5, 0.5);
         assert!(state.chosen_corner.is_none());
+        assert!(state.current_position.is_none(),
+            "in-flight dot must clear at end of playback so it doesn't sit pinned forever");
     }
 
     fn point_in_tetrahedron(p: [f32; 3]) -> bool {

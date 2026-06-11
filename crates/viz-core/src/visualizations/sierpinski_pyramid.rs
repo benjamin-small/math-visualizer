@@ -194,7 +194,11 @@ impl Visualization for SierpinskiPyramid {
 
     fn id(&self) -> &'static str { "sierpinski-pyramid" }
 
-    fn init(&mut self, gl: &WebGl2RenderingContext, _cfg: &Self::Config) {
+    fn init(&mut self, gl: &WebGl2RenderingContext, cfg: &Self::Config) {
+        // Seed the cache from cfg so the very first tick(dt) — which runs
+        // BEFORE the first render() — integrates against the configured
+        // speed, not the struct's hardcoded default.
+        self.cached_auto_speed = cfg.auto_rotate_speed;
         let _ = self.ensure_resources(gl);
     }
 
