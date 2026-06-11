@@ -71,9 +71,11 @@ pub struct InstancedPoints3D {
     program: ShaderProgram,
     vao: WebGlVertexArrayObject,
     instance_buffer: WebGlBuffer,
+    quad_buffer: WebGlBuffer,
     instance_count: usize,
     u_view_proj_loc: Option<web_sys::WebGlUniformLocation>,
     u_viewport_loc: Option<web_sys::WebGlUniformLocation>,
+    gl: Gl,
 }
 
 impl InstancedPoints3D {
@@ -124,9 +126,11 @@ impl InstancedPoints3D {
             program,
             vao,
             instance_buffer,
+            quad_buffer: quad_buf,
             instance_count: 0,
             u_view_proj_loc,
             u_viewport_loc,
+            gl: gl.clone(),
         })
     }
 
@@ -153,6 +157,11 @@ impl InstancedPoints3D {
 
     /// Draw the previously-uploaded instances using the given view-projection
     /// matrix (column-major mat4) and viewport size.
+    ///
+    /// The caller owns blend / depth-test / depth-mask state. This renderer
+    /// produces alpha-blended discs, so the caller normally wants BLEND
+    /// enabled with SRC_ALPHA / ONE_MINUS_SRC_ALPHA, and depth_mask(false)
+    /// while the antialiased rim writes to the framebuffer.
     pub fn draw(&self, gl: &Gl, view_proj: &[f32; 16], viewport_px: [u32; 2]) {
         if self.instance_count == 0 {
             return;
@@ -165,15 +174,16 @@ impl InstancedPoints3D {
             viewport_px[1].max(1) as f32,
         );
         gl.bind_vertex_array(Some(&self.vao));
-        gl.enable(Gl::BLEND);
-        gl.blend_func(Gl::SRC_ALPHA, Gl::ONE_MINUS_SRC_ALPHA);
-        // Alpha-blended discs read depth (so the wireframe + corner anchors
-        // can occlude them), but they don't write depth — otherwise the
-        // antialiased rim would write semi-transparent depth values that
-        // produce halos around later-drawn geometry.
-        gl.depth_mask(false);
         gl.draw_arrays_instanced(Gl::TRIANGLE_STRIP, 0, 4, self.instance_count as i32);
-        gl.depth_mask(true);
         gl.bind_vertex_array(None);
+    }
+}
+
+impl Drop for InstancedPoints3D {
+    fn drop(&mut self) {
+        self.gl.delete_vertex_array(Some(&self.vao));
+        self.gl.delete_buffer(Some(&self.instance_buffer));
+        self.gl.delete_buffer(Some(&self.quad_buffer));
+        // self.program's own Drop deletes the WebGlProgram.
     }
 }

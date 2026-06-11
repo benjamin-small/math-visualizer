@@ -172,6 +172,17 @@
     };
   }
 
+  // forward_input throws if serde_wasm_bindgen rejects the payload (e.g.
+  // a future enum-shape drift). Surface it as a console warning instead
+  // of an unhandled exception so the handler keeps a clean state.
+  function safeForwardInput(payload: unknown) {
+    try {
+      engine?.forward_input(payload);
+    } catch (err) {
+      console.warn('engine.forward_input failed:', err, payload);
+    }
+  }
+
   function onCanvasPointerDown(e: PointerEvent) {
     const target = e.currentTarget as HTMLCanvasElement;
     try {
@@ -179,7 +190,7 @@
     } catch { /* capture unavailable — ignore */ }
     const c = pointerEventCommon(e);
     lastPointer.set(e.pointerId, { x: c.x, y: c.y });
-    engine?.forward_input({ kind: 'PointerDown', x: c.x, y: c.y, button: c.button });
+    safeForwardInput({ kind: 'PointerDown', x: c.x, y: c.y, button: c.button });
   }
 
   function onCanvasPointerMove(e: PointerEvent) {
@@ -188,7 +199,7 @@
     const dx = prev ? c.x - prev.x : 0;
     const dy = prev ? c.y - prev.y : 0;
     lastPointer.set(e.pointerId, { x: c.x, y: c.y });
-    engine?.forward_input({
+    safeForwardInput({
       kind: 'PointerMove',
       x: c.x,
       y: c.y,
@@ -204,7 +215,7 @@
     try {
       (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
     } catch { /* not captured — ignore */ }
-    engine?.forward_input({ kind: 'PointerUp', x: c.x, y: c.y, button: c.button });
+    safeForwardInput({ kind: 'PointerUp', x: c.x, y: c.y, button: c.button });
   }
 
   // Info drawer (mobile only — desktop always shows the panel inline)

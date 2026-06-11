@@ -6,6 +6,7 @@ use web_sys::{WebGl2RenderingContext as Gl, WebGlProgram, WebGlShader, WebGlUnif
 
 pub struct ShaderProgram {
     program: WebGlProgram,
+    gl: Gl,
 }
 
 impl ShaderProgram {
@@ -33,7 +34,7 @@ impl ShaderProgram {
             return Err(format!("link failed: {log}"));
         }
 
-        Ok(Self { program })
+        Ok(Self { program, gl: gl.clone() })
     }
 
     pub fn use_program(&self, gl: &Gl) {
@@ -50,6 +51,12 @@ impl ShaderProgram {
 
     pub fn raw(&self) -> &WebGlProgram {
         &self.program
+    }
+}
+
+impl Drop for ShaderProgram {
+    fn drop(&mut self) {
+        self.gl.delete_program(Some(&self.program));
     }
 }
 

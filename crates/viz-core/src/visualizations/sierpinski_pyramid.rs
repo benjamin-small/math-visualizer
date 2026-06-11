@@ -77,7 +77,16 @@ impl ConfigSchema for SierpinskiPyramidVizConfig {
                     "title": "Corner colors (4)",
                     "minItems": 4,
                     "maxItems": 4,
-                    "items": color_property("Corner color", [0.30, 0.85, 0.95, 1.0]),
+                    // Per-slot defaults so a schema-driven reset produces
+                    // four distinct colors, not four cyan copies. items=false
+                    // forbids extras beyond the four prefixes.
+                    "prefixItems": [
+                        color_property("Corner 0 (cyan)",    [0.30, 0.85, 0.95, 1.0]),
+                        color_property("Corner 1 (magenta)", [0.95, 0.45, 0.85, 1.0]),
+                        color_property("Corner 2 (amber)",   [0.98, 0.78, 0.30, 1.0]),
+                        color_property("Corner 3 (lime)",    [0.55, 0.90, 0.45, 1.0]),
+                    ],
+                    "items": false,
                 },
                 "corner_highlight_color":   color_property("Highlighted corner color", [1.00, 0.98, 0.85, 1.0]),
                 "corner_size_px": number_property(NumberOpts {
@@ -220,8 +229,19 @@ impl Visualization for SierpinskiPyramid {
         let vp = self.camera.view_projection();
         let viewport = self.camera.viewport_px;
 
-        // Clear color + depth, enable depth test for occlusion.
+        // This viz owns all GL state for its frame. The renderers below are
+        // pure draw-call wrappers — they don't touch blend / depth / mask.
         gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+        gl.enable(WebGl2RenderingContext::BLEND);
+        gl.blend_func(
+            WebGl2RenderingContext::SRC_ALPHA,
+            WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
+        );
+        // The entire scene is alpha-blended (trail dots, edges, guide line).
+        // Disabling depth writes keeps translucent fragments from writing
+        // semi-transparent depth values that would occlude later draws.
+        gl.depth_mask(false);
+
         gl.clear_color(cfg.background[0], cfg.background[1], cfg.background[2], cfg.background[3]);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
 
@@ -296,6 +316,11 @@ impl Visualization for SierpinskiPyramid {
 
         points.upload(gl, &points_data);
         points.draw(gl, &vp, viewport);
+
+        // Restore default GL state so a future viz swap inherits a clean slate.
+        gl.depth_mask(true);
+        gl.disable(WebGl2RenderingContext::BLEND);
+        gl.disable(WebGl2RenderingContext::DEPTH_TEST);
     }
 
     fn resize(&mut self, gl: &WebGl2RenderingContext, w: u32, h: u32) {

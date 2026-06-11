@@ -46,6 +46,7 @@ pub struct LineBatch3D {
     buffer: WebGlBuffer,
     vertex_count: usize,
     u_view_proj: Option<web_sys::WebGlUniformLocation>,
+    gl: Gl,
 }
 
 impl LineBatch3D {
@@ -65,7 +66,7 @@ impl LineBatch3D {
 
         let u_view_proj = program.uniform_location(gl, "u_view_proj");
 
-        Ok(Self { program, vao, buffer, vertex_count: 0, u_view_proj })
+        Ok(Self { program, vao, buffer, vertex_count: 0, u_view_proj, gl: gl.clone() })
     }
 
     pub fn upload(&mut self, gl: &Gl, vertices: &[LineVertex3D]) {
@@ -87,6 +88,11 @@ impl LineBatch3D {
         }
     }
 
+    /// Draw the previously-uploaded line segments. The caller owns blend /
+    /// depth-test / depth-mask state. For alpha < 1 line colors, the caller
+    /// normally wants BLEND on with SRC_ALPHA / ONE_MINUS_SRC_ALPHA and
+    /// depth_mask(false) so translucent edges don't write depth and occlude
+    /// later geometry behind them.
     pub fn draw(&self, gl: &Gl, view_proj: &[f32; 16]) {
         if self.vertex_count == 0 {
             return;
@@ -94,15 +100,15 @@ impl LineBatch3D {
         self.program.use_program(gl);
         gl.uniform_matrix4fv_with_f32_array(self.u_view_proj.as_ref(), false, view_proj);
         gl.bind_vertex_array(Some(&self.vao));
-        gl.enable(Gl::BLEND);
-        gl.blend_func(Gl::SRC_ALPHA, Gl::ONE_MINUS_SRC_ALPHA);
-        // Translucent lines read depth (so opaque geometry can occlude them),
-        // but don't write depth — otherwise an alpha-0.8 edge fragment writes
-        // its full geometry depth and any trail dot drawn afterwards behind
-        // that edge fails the depth test and disappears.
-        gl.depth_mask(false);
         gl.draw_arrays(Gl::LINES, 0, self.vertex_count as i32);
-        gl.depth_mask(true);
         gl.bind_vertex_array(None);
+    }
+}
+
+impl Drop for LineBatch3D {
+    fn drop(&mut self) {
+        self.gl.delete_vertex_array(Some(&self.vao));
+        self.gl.delete_buffer(Some(&self.buffer));
+        // self.program's own Drop deletes the WebGlProgram.
     }
 }
