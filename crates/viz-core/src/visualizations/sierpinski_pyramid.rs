@@ -304,7 +304,12 @@ impl Visualization for SierpinskiPyramid {
     }
 
     fn set_zoom(&mut self, zoom: f32) {
-        self.zoom = zoom.clamp(0.25, 20.0);
+        // Upper bound 4.0 (was 20.0) keeps camera distance ≥ 2.5/4 = 0.625,
+        // outside the tetrahedron's circumscribed sphere (~0.612). Going
+        // higher pushed the eye inside the geometry and put far-side corners
+        // behind the camera, producing inverted disc artifacts in the
+        // points shader where clip.w flips sign.
+        self.zoom = zoom.clamp(0.25, 4.0);
     }
 
     fn tick(&mut self, dt: f32) {

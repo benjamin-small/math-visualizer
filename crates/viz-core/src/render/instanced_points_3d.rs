@@ -42,7 +42,12 @@ void main() {
     // regardless of depth.
     vec4 clip = u_view_proj * vec4(a_position, 1.0);
     vec2 radius_clip = vec2(a_radius_px) * 2.0 / u_viewport_px * clip.w;
-    gl_Position = vec4(clip.xy + a_corner * radius_clip, clip.zw);
+    vec4 pos = vec4(clip.xy + a_corner * radius_clip, clip.zw);
+    // Behind the camera (clip.w <= 0) the perspective /w divide flips the
+    // quad inside-out and stretches it across the screen. Push such
+    // vertices outside the [-1, 1] NDC cube so the rasterizer clips them
+    // cleanly instead of painting an inverted disc.
+    gl_Position = clip.w > 0.0 ? pos : vec4(2.0, 2.0, 2.0, 1.0);
 }
 "#;
 

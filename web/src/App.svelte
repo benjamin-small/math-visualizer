@@ -6,7 +6,9 @@
 
   let canvas: HTMLCanvasElement;
   let engine = $state<Engine | null>(null);
-  let lastPointer: { x: number; y: number } | null = null;
+  // Per-pointerId anchor so simultaneous touches (or a mouse + a touch)
+  // don't share a single lastPointer and produce delta = (finger 2) − (finger 1).
+  const lastPointer: Map<number, { x: number; y: number }> = new Map();
   let snapshot = $state<PlaybackSnapshot>({
     iteration: 0,
     sub_progress: 0,
@@ -176,15 +178,16 @@
       target.setPointerCapture(e.pointerId);
     } catch { /* capture unavailable — ignore */ }
     const c = pointerEventCommon(e);
-    lastPointer = { x: c.x, y: c.y };
+    lastPointer.set(e.pointerId, { x: c.x, y: c.y });
     engine?.forward_input({ kind: 'PointerDown', x: c.x, y: c.y, button: c.button });
   }
 
   function onCanvasPointerMove(e: PointerEvent) {
     const c = pointerEventCommon(e);
-    const dx = lastPointer ? c.x - lastPointer.x : 0;
-    const dy = lastPointer ? c.y - lastPointer.y : 0;
-    lastPointer = { x: c.x, y: c.y };
+    const prev = lastPointer.get(e.pointerId);
+    const dx = prev ? c.x - prev.x : 0;
+    const dy = prev ? c.y - prev.y : 0;
+    lastPointer.set(e.pointerId, { x: c.x, y: c.y });
     engine?.forward_input({
       kind: 'PointerMove',
       x: c.x,
@@ -197,7 +200,7 @@
 
   function onCanvasPointerUp(e: PointerEvent) {
     const c = pointerEventCommon(e);
-    lastPointer = null;
+    lastPointer.delete(e.pointerId);
     try {
       (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
     } catch { /* not captured — ignore */ }
