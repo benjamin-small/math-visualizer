@@ -26,7 +26,7 @@ pub struct DotsOnCircleVizConfig {
     pub line_color: [f32; 4],
     pub dot_size_px: f32,
     pub ref_dot_size_px: f32,
-    pub padding: f32,  // world units of padding around the unit circle
+    pub padding: f32, // world units of padding around the unit circle
 }
 
 impl Default for DotsOnCircleVizConfig {
@@ -112,22 +112,32 @@ impl DotsOnCircle {
     }
 
     fn ensure_resources(&mut self, gl: &WebGl2RenderingContext) -> Result<(), String> {
-        if self.circle.is_none() { self.circle = Some(SdfCircle::new(gl)?); }
-        if self.points.is_none() { self.points = Some(InstancedPoints::new(gl)?); }
-        if self.lines.is_none()  { self.lines  = Some(LineBatch::new(gl)?); }
+        if self.circle.is_none() {
+            self.circle = Some(SdfCircle::new(gl)?);
+        }
+        if self.points.is_none() {
+            self.points = Some(InstancedPoints::new(gl)?);
+        }
+        if self.lines.is_none() {
+            self.lines = Some(LineBatch::new(gl)?);
+        }
         Ok(())
     }
 }
 
 impl Default for DotsOnCircle {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Visualization for DotsOnCircle {
     type Config = DotsOnCircleVizConfig;
     type State = MidpointState;
 
-    fn id(&self) -> &'static str { "dots-on-circle" }
+    fn id(&self) -> &'static str {
+        "dots-on-circle"
+    }
 
     fn init(&mut self, gl: &WebGl2RenderingContext, _cfg: &Self::Config) {
         // Try to allocate GPU resources. Errors are swallowed here — the next
@@ -136,18 +146,13 @@ impl Visualization for DotsOnCircle {
         let _ = self.ensure_resources(gl);
     }
 
-    fn render(
-        &mut self,
-        gl: &WebGl2RenderingContext,
-        state: &Self::State,
-        cfg: &Self::Config,
-    ) {
+    fn render(&mut self, gl: &WebGl2RenderingContext, state: &Self::State, cfg: &Self::Config) {
         if self.ensure_resources(gl).is_err() {
             return;
         }
         let circle = self.circle.as_ref().unwrap();
         let points = self.points.as_mut().unwrap();
-        let lines  = self.lines.as_mut().unwrap();
+        let lines = self.lines.as_mut().unwrap();
 
         // Fit camera to the unit circle + padding.
         self.camera
@@ -156,7 +161,12 @@ impl Visualization for DotsOnCircle {
         let viewport = self.camera.viewport_px;
 
         // Background.
-        gl.clear_color(cfg.background[0], cfg.background[1], cfg.background[2], cfg.background[3]);
+        gl.clear_color(
+            cfg.background[0],
+            cfg.background[1],
+            cfg.background[2],
+            cfg.background[3],
+        );
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 
         // Circle stroke. Convert pixel stroke to world units.
@@ -167,9 +177,7 @@ impl Visualization for DotsOnCircle {
         // Permanent midpoints + the optional preview midpoint + the two ref
         // dots all go in a single InstancedPoints draw — they share a shader
         // and only differ in per-instance color/size.
-        let mut all_points: Vec<PointInstance> = Vec::with_capacity(
-            state.permanent.len() + 3,
-        );
+        let mut all_points: Vec<PointInstance> = Vec::with_capacity(state.permanent.len() + 3);
         for p in &state.permanent {
             all_points.push(PointInstance {
                 position: *p,
@@ -204,8 +212,14 @@ impl Visualization for DotsOnCircle {
         // Reference line (only present when both ref dots are present).
         if let (Some(a), Some(b)) = (state.ref_perimeter, state.ref_interior) {
             let vs = [
-                LineVertex { position: a, color: cfg.line_color },
-                LineVertex { position: b, color: cfg.line_color },
+                LineVertex {
+                    position: a,
+                    color: cfg.line_color,
+                },
+                LineVertex {
+                    position: b,
+                    color: cfg.line_color,
+                },
             ];
             lines.upload(gl, &vs);
             lines.draw(gl, &proj);

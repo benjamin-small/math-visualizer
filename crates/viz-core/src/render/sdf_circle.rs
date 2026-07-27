@@ -50,7 +50,7 @@ pub struct SdfCircle {
     program: ShaderProgram,
     vao: WebGlVertexArrayObject,
     #[allow(dead_code)]
-    quad_buffer: WebGlBuffer,  // kept alive so the VAO's binding stays valid
+    quad_buffer: WebGlBuffer, // kept alive so the VAO's binding stays valid
     u_proj: Option<web_sys::WebGlUniformLocation>,
     u_color: Option<web_sys::WebGlUniformLocation>,
     u_stroke: Option<web_sys::WebGlUniformLocation>,
@@ -81,7 +81,15 @@ impl SdfCircle {
         let u_stroke = program.uniform_location(gl, "u_stroke");
         let u_pixel_width = program.uniform_location(gl, "u_pixel_width");
 
-        Ok(Self { program, vao, quad_buffer, u_proj, u_color, u_stroke, u_pixel_width })
+        Ok(Self {
+            program,
+            vao,
+            quad_buffer,
+            u_proj,
+            u_color,
+            u_stroke,
+            u_pixel_width,
+        })
     }
 
     /// Draw the circle with the given color, stroke half-width (world units),
@@ -97,7 +105,13 @@ impl SdfCircle {
     ) {
         self.program.use_program(gl);
         gl.uniform_matrix3fv_with_f32_array(self.u_proj.as_ref(), false, projection);
-        gl.uniform4f(self.u_color.as_ref(), color[0], color[1], color[2], color[3]);
+        gl.uniform4f(
+            self.u_color.as_ref(),
+            color[0],
+            color[1],
+            color[2],
+            color[3],
+        );
         gl.uniform1f(self.u_stroke.as_ref(), stroke_world.max(0.0));
         gl.uniform1f(self.u_pixel_width.as_ref(), world_units_per_pixel.max(1e-6));
         gl.bind_vertex_array(Some(&self.vao));

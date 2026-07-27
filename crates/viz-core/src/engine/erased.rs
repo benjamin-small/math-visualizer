@@ -62,13 +62,22 @@ where
     R: Rule,
     R::State: 'static,
 {
-    fn id(&self) -> &'static str { Rule::id(self) }
-    fn capabilities(&self) -> Capabilities { Rule::capabilities(self) }
-    fn schema(&self) -> Value { <R::Config as ConfigSchema>::schema() }
-    fn defaults(&self) -> Value { <R::Config as ConfigSchema>::defaults() }
+    fn id(&self) -> &'static str {
+        Rule::id(self)
+    }
+    fn capabilities(&self) -> Capabilities {
+        Rule::capabilities(self)
+    }
+    fn schema(&self) -> Value {
+        <R::Config as ConfigSchema>::schema()
+    }
+    fn defaults(&self) -> Value {
+        <R::Config as ConfigSchema>::defaults()
+    }
 
     fn init(&self, cfg: &Value, seed: u64) -> Result<Box<dyn Any>, ErasedError> {
-        let typed: R::Config = serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
+        let typed: R::Config =
+            serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
         let state = Rule::init(self, &typed, seed);
         Ok(Box::new(state))
     }
@@ -80,8 +89,11 @@ where
         seed: u64,
         n: u32,
     ) -> Result<(), ErasedError> {
-        let typed_cfg: R::Config = serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
-        let typed_state = state.downcast_mut::<R::State>().ok_or(ErasedError::StateDowncastFailed)?;
+        let typed_cfg: R::Config =
+            serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
+        let typed_state = state
+            .downcast_mut::<R::State>()
+            .ok_or(ErasedError::StateDowncastFailed)?;
         Rule::advance_to(self, typed_state, &typed_cfg, seed, n);
         Ok(())
     }
@@ -94,8 +106,11 @@ where
         n: u32,
         sub: f32,
     ) -> Result<(), ErasedError> {
-        let typed_cfg: R::Config = serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
-        let typed_state = state.downcast_mut::<R::State>().ok_or(ErasedError::StateDowncastFailed)?;
+        let typed_cfg: R::Config =
+            serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
+        let typed_state = state
+            .downcast_mut::<R::State>()
+            .ok_or(ErasedError::StateDowncastFailed)?;
         Rule::substep(self, typed_state, &typed_cfg, seed, n, sub);
         Ok(())
     }
@@ -124,12 +139,19 @@ where
     V: Visualization,
     V::State: 'static,
 {
-    fn id(&self) -> &'static str { Visualization::id(self) }
-    fn schema(&self) -> Value { <V::Config as ConfigSchema>::schema() }
-    fn defaults(&self) -> Value { <V::Config as ConfigSchema>::defaults() }
+    fn id(&self) -> &'static str {
+        Visualization::id(self)
+    }
+    fn schema(&self) -> Value {
+        <V::Config as ConfigSchema>::schema()
+    }
+    fn defaults(&self) -> Value {
+        <V::Config as ConfigSchema>::defaults()
+    }
 
     fn init(&mut self, gl: &WebGl2RenderingContext, cfg: &Value) -> Result<(), ErasedError> {
-        let typed: V::Config = serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
+        let typed: V::Config =
+            serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
         Visualization::init(self, gl, &typed);
         Ok(())
     }
@@ -140,8 +162,11 @@ where
         state: &dyn Any,
         cfg: &Value,
     ) -> Result<(), ErasedError> {
-        let typed_cfg: V::Config = serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
-        let typed_state = state.downcast_ref::<V::State>().ok_or(ErasedError::StateDowncastFailed)?;
+        let typed_cfg: V::Config =
+            serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
+        let typed_state = state
+            .downcast_ref::<V::State>()
+            .ok_or(ErasedError::StateDowncastFailed)?;
         Visualization::render(self, gl, typed_state, &typed_cfg);
         Ok(())
     }

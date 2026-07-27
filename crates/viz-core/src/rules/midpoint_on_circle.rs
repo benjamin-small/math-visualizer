@@ -16,7 +16,9 @@ impl Default for MidpointConfig {
     fn default() -> Self {
         // 100 iterations: enough to see the pattern emerge, fast enough that
         // play-through at default speed completes in a comfortable time.
-        Self { max_iterations: 100 }
+        Self {
+            max_iterations: 100,
+        }
     }
 }
 
@@ -70,8 +72,12 @@ impl Rule for MidpointOnCircle {
     type Config = MidpointConfig;
     type State = MidpointState;
 
-    fn id(&self) -> &'static str { "midpoint-on-circle" }
-    fn capabilities(&self) -> Capabilities { Capabilities::cheap_scrubbable() }
+    fn id(&self) -> &'static str {
+        "midpoint-on-circle"
+    }
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::cheap_scrubbable()
+    }
 
     fn init(&self, _cfg: &Self::Config, _seed: u64) -> Self::State {
         MidpointState::default()
@@ -79,13 +85,7 @@ impl Rule for MidpointOnCircle {
 
     /// Rebuild `permanent` to reflect n full iterations completed. Reference
     /// dots are cleared (they're an animation artifact, set by `substep`).
-    fn advance_to(
-        &self,
-        state: &mut Self::State,
-        cfg: &Self::Config,
-        seed: u64,
-        n: u32,
-    ) {
+    fn advance_to(&self, state: &mut Self::State, cfg: &Self::Config, seed: u64, n: u32) {
         state.permanent.clear();
         state.ref_perimeter = None;
         state.ref_interior = None;
@@ -100,14 +100,7 @@ impl Rule for MidpointOnCircle {
     }
 
     /// Animate iteration `n` in [0, 1] sub-progress.
-    fn substep(
-        &self,
-        state: &mut Self::State,
-        cfg: &Self::Config,
-        seed: u64,
-        n: u32,
-        sub: f32,
-    ) {
+    fn substep(&self, state: &mut Self::State, cfg: &Self::Config, seed: u64, n: u32, sub: f32) {
         if n >= cfg.max_iterations {
             // Past the end: no in-flight animation.
             state.ref_perimeter = None;

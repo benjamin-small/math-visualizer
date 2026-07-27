@@ -34,7 +34,10 @@ impl ShaderProgram {
             return Err(format!("link failed: {log}"));
         }
 
-        Ok(Self { program, gl: gl.clone() })
+        Ok(Self {
+            program,
+            gl: gl.clone(),
+        })
     }
 
     pub fn use_program(&self, gl: &Gl) {
@@ -61,7 +64,9 @@ impl Drop for ShaderProgram {
 }
 
 fn compile(gl: &Gl, kind: u32, src: &str) -> Result<WebGlShader, String> {
-    let shader = gl.create_shader(kind).ok_or("create_shader returned None")?;
+    let shader = gl
+        .create_shader(kind)
+        .ok_or("create_shader returned None")?;
     gl.shader_source(&shader, src);
     gl.compile_shader(&shader);
 

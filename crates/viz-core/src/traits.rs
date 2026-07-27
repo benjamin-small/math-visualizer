@@ -24,7 +24,11 @@ impl Capabilities {
     /// The simplest rule: cheap to recompute from scratch, supports scrubbing.
     /// Used by ColorCycleRule and by any rule whose advance_to is O(n).
     pub const fn cheap_scrubbable() -> Self {
-        Self { supports_scrub: true, cheap_recompute: true, checkpoint_every: None }
+        Self {
+            supports_scrub: true,
+            cheap_recompute: true,
+            checkpoint_every: None,
+        }
     }
 }
 
@@ -45,7 +49,15 @@ pub trait Rule {
 
     /// Interpolated state within iteration `n`. `sub` ∈ [0, 1]. Default: no-op.
     /// Should NOT push permanent state changes — those are owned by `advance_to`.
-    fn substep(&self, _state: &mut Self::State, _cfg: &Self::Config, _seed: u64, _n: u32, _sub: f32) {}
+    fn substep(
+        &self,
+        _state: &mut Self::State,
+        _cfg: &Self::Config,
+        _seed: u64,
+        _n: u32,
+        _sub: f32,
+    ) {
+    }
 }
 
 /// A visualization renders a rule's state to a WebGL2 context.
@@ -57,12 +69,7 @@ pub trait Visualization {
 
     fn init(&mut self, gl: &WebGl2RenderingContext, cfg: &Self::Config);
 
-    fn render(
-        &mut self,
-        gl: &WebGl2RenderingContext,
-        state: &Self::State,
-        cfg: &Self::Config,
-    );
+    fn render(&mut self, gl: &WebGl2RenderingContext, state: &Self::State, cfg: &Self::Config);
 
     fn resize(&mut self, _gl: &WebGl2RenderingContext, _w: u32, _h: u32) {}
 
@@ -82,11 +89,35 @@ pub trait Visualization {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind")]
 pub enum InputEvent {
-    PointerDown { x: f32, y: f32, button: u8 },
-    PointerMove { x: f32, y: f32, dx: f32, dy: f32, buttons: u8 },
-    PointerUp   { x: f32, y: f32, button: u8 },
-    Wheel       { dx: f32, dy: f32 },
-    Key         { code: String, down: bool, ctrl: bool, alt: bool, shift: bool, meta: bool },
+    PointerDown {
+        x: f32,
+        y: f32,
+        button: u8,
+    },
+    PointerMove {
+        x: f32,
+        y: f32,
+        dx: f32,
+        dy: f32,
+        buttons: u8,
+    },
+    PointerUp {
+        x: f32,
+        y: f32,
+        button: u8,
+    },
+    Wheel {
+        dx: f32,
+        dy: f32,
+    },
+    Key {
+        code: String,
+        down: bool,
+        ctrl: bool,
+        alt: bool,
+        shift: bool,
+        meta: bool,
+    },
 }
 
 #[cfg(test)]
@@ -103,11 +134,23 @@ mod tests {
 
     #[test]
     fn input_event_round_trips_through_json() {
-        let ev = InputEvent::PointerMove { x: 1.0, y: 2.0, dx: 0.1, dy: -0.1, buttons: 1 };
+        let ev = InputEvent::PointerMove {
+            x: 1.0,
+            y: 2.0,
+            dx: 0.1,
+            dy: -0.1,
+            buttons: 1,
+        };
         let json = serde_json::to_string(&ev).unwrap();
         let back: InputEvent = serde_json::from_str(&json).unwrap();
         match back {
-            InputEvent::PointerMove { x, y, dx, dy, buttons } => {
+            InputEvent::PointerMove {
+                x,
+                y,
+                dx,
+                dy,
+                buttons,
+            } => {
                 assert!((x - 1.0).abs() < 1e-6);
                 assert!((y - 2.0).abs() < 1e-6);
                 assert!((dx - 0.1).abs() < 1e-6);

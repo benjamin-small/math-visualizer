@@ -76,7 +76,9 @@ impl Camera3D {
 }
 
 impl Default for Camera3D {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---- mat4 / vec3 helpers (column-major) -----------------------------------
@@ -105,13 +107,25 @@ fn normalize3(v: [f32; 3]) -> [f32; 3] {
 /// Right-handed lookAt. Column-major output.
 fn look_at(eye: [f32; 3], target: [f32; 3], up: [f32; 3]) -> [f32; 16] {
     let f = normalize3(sub3(target, eye)); // forward (camera looks toward target)
-    let s = normalize3(cross3(f, up));     // right
-    let u = cross3(s, f);                  // recomputed up
+    let s = normalize3(cross3(f, up)); // right
+    let u = cross3(s, f); // recomputed up
     [
-        s[0], u[0], -f[0], 0.0,
-        s[1], u[1], -f[1], 0.0,
-        s[2], u[2], -f[2], 0.0,
-        -dot3(s, eye), -dot3(u, eye), dot3(f, eye), 1.0,
+        s[0],
+        u[0],
+        -f[0],
+        0.0,
+        s[1],
+        u[1],
+        -f[1],
+        0.0,
+        s[2],
+        u[2],
+        -f[2],
+        0.0,
+        -dot3(s, eye),
+        -dot3(u, eye),
+        dot3(f, eye),
+        1.0,
     ]
 }
 
@@ -120,8 +134,8 @@ fn perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> [f32; 16] {
     let f = 1.0 / (fov_y * 0.5).tan();
     let inv_nf = 1.0 / (near - far);
     let mut m = [0.0f32; 16];
-    m[0]  = f / aspect;
-    m[5]  = f;
+    m[0] = f / aspect;
+    m[5] = f;
     m[10] = (far + near) * inv_nf;
     m[11] = -1.0;
     m[14] = 2.0 * far * near * inv_nf;
@@ -193,7 +207,7 @@ mod tests {
     #[test]
     fn elevation_clamps_below_pi_over_two() {
         let mut cam = Camera3D::new();
-        cam.orbit_drag(0.0, 100_000.0);   // huge positive drag
+        cam.orbit_drag(0.0, 100_000.0); // huge positive drag
         assert!(cam.elevation < std::f32::consts::FRAC_PI_2);
         cam.orbit_drag(0.0, -1_000_000.0); // huge negative drag
         assert!(cam.elevation > -std::f32::consts::FRAC_PI_2);

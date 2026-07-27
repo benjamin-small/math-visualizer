@@ -66,7 +66,14 @@ impl LineBatch3D {
 
         let u_view_proj = program.uniform_location(gl, "u_view_proj");
 
-        Ok(Self { program, vao, buffer, vertex_count: 0, u_view_proj, gl: gl.clone() })
+        Ok(Self {
+            program,
+            vao,
+            buffer,
+            vertex_count: 0,
+            u_view_proj,
+            gl: gl.clone(),
+        })
     }
 
     pub fn upload(&mut self, gl: &Gl, vertices: &[LineVertex3D]) {
