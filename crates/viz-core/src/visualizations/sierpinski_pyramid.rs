@@ -187,21 +187,29 @@ impl SierpinskiPyramid {
     }
 
     fn ensure_resources(&mut self, gl: &WebGl2RenderingContext) -> Result<(), String> {
-        if self.points.is_none() { self.points = Some(InstancedPoints3D::new(gl)?); }
-        if self.lines.is_none()  { self.lines  = Some(LineBatch3D::new(gl)?); }
+        if self.points.is_none() {
+            self.points = Some(InstancedPoints3D::new(gl)?);
+        }
+        if self.lines.is_none() {
+            self.lines = Some(LineBatch3D::new(gl)?);
+        }
         Ok(())
     }
 }
 
 impl Default for SierpinskiPyramid {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Visualization for SierpinskiPyramid {
     type Config = SierpinskiPyramidVizConfig;
     type State = ChaosGameState;
 
-    fn id(&self) -> &'static str { "sierpinski-pyramid" }
+    fn id(&self) -> &'static str {
+        "sierpinski-pyramid"
+    }
 
     fn init(&mut self, gl: &WebGl2RenderingContext, cfg: &Self::Config) {
         // Seed the cache from cfg so the very first tick(dt) — which runs
@@ -211,15 +219,12 @@ impl Visualization for SierpinskiPyramid {
         let _ = self.ensure_resources(gl);
     }
 
-    fn render(
-        &mut self,
-        gl: &WebGl2RenderingContext,
-        state: &Self::State,
-        cfg: &Self::Config,
-    ) {
-        if self.ensure_resources(gl).is_err() { return; }
+    fn render(&mut self, gl: &WebGl2RenderingContext, state: &Self::State, cfg: &Self::Config) {
+        if self.ensure_resources(gl).is_err() {
+            return;
+        }
         let points = self.points.as_mut().unwrap();
-        let lines  = self.lines.as_mut().unwrap();
+        let lines = self.lines.as_mut().unwrap();
 
         // Camera placement.
         self.camera.distance = BASE_CAMERA_DISTANCE / self.zoom.max(0.1);
@@ -242,23 +247,46 @@ impl Visualization for SierpinskiPyramid {
         // semi-transparent depth values that would occlude later draws.
         gl.depth_mask(false);
 
-        gl.clear_color(cfg.background[0], cfg.background[1], cfg.background[2], cfg.background[3]);
-        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+        gl.clear_color(
+            cfg.background[0],
+            cfg.background[1],
+            cfg.background[2],
+            cfg.background[3],
+        );
+        gl.clear(
+            WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT,
+        );
 
         // ---- Edges (6 segments) + optional guide line (1 segment). ----
         let mut line_verts: Vec<LineVertex3D> = Vec::with_capacity(14);
         for i in 0..4 {
             for j in (i + 1)..4 {
-                line_verts.push(LineVertex3D { position: CORNERS[i], color: cfg.edge_color });
-                line_verts.push(LineVertex3D { position: CORNERS[j], color: cfg.edge_color });
+                line_verts.push(LineVertex3D {
+                    position: CORNERS[i],
+                    color: cfg.edge_color,
+                });
+                line_verts.push(LineVertex3D {
+                    position: CORNERS[j],
+                    color: cfg.edge_color,
+                });
             }
         }
         if let Some(corner_idx) = state.chosen_corner {
             // Start point: the most recent trail dot (or the initial position
             // if no iterations have completed). End point: the picked corner.
-            let start = state.trail.last().copied().unwrap_or(state.initial_position);
-            line_verts.push(LineVertex3D { position: start,                  color: cfg.guide_color });
-            line_verts.push(LineVertex3D { position: CORNERS[corner_idx], color: cfg.guide_color });
+            let start = state
+                .trail
+                .last()
+                .copied()
+                .unwrap_or(state.initial_position);
+            line_verts.push(LineVertex3D {
+                position: start,
+                color: cfg.guide_color,
+            });
+            line_verts.push(LineVertex3D {
+                position: CORNERS[corner_idx],
+                color: cfg.guide_color,
+            });
         }
         lines.upload(gl, &line_verts);
         lines.draw(gl, &vp);
@@ -269,7 +297,11 @@ impl Visualization for SierpinskiPyramid {
         // only past 2× burn-in so a fresh playthrough at iter=1..20 still
         // shows the dot moving.
         let burn_in = cfg.burn_in_iterations as usize;
-        let skip = if state.trail.len() > burn_in * 2 { burn_in } else { 0 };
+        let skip = if state.trail.len() > burn_in * 2 {
+            burn_in
+        } else {
+            0
+        };
 
         // Reuse the persistent scratch buffer.
         let points_data = &mut self.points_scratch;
@@ -307,7 +339,11 @@ impl Visualization for SierpinskiPyramid {
         // Corner anchors over the trail.
         for (i, &corner) in CORNERS.iter().enumerate() {
             let highlighted = state.chosen_corner == Some(i);
-            let color = if highlighted { cfg.corner_highlight_color } else { cfg.corner_colors[i] };
+            let color = if highlighted {
+                cfg.corner_highlight_color
+            } else {
+                cfg.corner_colors[i]
+            };
             points_data.push(PointInstance3D {
                 position: corner,
                 color,
@@ -354,13 +390,14 @@ impl Visualization for SierpinskiPyramid {
 
     fn handle_input(&mut self, ev: &InputEvent) {
         match ev {
-            InputEvent::PointerMove { dx, dy, buttons, .. } if *buttons & 1 != 0 => {
+            InputEvent::PointerMove {
+                dx, dy, buttons, ..
+            } if *buttons & 1 != 0 => {
                 self.azimuth_offset += *dx * 0.005;
-                self.elevation = (self.elevation + *dy * 0.005)
-                    .clamp(
-                        -std::f32::consts::FRAC_PI_2 + 0.01,
-                        std::f32::consts::FRAC_PI_2 - 0.01,
-                    );
+                self.elevation = (self.elevation + *dy * 0.005).clamp(
+                    -std::f32::consts::FRAC_PI_2 + 0.01,
+                    std::f32::consts::FRAC_PI_2 - 0.01,
+                );
             }
             _ => {}
         }
@@ -395,7 +432,13 @@ mod tests {
     }
 
     fn move_event(dx: f32, dy: f32, buttons: u8) -> InputEvent {
-        InputEvent::PointerMove { x: 0.0, y: 0.0, dx, dy, buttons }
+        InputEvent::PointerMove {
+            x: 0.0,
+            y: 0.0,
+            dx,
+            dy,
+            buttons,
+        }
     }
 
     #[test]
@@ -407,7 +450,10 @@ mod tests {
         let daz = viz.azimuth_offset - az0;
         let del = viz.elevation - el0;
         // Sensitivity is 0.005 rad/px (mirrors Camera3D::DRAG_SENS_RAD_PER_PX).
-        assert!((daz - 40.0 * 0.005).abs() < 1e-6, "azimuth_offset Δ = {daz}");
+        assert!(
+            (daz - 40.0 * 0.005).abs() < 1e-6,
+            "azimuth_offset Δ = {daz}"
+        );
         assert!((del - 20.0 * 0.005).abs() < 1e-6, "elevation Δ = {del}");
     }
 
@@ -438,8 +484,16 @@ mod tests {
         let mut viz = SierpinskiPyramid::new();
         let az0 = viz.azimuth_offset;
         let el0 = viz.elevation;
-        viz.handle_input(&InputEvent::PointerDown { x: 0.0, y: 0.0, button: 0 });
-        viz.handle_input(&InputEvent::PointerUp { x: 0.0, y: 0.0, button: 0 });
+        viz.handle_input(&InputEvent::PointerDown {
+            x: 0.0,
+            y: 0.0,
+            button: 0,
+        });
+        viz.handle_input(&InputEvent::PointerUp {
+            x: 0.0,
+            y: 0.0,
+            button: 0,
+        });
         assert_eq!(viz.azimuth_offset, az0);
         assert_eq!(viz.elevation, el0);
     }

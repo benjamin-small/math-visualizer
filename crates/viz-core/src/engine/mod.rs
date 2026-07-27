@@ -128,7 +128,10 @@ impl Engine {
         }
 
         self.viz.tick(dt);
-        if let Err(e) = self.viz.render(&self.gl, self.state.as_ref(), &self.viz_cfg) {
+        if let Err(e) = self
+            .viz
+            .render(&self.gl, self.state.as_ref(), &self.viz_cfg)
+        {
             warn(&format!("viz.render failed: {e}"));
         }
     }

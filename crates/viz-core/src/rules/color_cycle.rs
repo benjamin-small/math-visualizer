@@ -15,7 +15,11 @@ pub struct ColorCycleConfig {
 }
 
 impl Default for ColorCycleConfig {
-    fn default() -> Self { Self { max_iterations: 360 } }
+    fn default() -> Self {
+        Self {
+            max_iterations: 360,
+        }
+    }
 }
 
 impl ConfigSchema for ColorCycleConfig {
@@ -62,32 +66,23 @@ impl Rule for ColorCycleRule {
     type Config = ColorCycleConfig;
     type State = ColorCycleState;
 
-    fn id(&self) -> &'static str { "demo:color-cycle" }
-    fn capabilities(&self) -> Capabilities { Capabilities::cheap_scrubbable() }
+    fn id(&self) -> &'static str {
+        "demo:color-cycle"
+    }
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::cheap_scrubbable()
+    }
 
     fn init(&self, _cfg: &Self::Config, _seed: u64) -> Self::State {
         ColorCycleState::default()
     }
 
-    fn advance_to(
-        &self,
-        state: &mut Self::State,
-        cfg: &Self::Config,
-        _seed: u64,
-        n: u32,
-    ) {
+    fn advance_to(&self, state: &mut Self::State, cfg: &Self::Config, _seed: u64, n: u32) {
         state.iteration = n.min(cfg.max_iterations);
         state.sub_progress = 0.0;
     }
 
-    fn substep(
-        &self,
-        state: &mut Self::State,
-        _cfg: &Self::Config,
-        _seed: u64,
-        _n: u32,
-        sub: f32,
-    ) {
+    fn substep(&self, state: &mut Self::State, _cfg: &Self::Config, _seed: u64, _n: u32, sub: f32) {
         state.sub_progress = sub.clamp(0.0, 1.0);
     }
 }
@@ -99,7 +94,9 @@ mod tests {
     #[test]
     fn advance_to_clamps_to_max() {
         let rule = ColorCycleRule;
-        let cfg = ColorCycleConfig { max_iterations: 100 };
+        let cfg = ColorCycleConfig {
+            max_iterations: 100,
+        };
         let mut state = rule.init(&cfg, 0);
         rule.advance_to(&mut state, &cfg, 0, 999);
         assert_eq!(state.iteration, 100);
@@ -130,7 +127,8 @@ mod tests {
 
     #[test]
     fn schema_round_trips_default_config() {
-        let defaults: ColorCycleConfig = serde_json::from_value(ColorCycleConfig::defaults()).unwrap();
+        let defaults: ColorCycleConfig =
+            serde_json::from_value(ColorCycleConfig::defaults()).unwrap();
         assert_eq!(defaults.max_iterations, 360);
     }
 
@@ -141,7 +139,8 @@ mod tests {
         let rule: &dyn ErasedRule = &ColorCycleRule;
         let cfg = ColorCycleConfig::defaults();
         let mut state = rule.init(&cfg, 0).expect("init");
-        rule.advance_to(state.as_mut(), &cfg, 0, 17).expect("advance_to");
+        rule.advance_to(state.as_mut(), &cfg, 0, 17)
+            .expect("advance_to");
 
         // Downcast back to the concrete type and verify.
         let typed = state.downcast_ref::<ColorCycleState>().expect("downcast");

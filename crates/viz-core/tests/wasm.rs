@@ -1,11 +1,11 @@
 //! Browser-side smoke tests. Run with:
 //!   wasm-pack test --chrome --headless crates/viz-core
 
+use viz_core::Engine;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 use web_sys::HtmlCanvasElement;
-use viz_core::Engine;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -46,7 +46,9 @@ fn engine_step_forward_increments_iteration() {
     make_canvas("test-canvas-stepfwd");
     let mut engine = Engine::new("test-canvas-stepfwd").expect("engine constructs");
 
-    engine.dispatch(cmd(r#"{"kind":"StepForward"}"#)).expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
 
     let snap = engine.snapshot();
     let iter = js_sys::Reflect::get(&snap, &JsValue::from_str("iteration"))
@@ -61,9 +63,15 @@ fn engine_reset_returns_to_zero() {
     make_canvas("test-canvas-reset");
     let mut engine = Engine::new("test-canvas-reset").expect("engine constructs");
 
-    engine.dispatch(cmd(r#"{"kind":"StepForward"}"#)).expect("dispatch");
-    engine.dispatch(cmd(r#"{"kind":"StepForward"}"#)).expect("dispatch");
-    engine.dispatch(cmd(r#"{"kind":"Reset"}"#)).expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"Reset"}"#))
+        .expect("dispatch");
 
     let snap = engine.snapshot();
     let iter = js_sys::Reflect::get(&snap, &JsValue::from_str("iteration"))
@@ -94,8 +102,8 @@ fn default_rule_schema_has_max_iterations_field() {
     let engine = Engine::new("test-canvas-defaults").expect("engine constructs");
 
     let schema = engine.rule_schema();
-    let props = js_sys::Reflect::get(&schema, &JsValue::from_str("properties"))
-        .expect("properties field");
+    let props =
+        js_sys::Reflect::get(&schema, &JsValue::from_str("properties")).expect("properties field");
     let max_iter = js_sys::Reflect::get(&props, &JsValue::from_str("max_iterations"))
         .expect("max_iterations property");
     assert!(!max_iter.is_undefined() && !max_iter.is_null());
@@ -107,9 +115,14 @@ fn default_viz_schema_has_3d_pyramid_fields() {
     let engine = Engine::new("test-canvas-pyramid-schema").expect("engine constructs");
 
     let schema = engine.viz_schema();
-    let props = js_sys::Reflect::get(&schema, &JsValue::from_str("properties"))
-        .expect("properties field");
-    for name in ["corner_colors", "auto_rotate_speed", "trail_tint", "edge_color"] {
+    let props =
+        js_sys::Reflect::get(&schema, &JsValue::from_str("properties")).expect("properties field");
+    for name in [
+        "corner_colors",
+        "auto_rotate_speed",
+        "trail_tint",
+        "edge_color",
+    ] {
         let p = js_sys::Reflect::get(&props, &JsValue::from_str(name))
             .unwrap_or_else(|_| panic!("missing property {name}"));
         assert!(!p.is_undefined() && !p.is_null(), "property {name} present");
@@ -121,12 +134,14 @@ fn engine_forwards_pointer_events_without_error() {
     make_canvas("test-canvas-pointer");
     let mut engine = Engine::new("test-canvas-pointer").expect("engine constructs");
 
-    let down = js_sys::JSON::parse(r#"{"kind":"PointerDown","x":10.0,"y":10.0,"button":0}"#).unwrap();
+    let down =
+        js_sys::JSON::parse(r#"{"kind":"PointerDown","x":10.0,"y":10.0,"button":0}"#).unwrap();
     engine.forward_input(down).expect("PointerDown forwards");
 
     let move_ev = js_sys::JSON::parse(
-        r#"{"kind":"PointerMove","x":15.0,"y":12.0,"dx":5.0,"dy":2.0,"buttons":1}"#
-    ).unwrap();
+        r#"{"kind":"PointerMove","x":15.0,"y":12.0,"dx":5.0,"dy":2.0,"buttons":1}"#,
+    )
+    .unwrap();
     engine.forward_input(move_ev).expect("PointerMove forwards");
 
     let up = js_sys::JSON::parse(r#"{"kind":"PointerUp","x":15.0,"y":12.0,"button":0}"#).unwrap();

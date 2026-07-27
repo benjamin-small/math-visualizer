@@ -124,7 +124,11 @@ pub fn reduce(prev: PlaybackState, caps: Capabilities, cmd: &Command) -> ReduceR
         }
     }
 
-    ReduceResult { next, iteration_changed, seed_changed }
+    ReduceResult {
+        next,
+        iteration_changed,
+        seed_changed,
+    }
 }
 
 /// Advance time during play. Called from the per-frame loop with dt in
@@ -153,9 +157,15 @@ pub fn advance_time(state: &mut PlaybackState, dt_seconds: f32) -> u32 {
 mod tests {
     use super::*;
 
-    fn caps_full() -> Capabilities { Capabilities::cheap_scrubbable() }
+    fn caps_full() -> Capabilities {
+        Capabilities::cheap_scrubbable()
+    }
     fn caps_no_scrub() -> Capabilities {
-        Capabilities { supports_scrub: false, cheap_recompute: false, checkpoint_every: None }
+        Capabilities {
+            supports_scrub: false,
+            cheap_recompute: false,
+            checkpoint_every: None,
+        }
     }
 
     #[test]
@@ -267,7 +277,10 @@ mod tests {
         let zero = reduce(s, caps_full(), &Command::SetSpeed { value: 0.0 });
         assert_eq!(zero.next.speed, MIN_SPEED, "exactly zero is rejected too");
         let small = reduce(s, caps_full(), &Command::SetSpeed { value: 0.1 });
-        assert_eq!(small.next.speed, MIN_SPEED, "values below MIN_SPEED clamp up");
+        assert_eq!(
+            small.next.speed, MIN_SPEED,
+            "values below MIN_SPEED clamp up"
+        );
         let normal = reduce(s, caps_full(), &Command::SetSpeed { value: 5.0 });
         assert_eq!(normal.next.speed, 5.0, "in-range values pass through");
     }
@@ -301,7 +314,10 @@ mod tests {
         s.iteration = 10;
         s.playing = false;
         let r = reduce(s, caps_full(), &Command::TogglePlay);
-        assert!(!r.next.playing, "cannot toggle into play when at max_iterations");
+        assert!(
+            !r.next.playing,
+            "cannot toggle into play when at max_iterations"
+        );
     }
 
     #[test]
@@ -312,6 +328,9 @@ mod tests {
         let rolled = advance_time(&mut s, 10.0);
         assert_eq!(rolled, 0);
         assert_eq!(s.iteration, 0);
-        assert!((s.sub_progress - 0.3).abs() < 1e-6, "sub_progress unchanged when paused");
+        assert!(
+            (s.sub_progress - 0.3).abs() < 1e-6,
+            "sub_progress unchanged when paused"
+        );
     }
 }

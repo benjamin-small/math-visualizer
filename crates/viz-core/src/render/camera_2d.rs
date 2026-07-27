@@ -37,7 +37,11 @@ impl Camera2D {
         let aspect = self.viewport_px[0].max(1) as f32 / self.viewport_px[1].max(1) as f32;
         // The visible region must contain both half_w and half_h. Pick the
         // tighter constraint after accounting for aspect.
-        let chosen = if half_w / aspect >= half_h { half_w } else { half_h * aspect };
+        let chosen = if half_w / aspect >= half_h {
+            half_w
+        } else {
+            half_h * aspect
+        };
         self.center = [cx, cy];
         self.half_width = chosen.max(1e-6);
     }
@@ -55,11 +59,7 @@ impl Camera2D {
         // | sx  0   tx |
         // | 0   sy  ty |
         // | 0   0   1  |
-        [
-            sx,  0.0, 0.0,
-            0.0, sy,  0.0,
-            tx,  ty,  1.0,
-        ]
+        [sx, 0.0, 0.0, 0.0, sy, 0.0, tx, ty, 1.0]
     }
 }
 
@@ -117,7 +117,10 @@ mod tests {
         let mut cam = Camera2D::new();
         cam.resize(100, 100);
         cam.fit_to_bbox([0.0, 0.0], [0.0, 0.0], 0.0);
-        assert!(cam.half_width > 0.0, "half_width never falls to literal zero");
+        assert!(
+            cam.half_width > 0.0,
+            "half_width never falls to literal zero"
+        );
     }
 
     #[test]

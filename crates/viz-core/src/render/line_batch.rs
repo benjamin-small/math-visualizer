@@ -70,7 +70,13 @@ impl LineBatch {
 
         let u_proj = program.uniform_location(gl, "u_proj");
 
-        Ok(Self { program, vao, buffer, vertex_count: 0, u_proj })
+        Ok(Self {
+            program,
+            vao,
+            buffer,
+            vertex_count: 0,
+            u_proj,
+        })
     }
 
     /// Upload a flat sequence of vertices. Vertices come in pairs (one

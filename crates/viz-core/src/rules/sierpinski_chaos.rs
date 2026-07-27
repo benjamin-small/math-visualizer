@@ -16,12 +16,7 @@ use crate::traits::{Capabilities, Rule, SceneState};
 pub const CORNERS: [[f32; 3]; 4] = {
     // 1 / (2 * sqrt(2)) = 0.3535533905932738
     const K: f32 = 0.353_553_39;
-    [
-        [ K,  K,  K],
-        [ K, -K, -K],
-        [-K,  K, -K],
-        [-K, -K,  K],
-    ]
+    [[K, K, K], [K, -K, -K], [-K, K, -K], [-K, -K, K]]
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,7 +31,9 @@ impl Default for ChaosGameConfig {
         // through, but the per-iteration substep animation is the point of
         // the visualization at low max_iterations; for the full pattern,
         // users typically crank the speed slider.
-        Self { max_iterations: 50_000 }
+        Self {
+            max_iterations: 50_000,
+        }
     }
 }
 
@@ -95,20 +92,18 @@ impl Rule for SierpinskiChaos {
     type Config = ChaosGameConfig;
     type State = ChaosGameState;
 
-    fn id(&self) -> &'static str { "sierpinski-chaos" }
-    fn capabilities(&self) -> Capabilities { Capabilities::cheap_scrubbable() }
+    fn id(&self) -> &'static str {
+        "sierpinski-chaos"
+    }
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::cheap_scrubbable()
+    }
 
     fn init(&self, _cfg: &Self::Config, _seed: u64) -> Self::State {
         ChaosGameState::default()
     }
 
-    fn advance_to(
-        &self,
-        state: &mut Self::State,
-        cfg: &Self::Config,
-        seed: u64,
-        n: u32,
-    ) {
+    fn advance_to(&self, state: &mut Self::State, cfg: &Self::Config, seed: u64, n: u32) {
         state.trail.clear();
         state.corner_for_dot.clear();
         state.chosen_corner = None;
@@ -129,14 +124,7 @@ impl Rule for SierpinskiChaos {
         state.current_position = Some(pos);
     }
 
-    fn substep(
-        &self,
-        state: &mut Self::State,
-        cfg: &Self::Config,
-        seed: u64,
-        n: u32,
-        sub: f32,
-    ) {
+    fn substep(&self, state: &mut Self::State, cfg: &Self::Config, seed: u64, n: u32, sub: f32) {
         if n >= cfg.max_iterations {
             state.chosen_corner = None;
             // Otherwise the in-flight orange dot stays pinned at the final
@@ -148,7 +136,11 @@ impl Rule for SierpinskiChaos {
         let start_pos = if n == 0 {
             state.initial_position
         } else {
-            state.trail.get((n - 1) as usize).copied().unwrap_or(state.initial_position)
+            state
+                .trail
+                .get((n - 1) as usize)
+                .copied()
+                .unwrap_or(state.initial_position)
         };
         let end_pos = halfway(start_pos, CORNERS[corner_idx]);
         let sub = sub.clamp(0.0, 1.0);
@@ -262,7 +254,9 @@ mod tests {
     fn corners_centroid_is_origin() {
         let mut s = [0.0f32; 3];
         for c in CORNERS {
-            s[0] += c[0]; s[1] += c[1]; s[2] += c[2];
+            s[0] += c[0];
+            s[1] += c[1];
+            s[2] += c[2];
         }
         for k in 0..3 {
             assert!((s[k] / 4.0).abs() < 1e-6);
@@ -359,8 +353,10 @@ mod tests {
         rule.advance_to(&mut state, &cfg, 0, 5);
         rule.substep(&mut state, &cfg, 0, 5, 0.5);
         assert!(state.chosen_corner.is_none());
-        assert!(state.current_position.is_none(),
-            "in-flight dot must clear at end of playback so it doesn't sit pinned forever");
+        assert!(
+            state.current_position.is_none(),
+            "in-flight dot must clear at end of playback so it doesn't sit pinned forever"
+        );
     }
 
     fn point_in_tetrahedron(p: [f32; 3]) -> bool {
@@ -374,20 +370,16 @@ mod tests {
         let v0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let v1 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
         let v2 = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
-        let r  = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+        let r = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
         // det3
-        let det = v0[0] * (v1[1] * v2[2] - v1[2] * v2[1])
-                - v0[1] * (v1[0] * v2[2] - v1[2] * v2[0])
-                + v0[2] * (v1[0] * v2[1] - v1[1] * v2[0]);
-        let det_u = r[0]  * (v1[1] * v2[2] - v1[2] * v2[1])
-                  - r[1]  * (v1[0] * v2[2] - v1[2] * v2[0])
-                  + r[2]  * (v1[0] * v2[1] - v1[1] * v2[0]);
-        let det_v = v0[0] * (r[1]  * v2[2] - r[2]  * v2[1])
-                  - v0[1] * (r[0]  * v2[2] - r[2]  * v2[0])
-                  + v0[2] * (r[0]  * v2[1] - r[1]  * v2[0]);
-        let det_w = v0[0] * (v1[1] * r[2]  - v1[2] * r[1] )
-                  - v0[1] * (v1[0] * r[2]  - v1[2] * r[0] )
-                  + v0[2] * (v1[0] * r[1]  - v1[1] * r[0] );
+        let det = v0[0] * (v1[1] * v2[2] - v1[2] * v2[1]) - v0[1] * (v1[0] * v2[2] - v1[2] * v2[0])
+            + v0[2] * (v1[0] * v2[1] - v1[1] * v2[0]);
+        let det_u = r[0] * (v1[1] * v2[2] - v1[2] * v2[1]) - r[1] * (v1[0] * v2[2] - v1[2] * v2[0])
+            + r[2] * (v1[0] * v2[1] - v1[1] * v2[0]);
+        let det_v = v0[0] * (r[1] * v2[2] - r[2] * v2[1]) - v0[1] * (r[0] * v2[2] - r[2] * v2[0])
+            + v0[2] * (r[0] * v2[1] - r[1] * v2[0]);
+        let det_w = v0[0] * (v1[1] * r[2] - v1[2] * r[1]) - v0[1] * (v1[0] * r[2] - v1[2] * r[0])
+            + v0[2] * (v1[0] * r[1] - v1[1] * r[0]);
         let u = det_u / det;
         let v = det_v / det;
         let w = det_w / det;

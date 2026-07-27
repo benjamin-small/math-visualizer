@@ -84,25 +84,30 @@ impl Visualization for ColorCycleViz {
     type Config = ColorCycleVizConfig;
     type State = ColorCycleState;
 
-    fn id(&self) -> &'static str { "demo:color-cycle" }
+    fn id(&self) -> &'static str {
+        "demo:color-cycle"
+    }
 
     fn init(&mut self, _gl: &WebGl2RenderingContext, _cfg: &Self::Config) {}
 
-    fn render(
-        &mut self,
-        gl: &WebGl2RenderingContext,
-        state: &Self::State,
-        cfg: &Self::Config,
-    ) {
+    fn render(&mut self, gl: &WebGl2RenderingContext, state: &Self::State, cfg: &Self::Config) {
         let color = if state.iteration == 0 && state.sub_progress == 0.0 {
             cfg.idle_color
         } else {
             let iter_position = state.iteration as f32
-                + if cfg.smooth_hue { state.sub_progress } else { 0.0 };
+                + if cfg.smooth_hue {
+                    state.sub_progress
+                } else {
+                    0.0
+                };
             let hue = (iter_position * HUE_PER_ITERATION).rem_euclid(360.0);
-            let lightness = cfg.lightness_min
-                + (cfg.lightness_max - cfg.lightness_min) * state.sub_progress;
-            let [r, g, b] = hsl_to_rgb(hue, cfg.saturation.clamp(0.0, 1.0), lightness.clamp(0.0, 1.0));
+            let lightness =
+                cfg.lightness_min + (cfg.lightness_max - cfg.lightness_min) * state.sub_progress;
+            let [r, g, b] = hsl_to_rgb(
+                hue,
+                cfg.saturation.clamp(0.0, 1.0),
+                lightness.clamp(0.0, 1.0),
+            );
             [r, g, b, 1.0]
         };
 
@@ -139,7 +144,8 @@ mod tests {
 
     #[test]
     fn defaults_round_trip() {
-        let v: ColorCycleVizConfig = serde_json::from_value(ColorCycleVizConfig::defaults()).unwrap();
+        let v: ColorCycleVizConfig =
+            serde_json::from_value(ColorCycleVizConfig::defaults()).unwrap();
         assert!((v.saturation - 0.65).abs() < 1e-6);
         assert!(v.smooth_hue);
     }
