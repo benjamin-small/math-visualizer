@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Pre-commit: block a commit that would fail `cargo fmt --check` in CI.
+# Install with: git config core.hooksPath .githooks
+#
+# Only checks Rust files that are actually staged. Bypass with `git commit --no-verify`
+# if you know what you're doing.
+
+set -euo pipefail
+
+staged_rs=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs' 'crates/**/*.rs')
+if [[ -z "$staged_rs" ]]; then
+  exit 0
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "pre-commit: cargo not found in PATH; skipping fmt check." >&2
+  exit 0
+fi
+
+# Run fmt --check over the whole workspace — cheap on cached targets, and CI runs
+# the same command, so this catches every case CI would catch.
+if ! cargo fmt --all -- --check; then
+  echo
+  echo "pre-commit: rustfmt failed. Run 'cargo fmt --all' to fix, then re-stage." >&2
+  exit 1
+fi
