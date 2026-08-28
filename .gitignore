@@ -8,6 +8,7 @@
 # Node / Vite
 /web/node_modules/
 /web/dist/
+/web/coverage/
 /web/.vite/
 *.log
 .npm/

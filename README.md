@@ -2,7 +2,7 @@
 
 **🎨 Live demo: <https://benjamin-small.github.io/math-visualizer/>**
 
-Interactive math visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI.
+Math Visualizer is an interactive collection of mathematical visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI. It provides explorable examples of iterative rules and their geometric attractors.
 
 > **Status:** Phase 3 (3D) — a rotating Sierpinski tetrahedron. Four corners
 > of a regular tetrahedron, a deterministic seeded starting point, and each
@@ -138,3 +138,5 @@ math-visualizer/
 ```
 
 See [docs/superpowers/specs/2026-05-23-math-visualizer-foundation-design.md](docs/superpowers/specs/2026-05-23-math-visualizer-foundation-design.md) for the full design — including the planned Rule/Visualization/Engine abstractions that land in Phase 2+.
+
+See [docs/configuration.md](docs/configuration.md) for build-time configuration, [docs/testing.md](docs/testing.md) for measured coverage and test scope, and [docs/licensing.md](docs/licensing.md) for the workspace's declared license.
