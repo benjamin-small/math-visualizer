@@ -9,7 +9,7 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 > - **Sierpinski Pyramid** (`#/sierpinski`) — a rotating 3D Sierpinski tetrahedron built
 >   by the chaos game: pick one of four corners, move halfway, drop a dot tinted by that
 >   corner. Auto-spins; click-drag to orbit.
-> - **Fourier Epicycles** (`#/fourier`) — type any text (default **"poetic tech"**); its
+> - **Fourier Epicycles** (`#/fourier`) — type any text (default **"POIETIC TECH"**); its
 >   glyph outlines become one closed path, the path's DFT becomes a chain of rotating
 >   circles, and the chain's tip traces the letters live (pen lifts between glyphs).
 >   Hundreds of circles render in one instanced draw call.
@@ -132,7 +132,7 @@ math-visualizer/
 │   │       └── color_cycle.rs        # Phase 2 demo viz
 │   └── tests/wasm.rs                 # Browser smoke tests (Engine + dispatch round-trip)
 └── web/                              # Vite + Svelte 5 app
-    ├── public/fonts/                 # Space Grotesk (SIL OFL 1.1) + OFL.txt, for the Fourier lab
+    ├── public/fonts/                 # Space Mono (SIL OFL 1.1) + OFL.txt, for the Fourier lab
     ├── src/
     │   ├── App.svelte                # Top nav + hash-route switch between labs
     │   ├── main.ts                   # Svelte 5 mount entry

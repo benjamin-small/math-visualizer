@@ -1,7 +1,7 @@
 import * as opentype from 'opentype.js';
 
 /** Bundled font (SIL OFL), served from `web/public/fonts/`. */
-export const FONT_FILE = 'fonts/SpaceGrotesk.ttf';
+export const FONT_FILE = 'fonts/SpaceMono-Regular.ttf';
 
 let fontPromise: Promise<opentype.Font> | null = null;
 

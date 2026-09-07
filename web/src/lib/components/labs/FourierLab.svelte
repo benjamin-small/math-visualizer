@@ -7,7 +7,7 @@
   import { textToPath } from '../../fourier/textPath';
   import { readSummary, type FourierSummary } from '../../fourier/summary';
 
-  const DEFAULT_TEXT = 'poetic tech';
+  const DEFAULT_TEXT = 'POIETIC TECH';
   const SAMPLES = 2000;
   const MAX_EPICYCLES = 2000;
   const DEBOUNCE_MS = 150;
