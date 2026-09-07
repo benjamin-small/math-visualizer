@@ -247,3 +247,23 @@ fn fourier_accepts_a_path_config_and_steps() {
     // 3 rings to draw.
     engine.frame(32.0);
 }
+
+#[wasm_bindgen_test]
+fn fourier_rule_summary_exposes_dft_terms() {
+    make_canvas("test-canvas-fourier-summary");
+    let mut engine = Engine::new("test-canvas-fourier-summary", Some("fourier".into()))
+        .expect("engine constructs");
+    // Before any path: null-ish summary with zero terms is fine; after a
+    // path config the top terms must be present.
+    let cfg = js_sys::JSON::parse(
+        r#"{"path":[{"x":1,"y":0,"pen":true},{"x":0,"y":1,"pen":true},{"x":-1,"y":0,"pen":true},{"x":0,"y":-1,"pen":true}],"epicycles":3,"max_iterations":4}"#,
+    )
+    .unwrap();
+    engine.update_rule_config(cfg).expect("config accepted");
+    let s = engine.rule_summary();
+    let terms = js_sys::Reflect::get(&s, &JsValue::from_str("terms")).expect("terms");
+    let arr = js_sys::Array::from(&terms);
+    assert_eq!(arr.length(), 3, "K = min(3, M-1) = 3 terms");
+    let total = js_sys::Reflect::get(&s, &JsValue::from_str("total_terms")).unwrap();
+    assert_eq!(total.as_f64(), Some(3.0));
+}

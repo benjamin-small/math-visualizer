@@ -58,6 +58,13 @@ pub trait Rule {
         _sub: f32,
     ) {
     }
+
+    /// Optional structured summary of the rule's current model for the UI
+    /// (e.g. the DFT terms behind a Fourier trace). Read by the shell after
+    /// config changes, never per frame. Default: `null`.
+    fn summary(&self, _state: &Self::State) -> serde_json::Value {
+        serde_json::Value::Null
+    }
 }
 
 /// A visualization renders a rule's state to a WebGL2 context.
