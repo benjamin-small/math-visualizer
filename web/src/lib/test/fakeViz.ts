@@ -12,6 +12,10 @@ export function installRafPolyfill() {
 
 /** Records every `Engine.free()` so tests can assert the shell releases the engine on teardown. */
 export const freeSpy = vi.fn();
+/** Records every `Engine.dispatch(cmd)` so tests can assert on playback commands (e.g. Play after a config push). */
+export const dispatchSpy = vi.fn();
+/** Records every `Engine.update_rule_config(cfg)` so tests can assert on the config a lab pushes. */
+export const updateRuleConfigSpy = vi.fn();
 
 export class FakeEngine {
   private readonly _lab: string | null | undefined;
@@ -22,7 +26,7 @@ export class FakeEngine {
 
   free() { freeSpy(); }
   frame(_now: number) {}
-  dispatch(_cmd: unknown) {}
+  dispatch(cmd: unknown) { dispatchSpy(cmd); }
   snapshot() {
     return {
       iteration: 0,
@@ -37,7 +41,7 @@ export class FakeEngine {
   viz_schema() { return {}; }
   rule_config() { return {}; }
   viz_config() { return {}; }
-  update_rule_config(_: unknown) {}
+  update_rule_config(cfg: unknown) { updateRuleConfigSpy(cfg); }
   update_viz_config(_: unknown) {}
   capabilities() { return { supports_scrub: true, cheap_recompute: true, checkpoint_every: null }; }
   resize(_w: number, _h: number) {}

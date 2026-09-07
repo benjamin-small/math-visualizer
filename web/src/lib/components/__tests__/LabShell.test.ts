@@ -11,6 +11,9 @@ vi.mock('../../wasm/loader', async () => {
   return { loadVizCore: vi.fn(() => Promise.resolve(makeVizMock())) };
 });
 
+// The Fourier lab fetches a font on mount; jsdom has no origin to fetch from.
+vi.mock('../../fourier/textPath', () => ({ textToPath: vi.fn(async () => []) }));
+
 import App from '../../../App.svelte';
 
 /** Render the app and wait for the engine (constructed after the async WASM load; the fake reports 360). */
@@ -34,10 +37,11 @@ describe('LabShell teardown', () => {
   });
 
   it('tears down the shell (and frees the engine) on a route switch', async () => {
-    const { container } = await renderWithEngine();
+    const { getByLabelText } = await renderWithEngine();
     navigate('fourier');
     await tick();
-    expect(container.textContent).toContain('Fourier Epicycle Lab');
+    // The Fourier lab's text input only exists once the Sierpinski shell is gone.
+    expect(getByLabelText('Text to trace')).toBeTruthy();
     expect(freeSpy).toHaveBeenCalledTimes(1);
   });
 });
