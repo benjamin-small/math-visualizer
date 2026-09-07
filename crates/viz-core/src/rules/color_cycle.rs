@@ -134,13 +134,11 @@ mod tests {
 
     #[test]
     fn erased_dispatch_round_trips() {
-        use crate::engine::erased::ErasedRule;
+        use crate::engine::erased::{ErasedRule, TypedRule};
 
-        let rule: &dyn ErasedRule = &ColorCycleRule;
-        let cfg = ColorCycleConfig::defaults();
-        let mut state = rule.init(&cfg, 0).expect("init");
-        rule.advance_to(state.as_mut(), &cfg, 0, 17)
-            .expect("advance_to");
+        let rule: &dyn ErasedRule = &TypedRule::new(ColorCycleRule);
+        let mut state = rule.init(0);
+        rule.advance_to(state.as_mut(), 0, 17).expect("advance_to");
 
         // Downcast back to the concrete type and verify.
         let typed = state.downcast_ref::<ColorCycleState>().expect("downcast");
