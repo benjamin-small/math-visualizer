@@ -7,8 +7,8 @@ import type { FourierSummary } from '../fourier/summary';
 /** jsdom has no rAF; drive frame loops off setTimeout(0) so one frame runs per macrotask. */
 export function installRafPolyfill() {
   globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
-    setTimeout(() => cb(0), 0)) as typeof requestAnimationFrame;
-  globalThis.cancelAnimationFrame = ((id: number) => clearTimeout(id)) as typeof cancelAnimationFrame;
+    setTimeout(() => cb(0), 0)) as unknown as typeof requestAnimationFrame;
+  globalThis.cancelAnimationFrame = ((id: number) => clearTimeout(id)) as unknown as typeof cancelAnimationFrame;
 }
 
 /** Records every `Engine.free()` so tests can assert the shell releases the engine on teardown. */

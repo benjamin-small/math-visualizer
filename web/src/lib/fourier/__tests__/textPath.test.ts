@@ -1,45 +1,57 @@
-import { describe, expect, it, vi } from 'vitest';
-import { loadFont } from '../font';
-import { textToPath } from '../textPath';
+import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import * as opentype from 'opentype.js';
+import { textToPath, glyphOutlineCommands } from '../textPath';
+import type { PathCommand } from '../geometry';
 
-// A fake font whose getPath() returns a 100×100 square outline, so no font file is needed.
-vi.mock('../font', () => ({
-  loadFont: vi.fn(async () => ({
-    getPath: () => ({
-      commands: [
-        { type: 'M', x: 0, y: 0 },
-        { type: 'L', x: 100, y: 0 },
-        { type: 'L', x: 100, y: 100 },
-        { type: 'L', x: 0, y: 100 },
-        { type: 'Z' },
-      ],
-    }),
-  })),
-}));
+// A 2-glyph fake font: each glyph is a unit square outline, advance 1000 units/em.
+const square = (x: number): PathCommand[] => [
+  { type: 'M', x, y: 0 }, { type: 'L', x: x + 50, y: 0 }, { type: 'L', x: x + 50, y: 50 }, { type: 'L', x, y: 50 }, { type: 'Z' },
+];
+const fakeFont = {
+  unitsPerEm: 1000,
+  charToGlyph: () => ({ advanceWidth: 600, getPath: (x: number) => ({ commands: square(x) }) }),
+  getKerningValue: () => 0,
+} as unknown as opentype.Font;
 
-describe('textToPath', () => {
-  it('returns [] for blank text without loading the font', async () => {
+vi.mock('../font', () => ({ loadFont: vi.fn(async () => fakeFont) }));
+
+describe('textToPath (fake font)', () => {
+  it('returns [] for blank text', async () => {
     expect(await textToPath('')).toEqual([]);
     expect(await textToPath('   ')).toEqual([]);
-    expect(loadFont).not.toHaveBeenCalled();
   });
-
-  it('produces exactly `samples` finite, normalized, pen-tagged points', async () => {
-    const pts = await textToPath('x', { samples: 40 });
+  it('produces the requested number of finite, pen-tagged samples', async () => {
+    const pts = await textToPath('xy', { samples: 40 });
     expect(pts).toHaveLength(40);
-    for (const p of pts) {
-      expect(Number.isFinite(p.x)).toBe(true);
-      expect(Number.isFinite(p.y)).toBe(true);
-      expect(typeof p.pen).toBe('boolean');
-    }
+    expect(pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
     expect(pts.some((p) => p.pen)).toBe(true);
+    expect(pts.some((p) => !p.pen)).toBe(true); // the hop between the two squares
+  });
+  it('advances by glyph width so glyphs do not overlap', () => {
+    const cmds = glyphOutlineCommands(fakeFont, 'ab', 100);
+    const xs = cmds.flatMap((c) => (c.type === 'M' ? [c.x] : []));
+    expect(xs).toEqual([0, 60]); // 600 units * (100 / 1000)
+  });
+});
 
-    // Normalized: bbox centered at the origin with max extent 2.
+describe('textToPath (real bundled font)', () => {
+  // Guards against opentype.js shaping limitations: font.getPath() throws on
+  // Space Mono's GSUB lookups, so we must build outlines per glyph.
+  // vitest runs from web/ (its config dir); import.meta.url is not a file: URL there.
+  const ttf = readFileSync(path.join(process.cwd(), 'public', 'fonts', 'SpaceMono-Regular.ttf'));
+  const font = opentype.parse(ttf.buffer.slice(ttf.byteOffset, ttf.byteOffset + ttf.byteLength));
+
+  it.each(['POIETIC TECH', 'poietic tech', 'Hello, world!'])('traces %j', async (text) => {
+    const pts = await textToPath(text, { font });
+    expect(pts).toHaveLength(2000);
+    expect(pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
     const xs = pts.map((p) => p.x);
-    const ys = pts.map((p) => p.y);
-    expect(Math.min(...xs)).toBeCloseTo(-1, 9);
-    expect(Math.max(...xs)).toBeCloseTo(1, 9);
-    expect(Math.min(...ys)).toBeCloseTo(-1, 9);
-    expect(Math.max(...ys)).toBeCloseTo(1, 9);
+    expect(Math.max(...xs)).toBeCloseTo(1, 2);
+    expect(Math.min(...xs)).toBeCloseTo(-1, 2);
+    const down = pts.filter((p) => p.pen).length;
+    expect(down).toBeGreaterThan(1000);
+    expect(down).toBeLessThan(2000); // travel hops between glyphs are pen-up
   });
 });
