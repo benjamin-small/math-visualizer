@@ -2,6 +2,7 @@
 // `vi.mock('../../wasm/loader')` to hand back `makeVizMock()` so LabShell
 // mounts without a WebGL context.
 import { vi } from 'vitest';
+import type { FourierSummary } from '../fourier/summary';
 
 /** jsdom has no rAF; drive frame loops off setTimeout(0) so one frame runs per macrotask. */
 export function installRafPolyfill() {
@@ -16,6 +17,21 @@ export const freeSpy = vi.fn();
 export const dispatchSpy = vi.fn();
 /** Records every `Engine.update_rule_config(cfg)` so tests can assert on the config a lab pushes. */
 export const updateRuleConfigSpy = vi.fn();
+/**
+ * What the fake's `rule_summary()` returns on the Fourier lab (null elsewhere,
+ * like the real engine). Mutable so a test can reshape it before a push;
+ * `total_terms` deliberately exceeds `terms.length`, mirroring the engine's
+ * "top 64 of N" contract.
+ */
+export const ruleSummaryFixture: FourierSummary = {
+  origin: [0.1, -0.05],
+  total_terms: 2000,
+  terms: [
+    { freq: 1, amp: 0.5, phase: 0.1 },
+    { freq: -1, amp: 0.25, phase: -0.2 },
+    { freq: 2, amp: 0.125, phase: 0 },
+  ],
+};
 
 export class FakeEngine {
   private readonly _lab: string | null | undefined;
@@ -40,6 +56,7 @@ export class FakeEngine {
   rule_schema() { return {}; }
   viz_schema() { return {}; }
   rule_config() { return {}; }
+  rule_summary() { return this._lab === 'fourier' ? ruleSummaryFixture : null; }
   viz_config() { return {}; }
   update_rule_config(cfg: unknown) { updateRuleConfigSpy(cfg); }
   update_viz_config(_: unknown) {}

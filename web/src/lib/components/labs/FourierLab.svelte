@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import LabShell from '../LabShell.svelte';
+  import FormulaPanel from '../FormulaPanel.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
   import { textToPath } from '../../fourier/textPath';
+  import { readSummary, type FourierSummary } from '../../fourier/summary';
 
   const DEFAULT_TEXT = 'poetic tech';
   const SAMPLES = 2000;
@@ -14,6 +16,8 @@
   let epicycles = $state(2000);
   /** True when the current text produced no drawable path (blank, or no outline). */
   let empty = $state(false);
+  /** The DFT terms behind the current trace, read from the engine after each config push (null when nothing is drawn). */
+  let summary = $state<FourierSummary | null>(null);
   // Plain (never read in markup): the shell hands us its LabApi in onReady.
   let api: LabApi | null = null;
   // Generation counter: a push that finishes after a newer one started is discarded.
@@ -38,9 +42,26 @@
     }
     if (my !== gen || !api?.engine) return; // superseded, or shell torn down / not ready yet
     empty = path.length === 0;
-    if (empty) return;
+    if (empty) {
+      summary = null;
+      return;
+    }
     api.setRuleConfig({ path, epicycles, max_iterations: path.length });
+    summary = readEngineSummary(api);
     api.dispatch(cmd.play());
+  }
+
+  /**
+   * `rule_summary()` is cheap but not free, so it's read here — once per
+   * config push — never per frame. Older engines (and test fakes) may lack it.
+   */
+  function readEngineSummary(a: LabApi): FourierSummary | null {
+    try {
+      return readSummary(a.engine?.rule_summary?.());
+    } catch (err) {
+      console.warn('rule_summary failed:', err);
+      return null;
+    }
   }
 
   function schedulePush() {
@@ -88,6 +109,7 @@
       <li><span class="swatch pen"></span> Pen — the moving tip</li>
       <li><span class="swatch ink"></span> Ink — the traced text</li>
     </ul>
+    <FormulaPanel {summary} />
     <p class="tip">
       <em>Type your own text</em> in the bar below. More epicycles means
       sharper letters; fewer gives a smoother caricature — try <em>20</em>.

@@ -58,6 +58,28 @@ describe('FourierLab.svelte', () => {
     );
   });
 
+  it('typesets the series for the pushed text, with the count of terms it leaves out', async () => {
+    const { container, getByText } = render(App);
+    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1));
+
+    expect(getByText('The formula', { selector: 'h3' })).toBeTruthy();
+    // The fake's rule_summary() reports 2000 terms; the panel expands the top 8.
+    await vi.waitFor(() => expect(container.textContent).toContain('1,992 more terms'));
+    expect(container.textContent).not.toContain('Type some text');
+    // KaTeX arrives via a dynamic import and typesets both blocks.
+    await vi.waitFor(() => expect(container.querySelectorAll('.info .katex')).toHaveLength(2));
+  });
+
+  it('drops the expansion (keeping the general formula) when the text is cleared', async () => {
+    const { container, getByLabelText } = render(App);
+    await vi.waitFor(() => expect(container.textContent).toContain('1,992 more terms'));
+
+    await fireEvent.input(getByLabelText('Text to trace'), { target: { value: '' } });
+    await vi.waitFor(() => expect(container.textContent).toContain('Type some text'));
+    expect(container.textContent).not.toContain('more terms');
+    expect(container.textContent).toContain('The formula');
+  });
+
   it('shows a hint (and pushes nothing) when the text is cleared', async () => {
     const { getByLabelText, getByText, queryByText } = render(App);
     await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1));
