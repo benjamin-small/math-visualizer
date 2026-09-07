@@ -4,17 +4,19 @@
 
 Math Visualizer is an interactive collection of mathematical visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI. It provides explorable examples of iterative rules and their geometric attractors.
 
-> **Status:** Phase 3 (3D) — a rotating Sierpinski tetrahedron. Four corners
-> of a regular tetrahedron, a deterministic seeded starting point, and each
-> iteration moves halfway toward a uniformly-picked corner; thousands of dots
-> converge on the 3D Sierpinski attractor. The tetrahedron auto-spins around
-> its vertical axis — click-drag the canvas to orbit. Each dot is tinted by
-> which corner produced it, making the four self-similar sub-tetrahedra
-> visually distinct. The midpoint-on-circle rule and Phase 2 ColorCycle rule
-> remain in the codebase as alternative working examples (Phase 4's selector
-> UI will let you switch between them). See [`docs/superpowers/specs/`](docs/superpowers/specs/)
-> for the design and [`docs/superpowers/plans/`](docs/superpowers/plans/) for
-> execution plans.
+> **Status:** two labs, switchable from the top nav.
+>
+> - **Sierpinski Pyramid** (`#/sierpinski`) — a rotating 3D Sierpinski tetrahedron built
+>   by the chaos game: pick one of four corners, move halfway, drop a dot tinted by that
+>   corner. Auto-spins; click-drag to orbit.
+> - **Fourier Epicycles** (`#/fourier`) — type any text (default **"poetic tech"**); its
+>   glyph outlines become one closed path, the path's DFT becomes a chain of rotating
+>   circles, and the chain's tip traces the letters live (pen lifts between glyphs).
+>   Hundreds of circles render in one instanced draw call.
+>
+> The midpoint-on-circle and ColorCycle rules remain in the codebase as alternative
+> examples. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for designs and
+> [`docs/superpowers/plans/`](docs/superpowers/plans/) for execution plans.
 
 ## Prerequisites
 
@@ -106,33 +108,44 @@ math-visualizer/
 │   │   ├── engine/
 │   │   │   ├── mod.rs                # Engine: orchestrates rule + viz + playback
 │   │   │   ├── playback.rs           # PlaybackState, Command, pure reducer
-│   │   │   └── erased.rs             # Type-erased dispatch over Rule/Visualization
+│   │   │   ├── erased.rs             # TypedRule/TypedViz: typed-config wrappers behind dyn traits
+│   │   │   └── registry.rs           # Lab registry: id → rule/viz pair + default configs
 │   │   ├── render/
 │   │   │   ├── camera_2d.rs          # 2D ortho camera with fit-to-bbox
 │   │   │   ├── camera_3d.rs          # 3D turntable camera (azimuth/elevation/distance)
 │   │   │   ├── shader.rs             # WebGL2 shader compile/link wrapper
 │   │   │   ├── instanced_points.rs   # 2D per-instance position+color+radius dots
 │   │   │   ├── instanced_points_3d.rs# 3D dots, pixel radius constant with depth
+│   │   │   ├── instanced_rings.rs    # Batched antialiased stroked circles (epicycles)
 │   │   │   ├── sdf_circle.rs         # Single-quad antialiased stroked circle
 │   │   │   ├── line_batch.rs         # 2D colored line segment batch
 │   │   │   └── line_batch_3d.rs      # 3D colored line segment batch
 │   │   ├── rules/
 │   │   │   ├── sierpinski_chaos.rs   # Default flagship rule (3D Chaos Game)
+│   │   │   ├── fourier_epicycles.rs  # Fourier lab rule: DFT of a pen-tagged closed path
 │   │   │   ├── midpoint_on_circle.rs # Alternative rule (still works)
 │   │   │   └── color_cycle.rs        # Phase 2 demo rule
 │   │   └── visualizations/
 │   │       ├── sierpinski_pyramid.rs # Default viz (rotating 3D tetrahedron)
+│   │       ├── fourier_epicycles.rs  # Fourier lab viz: rings + arms + pen-lifted trail
 │   │       ├── dots_on_circle.rs     # Alternative viz (paired with midpoint)
 │   │       └── color_cycle.rs        # Phase 2 demo viz
 │   └── tests/wasm.rs                 # Browser smoke tests (Engine + dispatch round-trip)
 └── web/                              # Vite + Svelte 5 app
+    ├── public/fonts/                 # Space Grotesk (SIL OFL 1.1) + OFL.txt, for the Fourier lab
     ├── src/
-    │   ├── App.svelte                # Canvas + playback control bar
+    │   ├── App.svelte                # Top nav + hash-route switch between labs
     │   ├── main.ts                   # Svelte 5 mount entry
     │   └── lib/
+    │       ├── router.ts / router.svelte.ts   # parseHash + reactive `route`, no dependency
+    │       ├── components/
+    │       │   ├── LabShell.svelte   # Engine bootstrap, rAF loop, canvas, zoom, playback bar
+    │       │   ├── labApi.svelte.ts  # Handle labs use: dispatch / patch|setRuleConfig
+    │       │   └── labs/             # SierpinskiLab.svelte, FourierLab.svelte (info + controls)
+    │       ├── fourier/              # textToPath: opentype.js glyphs → closed, pen-tagged path
     │       ├── playback/commands.ts  # Typed Command builders for engine.dispatch
     │       ├── wasm/loader.ts        # Single-flight WASM module loader
-    │       └── components/__tests__/ # Component mount tests (vitest + @testing-library/svelte)
+    │       └── test/fakeViz.ts       # Shared FakeEngine for component tests
     ├── package.json
     └── vite.config.ts
 ```
