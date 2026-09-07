@@ -5,16 +5,18 @@ use serde_json::Value;
 
 use super::erased::{ErasedRule, ErasedVisualization, TypedRule, TypedViz};
 use crate::config::ConfigSchema;
+use crate::rules::fourier_epicycles::{FourierConfig, FourierEpicycles};
 use crate::rules::sierpinski_chaos::{ChaosGameConfig, SierpinskiChaos};
+use crate::visualizations::fourier_epicycles::{FourierEpicyclesViz, FourierEpicyclesVizConfig};
 use crate::visualizations::sierpinski_pyramid::{SierpinskiPyramid, SierpinskiPyramidVizConfig};
 
 /// Everything the engine needs to stand up one lab: the type-erased rule and
 /// visualization plus the default config JSON for each.
 ///
-/// Invariant: `rule_cfg` / `viz_cfg` must be the JSON the wrappers were
-/// built from (`TypedRule::new` / `TypedViz::new` parse the schema
-/// defaults), since `Engine::new` reports them via `rule_config()` /
-/// `viz_config()` without re-parsing.
+/// `Engine::new` applies `rule_cfg` / `viz_cfg` to the wrappers via
+/// `set_config` and then reports them verbatim through `rule_config()` /
+/// `viz_config()`, so they must deserialize into the wrappers' typed
+/// configs — the schema defaults do by construction.
 pub struct LabParts {
     pub rule: Box<dyn ErasedRule>,
     pub viz: Box<dyn ErasedVisualization>,
@@ -25,8 +27,8 @@ pub struct LabParts {
 /// Lab used when the JS shell passes no id.
 pub const DEFAULT_LAB: &str = "sierpinski";
 
-/// Every id `build_lab` accepts. (A "fourier" lab is added in a later step.)
-pub const LAB_IDS: &[&str] = &["sierpinski"];
+/// Every id `build_lab` accepts.
+pub const LAB_IDS: &[&str] = &["sierpinski", "fourier"];
 
 /// Build the rule/viz pair for `id`, or `None` if the id is unknown.
 ///
@@ -40,6 +42,12 @@ pub fn build_lab(id: &str) -> Option<LabParts> {
             viz: Box::new(TypedViz::new(SierpinskiPyramid::new())),
             rule_cfg: ChaosGameConfig::defaults(),
             viz_cfg: SierpinskiPyramidVizConfig::defaults(),
+        }),
+        "fourier" => Some(LabParts {
+            rule: Box::new(TypedRule::new(FourierEpicycles)),
+            viz: Box::new(TypedViz::new(FourierEpicyclesViz::new())),
+            rule_cfg: FourierConfig::defaults(),
+            viz_cfg: FourierEpicyclesVizConfig::defaults(),
         }),
         _ => None,
     }
@@ -107,6 +115,14 @@ mod tests {
     fn max_iterations_of_falls_back_on_wrong_type() {
         assert_eq!(max_iterations_of(&json!({"max_iterations": "42"}), 7), 7);
         assert_eq!(max_iterations_of(&json!({"max_iterations": -1}), 7), 7);
+    }
+
+    #[test]
+    fn fourier_lab_pairs_the_epicycles_rule_and_viz() {
+        let parts = build_lab("fourier").expect("fourier lab should build");
+        assert_eq!(parts.rule.id(), "fourier-epicycles");
+        assert_eq!(parts.viz.id(), "fourier-epicycles");
+        assert_eq!(max_iterations_of(&parts.rule_cfg, 1), 1200);
     }
 
     #[test]

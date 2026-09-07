@@ -68,15 +68,24 @@ impl Engine {
             .map_err(|_| JsValue::from_str("not a WebGL2 context"))?;
 
         let registry::LabParts {
-            rule,
+            mut rule,
             mut viz,
             rule_cfg,
             viz_cfg,
         } = parts;
         let max_iter = registry::max_iterations_of(&rule_cfg, 50_000);
 
-        // The wrappers from `build_lab` already hold the parsed defaults —
-        // the same JSON as `rule_cfg` / `viz_cfg` — so no set_config here.
+        // Make the wrappers authoritative for the JSON this engine reports.
+        // `rule_config()` / `viz_config()` hand back `rule_cfg` / `viz_cfg`
+        // verbatim, so the typed configs inside the wrappers must have been
+        // parsed from exactly that JSON. `build_lab` seeds both from the same
+        // schema defaults today, but applying them here — once, at
+        // construction, never per frame — means the two can't drift if a
+        // registry entry ever pairs a wrapper with a different config.
+        rule.set_config(&rule_cfg)
+            .map_err(|e| JsValue::from_str(&format!("rule config: {e}")))?;
+        viz.set_config(&viz_cfg)
+            .map_err(|e| JsValue::from_str(&format!("viz config: {e}")))?;
         viz.init(&gl);
         let state = rule.init(0);
 

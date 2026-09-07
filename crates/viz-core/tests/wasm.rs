@@ -168,3 +168,82 @@ fn engine_accepts_explicit_default_lab_id() {
         .expect("engine constructs");
     assert_eq!(engine.lab_id(), "sierpinski");
 }
+
+// ---- "fourier" lab ----
+
+#[wasm_bindgen_test]
+fn fourier_lab_constructs_and_renders() {
+    make_canvas("test-canvas-fourier");
+    let mut engine =
+        Engine::new("test-canvas-fourier", Some("fourier".into())).expect("engine constructs");
+    // Two frames: the first has no dt, the second exercises the rAF path
+    // with a real dt. With the default (empty) path this renders nothing
+    // but must still clear and run every draw call without error.
+    engine.frame(0.0);
+    engine.frame(16.0);
+    assert_eq!(engine.lab_id(), "fourier");
+}
+
+#[wasm_bindgen_test]
+fn fourier_rule_schema_has_path_and_epicycles() {
+    make_canvas("test-canvas-fourier-rule-schema");
+    let engine = Engine::new("test-canvas-fourier-rule-schema", Some("fourier".into()))
+        .expect("engine constructs");
+
+    let schema = engine.rule_schema();
+    let props =
+        js_sys::Reflect::get(&schema, &JsValue::from_str("properties")).expect("properties field");
+    for name in ["path", "epicycles"] {
+        let p = js_sys::Reflect::get(&props, &JsValue::from_str(name))
+            .unwrap_or_else(|_| panic!("missing property {name}"));
+        assert!(!p.is_undefined() && !p.is_null(), "property {name} present");
+    }
+}
+
+#[wasm_bindgen_test]
+fn fourier_viz_schema_has_circle_color() {
+    make_canvas("test-canvas-fourier-viz-schema");
+    let engine = Engine::new("test-canvas-fourier-viz-schema", Some("fourier".into()))
+        .expect("engine constructs");
+
+    let schema = engine.viz_schema();
+    let props =
+        js_sys::Reflect::get(&schema, &JsValue::from_str("properties")).expect("properties field");
+    for name in ["circle_color", "min_circle_px"] {
+        let p = js_sys::Reflect::get(&props, &JsValue::from_str(name))
+            .unwrap_or_else(|_| panic!("missing property {name}"));
+        assert!(!p.is_undefined() && !p.is_null(), "property {name} present");
+    }
+}
+
+#[wasm_bindgen_test]
+fn fourier_accepts_a_path_config_and_steps() {
+    make_canvas("test-canvas-fourier-path");
+    let mut engine =
+        Engine::new("test-canvas-fourier-path", Some("fourier".into())).expect("engine constructs");
+
+    // A 4-point diamond with one travel segment; 3 epicycles, 4 steps/loop.
+    engine
+        .update_rule_config(cmd(
+            r#"{"path":[{"x":1,"y":0,"pen":true},{"x":0,"y":1,"pen":true},{"x":-1,"y":0,"pen":true},{"x":0,"y":-1,"pen":false}],"epicycles":3,"max_iterations":4}"#,
+        ))
+        .expect("path config accepted");
+
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
+
+    let snap = engine.snapshot();
+    let iter = js_sys::Reflect::get(&snap, &JsValue::from_str("iteration"))
+        .expect("iteration field")
+        .as_f64()
+        .expect("number");
+    assert_eq!(iter as u32, 2);
+
+    // Now there is a real trail (2 samples), a live chain (4 points), and
+    // 3 rings to draw.
+    engine.frame(32.0);
+}
