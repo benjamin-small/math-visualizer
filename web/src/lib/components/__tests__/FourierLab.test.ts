@@ -85,7 +85,7 @@ describe('FourierLab.svelte', () => {
     await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1));
 
     const input = getByLabelText('Text to trace') as HTMLInputElement;
-    expect(input.value).toBe('poetic tech');
+    expect(input.value).toBe('POIETIC TECH');
     expect(queryByText(/Nothing to draw/)).toBeNull();
 
     await fireEvent.input(input, { target: { value: '' } });
