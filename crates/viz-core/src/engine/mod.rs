@@ -75,12 +75,10 @@ impl Engine {
         } = parts;
         let max_iter = registry::max_iterations_of(&rule_cfg, 50_000);
 
-        viz.init(&gl, &viz_cfg)
-            .map_err(|e| JsValue::from_str(&format!("viz init: {e}")))?;
-
-        let state = rule
-            .init(&rule_cfg, 0)
-            .map_err(|e| JsValue::from_str(&format!("rule init: {e}")))?;
+        // The wrappers from `build_lab` already hold the parsed defaults —
+        // the same JSON as `rule_cfg` / `viz_cfg` — so no set_config here.
+        viz.init(&gl);
+        let state = rule.init(0);
 
         Ok(Engine {
             gl,
@@ -115,7 +113,6 @@ impl Engine {
             // state up to the new integer iteration.
             if let Err(e) = self.rule.advance_to(
                 self.state.as_mut(),
-                &self.rule_cfg,
                 self.playback.seed,
                 self.playback.iteration,
             ) {
@@ -126,7 +123,6 @@ impl Engine {
         // Always interpolate within the current iteration.
         if let Err(e) = self.rule.substep(
             self.state.as_mut(),
-            &self.rule_cfg,
             self.playback.seed,
             self.playback.iteration,
             self.playback.sub_progress,
@@ -135,10 +131,7 @@ impl Engine {
         }
 
         self.viz.tick(dt);
-        if let Err(e) = self
-            .viz
-            .render(&self.gl, self.state.as_ref(), &self.viz_cfg)
-        {
+        if let Err(e) = self.viz.render(&self.gl, self.state.as_ref()) {
             warn(&format!("viz.render failed: {e}"));
         }
     }
@@ -154,15 +147,10 @@ impl Engine {
         if r.iteration_changed {
             // Cheap-recompute path: rebuild state from scratch up to current.
             if r.seed_changed || caps.cheap_recompute {
-                let new_state = self
-                    .rule
-                    .init(&self.rule_cfg, self.playback.seed)
-                    .map_err(|e| JsValue::from_str(&format!("rule init: {e}")))?;
-                self.state = new_state;
+                self.state = self.rule.init(self.playback.seed);
             }
             let _ = self.rule.advance_to(
                 self.state.as_mut(),
-                &self.rule_cfg,
                 self.playback.seed,
                 self.playback.iteration,
             );
@@ -196,6 +184,11 @@ impl Engine {
     pub fn update_rule_config(&mut self, cfg: JsValue) -> Result<(), JsValue> {
         let parsed: Value = serde_wasm_bindgen::from_value(cfg)
             .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
+        // Hand the JSON to the rule first: if it doesn't fit the rule's
+        // Config, nothing below runs and the engine is exactly as it was.
+        self.rule
+            .set_config(&parsed)
+            .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
         let new_max = registry::max_iterations_of(&parsed, self.playback.max_iterations);
 
         self.rule_cfg = parsed;
@@ -207,11 +200,7 @@ impl Engine {
         // the next frame() must not feed that gap as `dt` into viz.tick().
         self.last_frame_ms = None;
 
-        let new_state = self
-            .rule
-            .init(&self.rule_cfg, self.playback.seed)
-            .map_err(|e| JsValue::from_str(&format!("rule init: {e}")))?;
-        self.state = new_state;
+        self.state = self.rule.init(self.playback.seed);
         Ok(())
     }
 
@@ -221,10 +210,11 @@ impl Engine {
     pub fn update_viz_config(&mut self, cfg: JsValue) -> Result<(), JsValue> {
         let parsed: Value = serde_wasm_bindgen::from_value(cfg)
             .map_err(|e| JsValue::from_str(&format!("bad viz config: {e}")))?;
-        self.viz_cfg = parsed;
         self.viz
-            .init(&self.gl, &self.viz_cfg)
-            .map_err(|e| JsValue::from_str(&format!("viz init: {e}")))?;
+            .set_config(&parsed)
+            .map_err(|e| JsValue::from_str(&format!("bad viz config: {e}")))?;
+        self.viz_cfg = parsed;
+        self.viz.init(&self.gl);
         // Same rationale as update_rule_config: don't feed a stale dt to tick.
         self.last_frame_ms = None;
         Ok(())

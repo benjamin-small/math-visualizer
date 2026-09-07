@@ -3,13 +3,18 @@
 
 use serde_json::Value;
 
-use super::erased::{ErasedRule, ErasedVisualization};
+use super::erased::{ErasedRule, ErasedVisualization, TypedRule, TypedViz};
 use crate::config::ConfigSchema;
 use crate::rules::sierpinski_chaos::{ChaosGameConfig, SierpinskiChaos};
 use crate::visualizations::sierpinski_pyramid::{SierpinskiPyramid, SierpinskiPyramidVizConfig};
 
 /// Everything the engine needs to stand up one lab: the type-erased rule and
 /// visualization plus the default config JSON for each.
+///
+/// Invariant: `rule_cfg` / `viz_cfg` must be the JSON the wrappers were
+/// built from (`TypedRule::new` / `TypedViz::new` parse the schema
+/// defaults), since `Engine::new` reports them via `rule_config()` /
+/// `viz_config()` without re-parsing.
 pub struct LabParts {
     pub rule: Box<dyn ErasedRule>,
     pub viz: Box<dyn ErasedVisualization>,
@@ -31,8 +36,8 @@ pub const LAB_IDS: &[&str] = &["sierpinski"];
 pub fn build_lab(id: &str) -> Option<LabParts> {
     match id {
         "sierpinski" => Some(LabParts {
-            rule: Box::new(SierpinskiChaos),
-            viz: Box::new(SierpinskiPyramid::new()),
+            rule: Box::new(TypedRule::new(SierpinskiChaos)),
+            viz: Box::new(TypedViz::new(SierpinskiPyramid::new())),
             rule_cfg: ChaosGameConfig::defaults(),
             viz_cfg: SierpinskiPyramidVizConfig::defaults(),
         }),
