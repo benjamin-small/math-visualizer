@@ -11,7 +11,7 @@
   const DEBOUNCE_MS = 150;
 
   let text = $state(DEFAULT_TEXT);
-  let epicycles = $state(250);
+  let epicycles = $state(2000);
   /** True when the current text produced no drawable path (blank, or no outline). */
   let empty = $state(false);
   // Plain (never read in markup): the shell hands us its LabApi in onReady.
@@ -66,7 +66,7 @@
   });
 </script>
 
-<LabShell labId="fourier" initialSpeed={120} {onReady}>
+<LabShell labId="fourier" initialSpeed={360} {onReady}>
   {#snippet info()}
     <h2>Fourier Epicycles</h2>
     <p>

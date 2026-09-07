@@ -40,7 +40,7 @@ impl Default for FourierConfig {
     fn default() -> Self {
         Self {
             path: Vec::new(),
-            epicycles: 250,
+            epicycles: 2000,
             max_iterations: 1200,
         }
     }
@@ -69,7 +69,7 @@ impl ConfigSchema for FourierConfig {
                 },
                 "epicycles": number_property(NumberOpts {
                     label: "Epicycles",
-                    default: 250.0,
+                    default: 2000.0,
                     min: 1.0,
                     max: 2000.0,
                     step: 1.0,
@@ -640,7 +640,7 @@ mod tests {
         let d = FourierConfig::defaults();
         let cfg: FourierConfig = serde_json::from_value(d.clone()).unwrap();
         assert!(cfg.path.is_empty());
-        assert_eq!(cfg.epicycles, 250);
+        assert_eq!(cfg.epicycles, 2000);
         assert_eq!(cfg.max_iterations, 1200);
         assert_eq!(serde_json::to_value(&cfg).unwrap(), d);
     }
