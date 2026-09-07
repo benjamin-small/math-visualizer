@@ -6,3 +6,14 @@
 
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }
+
+/* Shared design tokens — used by the app nav and the lab shell. */
+:root {
+  --panel: #14141a;
+  --border: #2a2a2f;
+  --bar: #1c1c1f;
+  --text: #c9c9d0;
+  --text-strong: #f0f0f5;
+  --tip-bg: #1c1c24;
+  --nav-h: 44px;
+}
