@@ -184,6 +184,19 @@ impl Engine {
         to_js(&self.rule_cfg)
     }
 
+    /// Structured summary of the rule's current model — rule-specific, `null`
+    /// for rules without one. The Fourier lab reads its DFT terms from here
+    /// after each config change (not per frame).
+    pub fn rule_summary(&self) -> JsValue {
+        match self.rule.summary(self.state.as_ref()) {
+            Ok(v) => to_js(&v),
+            Err(e) => {
+                warn(&format!("rule.summary failed: {e}"));
+                JsValue::NULL
+            }
+        }
+    }
+
     pub fn viz_config(&self) -> JsValue {
         to_js(&self.viz_cfg)
     }

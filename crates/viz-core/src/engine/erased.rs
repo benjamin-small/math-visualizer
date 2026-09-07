@@ -54,6 +54,7 @@ pub trait ErasedRule {
     fn init(&self, seed: u64) -> Box<dyn Any>;
     fn advance_to(&self, state: &mut dyn Any, seed: u64, n: u32) -> Result<(), ErasedError>;
     fn substep(&self, state: &mut dyn Any, seed: u64, n: u32, sub: f32) -> Result<(), ErasedError>;
+    fn summary(&self, state: &dyn Any) -> Result<Value, ErasedError>;
 }
 
 /// A concrete `Rule` together with its deserialized config.
@@ -117,6 +118,13 @@ where
             .ok_or(ErasedError::StateDowncastFailed)?;
         self.rule.substep(typed_state, &self.cfg, seed, n, sub);
         Ok(())
+    }
+
+    fn summary(&self, state: &dyn Any) -> Result<Value, ErasedError> {
+        let typed = state
+            .downcast_ref::<R::State>()
+            .ok_or(ErasedError::StateDowncastFailed)?;
+        Ok(self.rule.summary(typed))
     }
 }
 
@@ -273,5 +281,17 @@ mod tests {
 
         viz.set_config(&viz.defaults())
             .expect("defaults round-trip");
+    }
+
+    #[test]
+    fn summary_defaults_to_null_and_rejects_wrong_state() {
+        let rule = TypedRule::new(SierpinskiChaos);
+        let state = rule.init(0);
+        assert!(rule.summary(state.as_ref()).unwrap().is_null());
+        let wrong: u8 = 42;
+        assert!(matches!(
+            rule.summary(&wrong),
+            Err(ErasedError::StateDowncastFailed)
+        ));
     }
 }

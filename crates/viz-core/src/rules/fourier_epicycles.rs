@@ -231,6 +231,9 @@ fn eval_chain(eps: &[Epicycle], origin: [f32; 2], t: f64, out: &mut Vec<[f32; 2]
     }
 }
 
+/// Upper bound on terms returned by `summary` (the UI shows a handful).
+pub const SUMMARY_MAX_TERMS: usize = 64;
+
 pub struct FourierEpicycles;
 
 impl Rule for FourierEpicycles {
@@ -330,6 +333,22 @@ impl Rule for FourierEpicycles {
         eval_chain(&state.epicycles, state.origin, t, &mut chain);
         state.chain = chain;
         state.pen = state.chain.last().copied();
+    }
+
+    /// `{ origin: [x, y], total_terms, terms: [{freq, amp, phase}, …] }` —
+    /// amplitude-descending, at most `SUMMARY_MAX_TERMS` entries.
+    fn summary(&self, state: &Self::State) -> serde_json::Value {
+        let terms: Vec<serde_json::Value> = state
+            .epicycles
+            .iter()
+            .take(SUMMARY_MAX_TERMS)
+            .map(|e| serde_json::json!({ "freq": e.freq, "amp": e.amp, "phase": e.phase }))
+            .collect();
+        serde_json::json!({
+            "origin": state.origin,
+            "total_terms": state.epicycles.len(),
+            "terms": terms,
+        })
     }
 }
 
@@ -675,5 +694,28 @@ mod tests {
             s["properties"]["max_iterations"]["title"],
             "Steps per trace"
         );
+    }
+
+    #[test]
+    fn summary_lists_top_terms_amplitude_descending() {
+        let rule = FourierEpicycles;
+        let cfg = cfg_with(circle_path(64), 5, 64);
+        let state = rule.init(&cfg, 0);
+        let s = rule.summary(&state);
+        assert_eq!(s["total_terms"], 5);
+        let terms = s["terms"].as_array().unwrap();
+        assert_eq!(terms.len(), 5);
+        assert_eq!(terms[0]["freq"].as_i64().unwrap().abs(), 1);
+        let amps: Vec<f64> = terms.iter().map(|t| t["amp"].as_f64().unwrap()).collect();
+        assert!(
+            amps.windows(2).all(|w| w[0] >= w[1]),
+            "amps not descending: {amps:?}"
+        );
+        assert!(s["origin"].as_array().unwrap().len() == 2);
+
+        let empty = rule.init(&cfg_with(vec![], 5, 64), 0);
+        let e = rule.summary(&empty);
+        assert_eq!(e["total_terms"], 0);
+        assert!(e["terms"].as_array().unwrap().is_empty());
     }
 }
