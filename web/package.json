@@ -30,5 +30,8 @@
     "vite-plugin-wasm": "^3.3.0",
     "vitest": "^2.1.0",
     "viz-core": "file:../crates/viz-core/pkg"
+  },
+  "dependencies": {
+    "katex": "^0.18.7"
   }
 }
