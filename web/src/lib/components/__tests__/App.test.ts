@@ -1,41 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/svelte';
+import { installRafPolyfill } from '../../test/fakeViz';
 
-globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => setTimeout(() => cb(0), 0)) as typeof requestAnimationFrame;
-globalThis.cancelAnimationFrame = ((id: number) => clearTimeout(id)) as typeof cancelAnimationFrame;
+installRafPolyfill();
 
-// Mock the WASM loader so App.svelte mounts without instantiating WebGL.
-vi.mock('../../wasm/loader', () => ({
-  loadVizCore: vi.fn(() =>
-    Promise.resolve({
-      Engine: class {
-        constructor(_: string) {}
-        frame(_now: number) {}
-        dispatch(_cmd: unknown) {}
-        snapshot() {
-          return {
-            iteration: 0,
-            sub_progress: 0,
-            playing: false,
-            speed: 1.0,
-            seed: 0,
-            max_iterations: 360,
-          };
-        }
-        rule_schema() { return {}; }
-        viz_schema() { return {}; }
-        rule_config() { return {}; }
-        viz_config() { return {}; }
-        update_rule_config(_: unknown) {}
-        update_viz_config(_: unknown) {}
-        capabilities() { return { supports_scrub: true, cheap_recompute: true, checkpoint_every: null }; }
-        resize(_w: number, _h: number) {}
-        forward_input(_ev: unknown) {}
-        set_zoom(_z: number) {}
-      },
-    } as unknown as typeof import('viz-core'))
-  ),
-}));
+// Mock the WASM loader so the lab shell mounts without instantiating WebGL.
+// vi.mock is hoisted above the imports, so pull the shared fake in lazily.
+vi.mock('../../wasm/loader', async () => {
+  const { makeVizMock } = await import('../../test/fakeViz');
+  return { loadVizCore: vi.fn(() => Promise.resolve(makeVizMock())) };
+});
 
 import App from '../../../App.svelte';
 
@@ -49,5 +23,12 @@ describe('App.svelte', () => {
     // Wait for async frame loop to run and update snapshot
     await new Promise(r => setTimeout(r, 10));
     expect(container.textContent).toMatch(/0\s*\/\s*360/);
+  });
+
+  it('renders the nav with both lab links', () => {
+    const { getByText } = render(App);
+    // The info panel also carries an <h2>Sierpinski Pyramid</h2>; pin to the link.
+    expect(getByText('Sierpinski Pyramid', { selector: 'a' })).toBeTruthy();
+    expect(getByText('Fourier Epicycles')).toBeTruthy();
   });
 });
