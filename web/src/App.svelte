@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { route, installRouter } from './lib/router.svelte';
   import SierpinskiLab from './lib/components/labs/SierpinskiLab.svelte';
+  import FourierLab from './lib/components/labs/FourierLab.svelte';
 
   onMount(installRouter);
 </script>
@@ -15,7 +16,7 @@
   <!-- Distinct components per branch: switching destroys the old lab (and its
        LabShell → engine.free()) synchronously before the new canvas exists. -->
   {#if route.id === 'fourier'}
-    <section class="placeholder"><p>Fourier Epicycle Lab — coming in the next step.</p></section>
+    <FourierLab />
   {:else}
     <SierpinskiLab />
   {/if}
@@ -54,10 +55,5 @@
   }
   .topnav a:hover {
     color: var(--text-strong);
-  }
-  .placeholder {
-    display: grid;
-    place-items: center;
-    color: var(--text);
   }
 </style>
