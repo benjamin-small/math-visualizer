@@ -47,7 +47,7 @@ describe('FourierLab.svelte', () => {
       max_iterations: number;
     };
     expect(cfg.path).toHaveLength(3);
-    expect(cfg.epicycles).toBe(250);
+    expect(cfg.epicycles).toBe(2000);
     expect(cfg.max_iterations).toBe(3);
 
     // Play must follow the config push (update_rule_config resets to paused/0).
