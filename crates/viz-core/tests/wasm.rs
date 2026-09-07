@@ -30,21 +30,21 @@ fn cmd(json: &str) -> JsValue {
 #[wasm_bindgen_test]
 fn engine_constructs_with_a_canvas() {
     make_canvas("test-canvas-construct");
-    let mut engine = Engine::new("test-canvas-construct").expect("engine constructs");
+    let mut engine = Engine::new("test-canvas-construct", None).expect("engine constructs");
     // Just calling frame() proves the GL context is usable.
     engine.frame(0.0);
 }
 
 #[wasm_bindgen_test]
 fn engine_errors_when_canvas_missing() {
-    let result = Engine::new("definitely-not-a-canvas-id");
+    let result = Engine::new("definitely-not-a-canvas-id", None);
     assert!(result.is_err());
 }
 
 #[wasm_bindgen_test]
 fn engine_step_forward_increments_iteration() {
     make_canvas("test-canvas-stepfwd");
-    let mut engine = Engine::new("test-canvas-stepfwd").expect("engine constructs");
+    let mut engine = Engine::new("test-canvas-stepfwd", None).expect("engine constructs");
 
     engine
         .dispatch(cmd(r#"{"kind":"StepForward"}"#))
@@ -61,7 +61,7 @@ fn engine_step_forward_increments_iteration() {
 #[wasm_bindgen_test]
 fn engine_reset_returns_to_zero() {
     make_canvas("test-canvas-reset");
-    let mut engine = Engine::new("test-canvas-reset").expect("engine constructs");
+    let mut engine = Engine::new("test-canvas-reset", None).expect("engine constructs");
 
     engine
         .dispatch(cmd(r#"{"kind":"StepForward"}"#))
@@ -84,7 +84,7 @@ fn engine_reset_returns_to_zero() {
 #[wasm_bindgen_test]
 fn engine_schema_round_trip() {
     make_canvas("test-canvas-schema");
-    let engine = Engine::new("test-canvas-schema").expect("engine constructs");
+    let engine = Engine::new("test-canvas-schema", None).expect("engine constructs");
 
     let schema = engine.rule_schema();
     assert!(!schema.is_null());
@@ -99,7 +99,7 @@ fn engine_schema_round_trip() {
 #[wasm_bindgen_test]
 fn default_rule_schema_has_max_iterations_field() {
     make_canvas("test-canvas-defaults");
-    let engine = Engine::new("test-canvas-defaults").expect("engine constructs");
+    let engine = Engine::new("test-canvas-defaults", None).expect("engine constructs");
 
     let schema = engine.rule_schema();
     let props =
@@ -112,7 +112,7 @@ fn default_rule_schema_has_max_iterations_field() {
 #[wasm_bindgen_test]
 fn default_viz_schema_has_3d_pyramid_fields() {
     make_canvas("test-canvas-pyramid-schema");
-    let engine = Engine::new("test-canvas-pyramid-schema").expect("engine constructs");
+    let engine = Engine::new("test-canvas-pyramid-schema", None).expect("engine constructs");
 
     let schema = engine.viz_schema();
     let props =
@@ -132,7 +132,7 @@ fn default_viz_schema_has_3d_pyramid_fields() {
 #[wasm_bindgen_test]
 fn engine_forwards_pointer_events_without_error() {
     make_canvas("test-canvas-pointer");
-    let mut engine = Engine::new("test-canvas-pointer").expect("engine constructs");
+    let mut engine = Engine::new("test-canvas-pointer", None).expect("engine constructs");
 
     let down =
         js_sys::JSON::parse(r#"{"kind":"PointerDown","x":10.0,"y":10.0,"button":0}"#).unwrap();
@@ -146,4 +146,25 @@ fn engine_forwards_pointer_events_without_error() {
 
     let up = js_sys::JSON::parse(r#"{"kind":"PointerUp","x":15.0,"y":12.0,"button":0}"#).unwrap();
     engine.forward_input(up).expect("PointerUp forwards");
+}
+
+#[wasm_bindgen_test]
+fn engine_rejects_unknown_lab_id() {
+    make_canvas("test-canvas-unknown-lab");
+    assert!(Engine::new("test-canvas-unknown-lab", Some("nope".into())).is_err());
+}
+
+#[wasm_bindgen_test]
+fn engine_reports_lab_id() {
+    make_canvas("test-canvas-lab-id");
+    let engine = Engine::new("test-canvas-lab-id", None).expect("engine constructs");
+    assert_eq!(engine.lab_id(), "sierpinski");
+}
+
+#[wasm_bindgen_test]
+fn engine_accepts_explicit_default_lab_id() {
+    make_canvas("test-canvas-explicit-lab");
+    let engine = Engine::new("test-canvas-explicit-lab", Some("sierpinski".into()))
+        .expect("engine constructs");
+    assert_eq!(engine.lab_id(), "sierpinski");
 }

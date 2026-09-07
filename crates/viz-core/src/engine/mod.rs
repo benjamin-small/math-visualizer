@@ -20,11 +20,9 @@ fn to_js(value: &impl Serialize) -> JsValue {
 
 pub mod erased;
 pub mod playback;
+pub mod registry;
 
-use crate::config::ConfigSchema;
-use crate::rules::sierpinski_chaos::{ChaosGameConfig, SierpinskiChaos};
 use crate::traits::InputEvent;
-use crate::visualizations::sierpinski_pyramid::{SierpinskiPyramid, SierpinskiPyramidVizConfig};
 use erased::{ErasedRule, ErasedVisualization};
 use playback::{advance_time, reduce, Command, PlaybackState};
 
@@ -38,17 +36,21 @@ pub struct Engine {
     state: Box<dyn Any>,
     playback: PlaybackState,
     last_frame_ms: Option<f64>,
+    lab_id: String,
 }
 
 #[wasm_bindgen]
 impl Engine {
-    /// Construct an Engine bound to the canvas with id `canvas_id`. Currently
-    /// hardwires SierpinskiChaos + SierpinskiPyramid (a rotating 3D Sierpinski
-    /// tetrahedron); a future rule/viz registry + selector UI will let the JS
-    /// layer pick the pair (the midpoint-on-circle and color-cycle rules stay
-    /// in the codebase as alternative options).
+    /// Construct an Engine bound to the canvas with id `canvas_id`. The
+    /// rule + visualization pair comes from `engine::registry`, selected by
+    /// `lab_id` (`None` → `registry::DEFAULT_LAB`, currently "sierpinski").
+    /// An unknown id is an error. From JS: `new Engine(canvasId, labId?)`.
     #[wasm_bindgen(constructor)]
-    pub fn new(canvas_id: &str) -> Result<Engine, JsValue> {
+    pub fn new(canvas_id: &str, lab_id: Option<String>) -> Result<Engine, JsValue> {
+        let lab = lab_id.as_deref().unwrap_or(registry::DEFAULT_LAB);
+        let parts = registry::build_lab(lab)
+            .ok_or_else(|| JsValue::from_str(&format!("unknown lab id: {lab}")))?;
+
         let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
         let document = window
             .document()
@@ -65,14 +67,13 @@ impl Engine {
             .dyn_into::<WebGl2RenderingContext>()
             .map_err(|_| JsValue::from_str("not a WebGL2 context"))?;
 
-        let rule_cfg = ChaosGameConfig::defaults();
-        let viz_cfg = SierpinskiPyramidVizConfig::defaults();
-        let max_iter = serde_json::from_value::<ChaosGameConfig>(rule_cfg.clone())
-            .map(|c| c.max_iterations)
-            .unwrap_or(50_000);
-
-        let rule: Box<dyn ErasedRule> = Box::new(SierpinskiChaos);
-        let mut viz: Box<dyn ErasedVisualization> = Box::new(SierpinskiPyramid::new());
+        let registry::LabParts {
+            rule,
+            mut viz,
+            rule_cfg,
+            viz_cfg,
+        } = parts;
+        let max_iter = registry::max_iterations_of(&rule_cfg, 50_000);
 
         viz.init(&gl, &viz_cfg)
             .map_err(|e| JsValue::from_str(&format!("viz init: {e}")))?;
@@ -90,7 +91,13 @@ impl Engine {
             state,
             playback: PlaybackState::initial(0, max_iter),
             last_frame_ms: None,
+            lab_id: lab.to_string(),
         })
+    }
+
+    /// The registry id this engine was built from (e.g. "sierpinski").
+    pub fn lab_id(&self) -> String {
+        self.lab_id.clone()
     }
 
     /// rAF callback. `now_ms` is `performance.now()` from JS.
@@ -189,9 +196,7 @@ impl Engine {
     pub fn update_rule_config(&mut self, cfg: JsValue) -> Result<(), JsValue> {
         let parsed: Value = serde_wasm_bindgen::from_value(cfg)
             .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
-        let new_max = serde_json::from_value::<ChaosGameConfig>(parsed.clone())
-            .map(|c| c.max_iterations.max(1))
-            .unwrap_or(self.playback.max_iterations);
+        let new_max = registry::max_iterations_of(&parsed, self.playback.max_iterations);
 
         self.rule_cfg = parsed;
         self.playback.iteration = 0;
