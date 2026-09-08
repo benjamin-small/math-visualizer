@@ -267,3 +267,51 @@ fn fourier_rule_summary_exposes_dft_terms() {
     let total = js_sys::Reflect::get(&s, &JsValue::from_str("total_terms")).unwrap();
     assert_eq!(total.as_f64(), Some(3.0));
 }
+
+#[wasm_bindgen_test]
+fn fourier_accepts_a_typed_array_path() {
+    make_canvas("test-canvas-fourier-typed");
+    let mut engine = Engine::new("test-canvas-fourier-typed", Some("fourier".into()))
+        .expect("engine constructs");
+    let xy = [1.0f32, 0.0, 0.0, 1.0, -1.0, 0.0, 0.0, -1.0];
+    let pen = [1u8, 1, 1, 0];
+    engine
+        .update_rule_config_with_path(cmd(r#"{"epicycles":3,"max_iterations":4}"#), &xy, &pen)
+        .expect("typed-array path accepted");
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
+    let snap = engine.snapshot();
+    let iter = js_sys::Reflect::get(&snap, &JsValue::from_str("iteration"))
+        .expect("iteration field")
+        .as_f64()
+        .expect("number");
+    assert_eq!(iter as u32, 2);
+    // rule_config() reflects the installed path.
+    let cfg = engine.rule_config();
+    let path = js_sys::Reflect::get(&cfg, &JsValue::from_str("path")).expect("path");
+    assert_eq!(js_sys::Array::from(&path).length(), 4);
+    engine.frame(32.0);
+}
+
+#[wasm_bindgen_test]
+fn typed_array_path_rejects_bad_shapes_and_non_path_rules() {
+    make_canvas("test-canvas-typed-errors");
+    let mut fourier =
+        Engine::new("test-canvas-typed-errors", Some("fourier".into())).expect("engine constructs");
+    assert!(fourier
+        .update_rule_config_with_path(
+            cmd(r#"{"epicycles":3,"max_iterations":4}"#),
+            &[1.0, 0.0, 0.0],
+            &[1, 1]
+        )
+        .is_err());
+    make_canvas("test-canvas-typed-errors-2");
+    let mut pyramid = Engine::new("test-canvas-typed-errors-2", None).expect("engine constructs");
+    assert!(pyramid
+        .update_rule_config_with_path(cmd(r#"{"max_iterations":10}"#), &[1.0, 0.0], &[1])
+        .is_err());
+}

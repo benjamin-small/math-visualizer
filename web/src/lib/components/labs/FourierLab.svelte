@@ -4,7 +4,7 @@
   import FormulaPanel from '../FormulaPanel.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
-  import { textToPath, samplesFor } from '../../fourier/textPath';
+  import { textToPath, samplesFor, packPath } from '../../fourier/textPath';
   import { readSummary, type FourierSummary } from '../../fourier/summary';
   import { route, replaceQuery } from '../../router.svelte';
   import { buildQuery } from '../../router';
@@ -104,7 +104,8 @@
       summary = null;
       return;
     }
-    api.setRuleConfig({ path, epicycles, max_iterations: Math.min(path.length, TRACE_STEPS) });
+    const { xy, pen } = packPath(path);
+    api.setRuleConfigWithPath({ epicycles, max_iterations: Math.min(path.length, TRACE_STEPS) }, xy, pen);
     summary = readEngineSummary(api);
     api.dispatch(cmd.play());
   }
