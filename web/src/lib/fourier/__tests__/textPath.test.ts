@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as opentype from 'opentype.js';
-import { textToPath, glyphOutlineCommands } from '../textPath';
+import { textToPath, glyphOutlineCommands, samplesFor, MIN_SAMPLES, MAX_SAMPLES } from '../textPath';
 import type { PathCommand } from '../geometry';
 
 // A 2-glyph fake font: each glyph is a unit square outline, advance 1000 units/em.
@@ -33,6 +33,22 @@ describe('textToPath (fake font)', () => {
     const cmds = glyphOutlineCommands(fakeFont, 'ab', 100);
     const xs = cmds.flatMap((c) => (c.type === 'M' ? [c.x] : []));
     expect(xs).toEqual([0, 60]); // 600 units * (100 / 1000)
+  });
+});
+
+describe('samplesFor', () => {
+  it('is a power of two, at least epicycles + 1, clamped to [MIN, MAX]', () => {
+    expect(samplesFor(1)).toBe(MIN_SAMPLES);
+    expect(samplesFor(2000)).toBe(2048);
+    expect(samplesFor(2047)).toBe(2048);
+    expect(samplesFor(2048)).toBe(4096);
+    expect(samplesFor(50_000)).toBe(65_536);
+    expect(samplesFor(1_000_000)).toBe(MAX_SAMPLES);
+    for (const n of [3, 500, 2048, 9_999, 50_000]) {
+      const s = samplesFor(n);
+      expect(Number.isInteger(Math.log2(s))).toBe(true);
+      expect(s).toBeGreaterThanOrEqual(Math.min(n + 1, MAX_SAMPLES));
+    }
   });
 });
 

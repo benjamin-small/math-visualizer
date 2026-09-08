@@ -4,14 +4,15 @@
   import FormulaPanel from '../FormulaPanel.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
-  import { textToPath } from '../../fourier/textPath';
+  import { textToPath, samplesFor } from '../../fourier/textPath';
   import { readSummary, type FourierSummary } from '../../fourier/summary';
   import { route, replaceQuery } from '../../router.svelte';
   import { buildQuery } from '../../router';
 
   const DEFAULT_TEXT = 'POIETIC TECH';
-  const SAMPLES = 2000;
-  const MAX_EPICYCLES = 2000;
+  /** Pen steps per full trace — the ink resolution, independent of the DFT sample count. */
+  const TRACE_STEPS = 2000;
+  const MAX_EPICYCLES = 50_000;
   const DEBOUNCE_MS = 150;
   const DEFAULT_EPICYCLES = 2000;
   const MAX_TEXT = 40;
@@ -91,7 +92,7 @@
     const my = ++gen;
     let path: Awaited<ReturnType<typeof textToPath>>;
     try {
-      path = await textToPath(text, { samples: SAMPLES });
+      path = await textToPath(text, { samples: samplesFor(epicycles) });
     } catch (err) {
       console.warn('textToPath failed:', err);
       return;
@@ -103,7 +104,7 @@
       summary = null;
       return;
     }
-    api.setRuleConfig({ path, epicycles, max_iterations: path.length });
+    api.setRuleConfig({ path, epicycles, max_iterations: Math.min(path.length, TRACE_STEPS) });
     summary = readEngineSummary(api);
     api.dispatch(cmd.play());
   }
@@ -144,7 +145,7 @@
   });
 </script>
 
-<LabShell labId="fourier" initialSpeed={360} {onReady}>
+<LabShell labId="fourier" initialSpeed={120} {onReady}>
   {#snippet info()}
     <h2>Fourier Epicycles</h2>
     <p>

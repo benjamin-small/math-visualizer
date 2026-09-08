@@ -286,7 +286,12 @@ impl Visualization for FourierEpicyclesViz {
         let chain = &state.chain;
         line_scratch.clear();
         line_scratch.reserve(chain.len().saturating_sub(1) * 2);
-        for w in chain.windows(2) {
+        // Arm i has length amp_i, so a sub-pixel ring implies a sub-pixel arm:
+        // apply the same cull (with 50k terms, nearly all are sub-pixel).
+        for (e, w) in state.epicycles.iter().zip(chain.windows(2)) {
+            if e.amp * 2.0 / world_per_px < cfg.min_circle_px {
+                continue;
+            }
             push_seg(line_scratch, w[0], w[1], cfg.arm_color);
         }
         lines.upload(gl, line_scratch);

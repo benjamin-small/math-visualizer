@@ -15,7 +15,9 @@ vi.mock('../../wasm/loader', async () => {
 
 // Mock the font-backed text→path pipeline: three points for any non-blank
 // text, `[]` for blank (mirroring the real contract).
-vi.mock('../../fourier/textPath', () => ({
+vi.mock('../../fourier/textPath', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../fourier/textPath')>()), // keep pure helpers (samplesFor) real
+
   textToPath: vi.fn(async (t: string) =>
     t.trim()
       ? [
@@ -28,6 +30,7 @@ vi.mock('../../fourier/textPath', () => ({
 }));
 
 import App from '../../../App.svelte';
+import { textToPath } from '../../fourier/textPath';
 
 describe('FourierLab.svelte', () => {
   beforeEach(() => {
@@ -119,6 +122,16 @@ describe('FourierLab.svelte — shareable link params', () => {
     const cfg = updateRuleConfigSpy.mock.calls[0][0] as { epicycles: number };
     expect(cfg.epicycles).toBe(12);
     expect((getByLabelText('Text to trace') as HTMLInputElement).value).toBe('HELLO');
+  });
+
+  it('accepts up to 50,000 epicycles from the link and requests a matching sample count', async () => {
+    navigate('fourier', 'n=50000');
+    render(App);
+    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalled());
+    const cfg = updateRuleConfigSpy.mock.calls[0][0] as { epicycles: number; max_iterations: number };
+    expect(cfg.epicycles).toBe(50_000);
+    expect(cfg.max_iterations).toBe(3); // min(path.length, TRACE_STEPS) with the 3-point mock
+    expect(textToPath).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ samples: 65_536 }));
   });
 
   it('keeps the URL in sync as the text changes and offers a copy-link button', async () => {
