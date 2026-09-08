@@ -26,6 +26,19 @@ export class LabApi {
     this.setRuleConfig({ ...cur, ...patch });
   }
 
+  /**
+   * Replace the rule config with scalar fields as JSON plus the path as typed
+   * arrays — zero-copy across the WASM boundary, so a 65k-point path costs no
+   * JSON. Only rules that accept a path (the Fourier lab) support this.
+   */
+  setRuleConfigWithPath(cfg: object, xy: Float32Array, pen: Uint8Array) {
+    try {
+      this.engine?.update_rule_config_with_path(cfg, xy, pen);
+    } catch (err) {
+      console.warn('update_rule_config_with_path failed:', err);
+    }
+  }
+
   /** Replace the rule config wholesale (use this when the config is large, e.g. a 2000-point path). */
   setRuleConfig(cfg: object) {
     try {

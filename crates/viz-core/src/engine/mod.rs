@@ -180,8 +180,10 @@ impl Engine {
         to_js(&self.viz.schema())
     }
 
+    /// The rule's live typed config, serialized on demand — so a path
+    /// installed via `update_rule_config_with_path` is reflected too.
     pub fn rule_config(&self) -> JsValue {
-        to_js(&self.rule_cfg)
+        to_js(&self.rule.config_json())
     }
 
     /// Structured summary of the rule's current model — rule-specific, `null`
@@ -214,6 +216,43 @@ impl Engine {
         let new_max = registry::max_iterations_of(&parsed, self.playback.max_iterations);
 
         self.rule_cfg = parsed;
+        self.reset_playback_after_rule_config(new_max);
+        Ok(())
+    }
+
+    /// Like `update_rule_config`, but the path arrives as typed arrays —
+    /// `xy` = [x0, y0, x1, y1, …] and `pen` = one 0/1 flag per sample — which
+    /// wasm-bindgen exposes as zero-copy views (JS passes a Float32Array and a
+    /// Uint8Array). A 65k-point path therefore skips ~3 MB of JSON. `cfg`
+    /// carries the remaining scalar fields. Errors if the shapes disagree or
+    /// the active rule has no path.
+    pub fn update_rule_config_with_path(
+        &mut self,
+        cfg: JsValue,
+        xy: &[f32],
+        pen: &[u8],
+    ) -> Result<(), JsValue> {
+        if xy.len() != pen.len() * 2 {
+            return Err(JsValue::from_str(&format!(
+                "path shape mismatch: {} coordinates for {} pen flags",
+                xy.len(),
+                pen.len()
+            )));
+        }
+        let parsed: Value = serde_wasm_bindgen::from_value(cfg)
+            .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
+        self.rule
+            .set_config_with_path(&parsed, xy, pen)
+            .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
+        let new_max = registry::max_iterations_of(&parsed, self.playback.max_iterations);
+        self.rule_cfg = parsed;
+        self.reset_playback_after_rule_config(new_max);
+        Ok(())
+    }
+
+    /// Shared tail of the two rule-config setters: rewind, pause, adopt the
+    /// new step count, drop the stale frame timestamp, rebuild state.
+    fn reset_playback_after_rule_config(&mut self, new_max: u32) {
         self.playback.iteration = 0;
         self.playback.sub_progress = 0.0;
         self.playback.playing = false;
@@ -221,9 +260,7 @@ impl Engine {
         // The user may have spent seconds in a config panel before committing;
         // the next frame() must not feed that gap as `dt` into viz.tick().
         self.last_frame_ms = None;
-
         self.state = self.rule.init(self.playback.seed);
-        Ok(())
     }
 
     /// Replace the visualization config. Cosmetic-only edits don't reset

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { installRafPolyfill, dispatchSpy, updateRuleConfigSpy } from '../../test/fakeViz';
+import { installRafPolyfill, dispatchSpy, updateRuleConfigWithPathSpy } from '../../test/fakeViz';
 import { navigate } from '../../router.svelte';
 
 installRafPolyfill();
@@ -35,21 +35,23 @@ import { textToPath } from '../../fourier/textPath';
 describe('FourierLab.svelte', () => {
   beforeEach(() => {
     dispatchSpy.mockClear();
-    updateRuleConfigSpy.mockClear();
+    updateRuleConfigWithPathSpy.mockClear();
     navigate('fourier'); // `route` is module-level state; pin it before each render
   });
 
   it('pushes the default text as a rule config on ready, then dispatches Play', async () => {
     render(App);
-    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalled());
+    await vi.waitFor(() => expect(updateRuleConfigWithPathSpy).toHaveBeenCalled());
 
-    expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1);
-    const cfg = updateRuleConfigSpy.mock.calls[0][0] as {
+    expect(updateRuleConfigWithPathSpy).toHaveBeenCalledTimes(1);
+    const cfg = updateRuleConfigWithPathSpy.mock.calls[0][0] as {
       path: unknown[];
       epicycles: number;
       max_iterations: number;
     };
-    expect(cfg.path).toHaveLength(3);
+    expect(updateRuleConfigWithPathSpy.mock.calls[0][1]).toBeInstanceOf(Float32Array);
+    expect(updateRuleConfigWithPathSpy.mock.calls[0][1]).toHaveLength(6); // 3 points × (x, y)
+    expect(updateRuleConfigWithPathSpy.mock.calls[0][2]).toEqual(new Uint8Array([1, 1, 0]));
     expect(cfg.epicycles).toBe(2000);
     expect(cfg.max_iterations).toBe(3);
 
@@ -57,13 +59,13 @@ describe('FourierLab.svelte', () => {
     expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'Play' });
     const playCall = dispatchSpy.mock.calls.findIndex((c) => (c[0] as { kind: string }).kind === 'Play');
     expect(dispatchSpy.mock.invocationCallOrder[playCall]).toBeGreaterThan(
-      updateRuleConfigSpy.mock.invocationCallOrder[0],
+      updateRuleConfigWithPathSpy.mock.invocationCallOrder[0],
     );
   });
 
   it('typesets the series for the pushed text, with the count of terms it leaves out', async () => {
     const { container, getByText } = render(App);
-    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(updateRuleConfigWithPathSpy).toHaveBeenCalledTimes(1));
 
     expect(getByText('The formula', { selector: 'h3' })).toBeTruthy();
     // The fake's rule_summary() reports 2000 terms; the panel expands the top 8.
@@ -85,7 +87,7 @@ describe('FourierLab.svelte', () => {
 
   it('shows a hint (and pushes nothing) when the text is cleared', async () => {
     const { getByLabelText, getByText, queryByText } = render(App);
-    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(updateRuleConfigWithPathSpy).toHaveBeenCalledTimes(1));
 
     const input = getByLabelText('Text to trace') as HTMLInputElement;
     expect(input.value).toBe('POIETIC TECH');
@@ -94,7 +96,7 @@ describe('FourierLab.svelte', () => {
     await fireEvent.input(input, { target: { value: '' } });
     // The push is debounced (150ms); waitFor polls past it.
     await vi.waitFor(() => expect(getByText(/Nothing to draw/)).toBeTruthy());
-    expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1);
+    expect(updateRuleConfigWithPathSpy).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the nav and swaps the lab when routing back to Sierpinski', async () => {
@@ -112,14 +114,14 @@ describe('FourierLab.svelte', () => {
 describe('FourierLab.svelte — shareable link params', () => {
   beforeEach(() => {
     dispatchSpy.mockClear();
-    updateRuleConfigSpy.mockClear();
+    updateRuleConfigWithPathSpy.mockClear();
   });
 
   it('reads text and n from the hash query and uses them for the first push', async () => {
     navigate('fourier', 'text=HELLO&n=12');
     const { getByLabelText } = render(App);
-    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalled());
-    const cfg = updateRuleConfigSpy.mock.calls[0][0] as { epicycles: number };
+    await vi.waitFor(() => expect(updateRuleConfigWithPathSpy).toHaveBeenCalled());
+    const cfg = updateRuleConfigWithPathSpy.mock.calls[0][0] as { epicycles: number };
     expect(cfg.epicycles).toBe(12);
     expect((getByLabelText('Text to trace') as HTMLInputElement).value).toBe('HELLO');
   });
@@ -127,8 +129,8 @@ describe('FourierLab.svelte — shareable link params', () => {
   it('accepts up to 50,000 epicycles from the link and requests a matching sample count', async () => {
     navigate('fourier', 'n=50000');
     render(App);
-    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalled());
-    const cfg = updateRuleConfigSpy.mock.calls[0][0] as { epicycles: number; max_iterations: number };
+    await vi.waitFor(() => expect(updateRuleConfigWithPathSpy).toHaveBeenCalled());
+    const cfg = updateRuleConfigWithPathSpy.mock.calls[0][0] as { epicycles: number; max_iterations: number };
     expect(cfg.epicycles).toBe(50_000);
     expect(cfg.max_iterations).toBe(3); // min(path.length, TRACE_STEPS) with the 3-point mock
     expect(textToPath).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ samples: 65_536 }));
@@ -137,12 +139,12 @@ describe('FourierLab.svelte — shareable link params', () => {
   it('keeps the URL in sync as the text changes and offers a copy-link button', async () => {
     navigate('fourier');
     const { getByLabelText, getByTitle } = render(App);
-    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(updateRuleConfigWithPathSpy).toHaveBeenCalledTimes(1));
     expect(location.hash).toBe('#/fourier'); // defaults are omitted from the link
 
     const input = getByLabelText('Text to trace') as HTMLInputElement;
     await fireEvent.input(input, { target: { value: 'ABC' } });
-    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(updateRuleConfigWithPathSpy).toHaveBeenCalledTimes(2));
     expect(location.hash).toBe('#/fourier?text=ABC');
     expect(getByTitle('Copy a link to this message')).toBeTruthy();
   });

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as opentype from 'opentype.js';
-import { textToPath, glyphOutlineCommands, samplesFor, MIN_SAMPLES, MAX_SAMPLES } from '../textPath';
+import { textToPath, glyphOutlineCommands, samplesFor, packPath, MIN_SAMPLES, MAX_SAMPLES } from '../textPath';
 import type { PathCommand } from '../geometry';
 
 // A 2-glyph fake font: each glyph is a unit square outline, advance 1000 units/em.
@@ -33,6 +33,15 @@ describe('textToPath (fake font)', () => {
     const cmds = glyphOutlineCommands(fakeFont, 'ab', 100);
     const xs = cmds.flatMap((c) => (c.type === 'M' ? [c.x] : []));
     expect(xs).toEqual([0, 60]); // 600 units * (100 / 1000)
+  });
+});
+
+describe('packPath', () => {
+  it('interleaves x/y into a Float32Array and pen flags into a Uint8Array', () => {
+    const { xy, pen } = packPath([{ x: 1, y: 2, pen: true }, { x: -3, y: 0.5, pen: false }]);
+    expect(Array.from(xy)).toEqual([1, 2, -3, 0.5]);
+    expect(Array.from(pen)).toEqual([1, 0]);
+    expect(packPath([]).xy).toHaveLength(0);
   });
 });
 

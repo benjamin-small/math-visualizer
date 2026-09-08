@@ -17,6 +17,8 @@ export const freeSpy = vi.fn();
 export const dispatchSpy = vi.fn();
 /** Records every `Engine.update_rule_config(cfg)` so tests can assert on the config a lab pushes. */
 export const updateRuleConfigSpy = vi.fn();
+/** Records every `Engine.update_rule_config_with_path(cfg, xy, pen)` — the Fourier lab's typed-array push. */
+export const updateRuleConfigWithPathSpy = vi.fn();
 /**
  * What the fake's `rule_summary()` returns on the Fourier lab (null elsewhere,
  * like the real engine). Mutable so a test can reshape it before a push;
@@ -59,6 +61,7 @@ export class FakeEngine {
   rule_summary() { return this._lab === 'fourier' ? ruleSummaryFixture : null; }
   viz_config() { return {}; }
   update_rule_config(cfg: unknown) { updateRuleConfigSpy(cfg); }
+  update_rule_config_with_path(cfg: unknown, xy: Float32Array, pen: Uint8Array) { updateRuleConfigWithPathSpy(cfg, xy, pen); }
   update_viz_config(_: unknown) {}
   capabilities() { return { supports_scrub: true, cheap_recompute: true, checkpoint_every: null }; }
   resize(_w: number, _h: number) {}

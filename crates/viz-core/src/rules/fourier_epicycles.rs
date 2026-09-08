@@ -30,6 +30,9 @@ pub struct PathPoint {
 pub struct FourierConfig {
     /// Closed path to trace. The UI sends a power-of-two sample count
     /// (2048–65536, growing with `epicycles`) so the DFT takes the FFT path.
+    /// Defaults to empty so the scalar-only JSON used with
+    /// `Engine::update_rule_config_with_path` still parses.
+    #[serde(default)]
     pub path: Vec<PathPoint>,
     /// Number of DFT terms kept (K), largest amplitudes first.
     pub epicycles: u32,
@@ -312,6 +315,25 @@ impl Rule for FourierEpicycles {
         }
     }
 
+    /// Install a packed path: `xy` = [x0, y0, x1, y1, …], `pen` one flag per
+    /// sample. Rejects (returns false, leaving `cfg` untouched) on a shape
+    /// mismatch so a truncated transfer can never become a silent half-path.
+    fn apply_path(&self, cfg: &mut Self::Config, xy: &[f32], pen: &[u8]) -> bool {
+        if xy.len() != pen.len() * 2 {
+            return false;
+        }
+        cfg.path = xy
+            .chunks_exact(2)
+            .zip(pen)
+            .map(|(c, &p)| PathPoint {
+                x: c[0],
+                y: c[1],
+                pen: p != 0,
+            })
+            .collect();
+        true
+    }
+
     fn init(&self, cfg: &Self::Config, _seed: u64) -> Self::State {
         let (origin, mut epicycles) = dft(&cfg.path);
         epicycles.truncate(cfg.epicycles as usize);
@@ -413,6 +435,32 @@ impl Rule for FourierEpicycles {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apply_path_packs_xy_and_pen_and_rejects_shape_mismatch() {
+        let rule = FourierEpicycles;
+        let mut cfg = FourierConfig::default();
+        assert!(rule.apply_path(&mut cfg, &[1.0, 0.0, 0.0, 1.0, -1.0, 0.0], &[1, 1, 0]));
+        assert_eq!(cfg.path.len(), 3);
+        assert_eq!(
+            cfg.path[1],
+            PathPoint {
+                x: 0.0,
+                y: 1.0,
+                pen: true
+            }
+        );
+        assert_eq!(cfg.path[2].pen, false);
+        // odd coordinate count / flag count mismatch → refused, path unchanged
+        assert!(!rule.apply_path(&mut cfg, &[1.0, 0.0, 0.0], &[1, 1]));
+        assert_eq!(cfg.path.len(), 3);
+        // the scalar-only JSON form parses with an empty path
+        let parsed: FourierConfig =
+            serde_json::from_value(serde_json::json!({"epicycles": 5, "max_iterations": 9}))
+                .unwrap();
+        assert!(parsed.path.is_empty());
+        assert_eq!(parsed.epicycles, 5);
+    }
 
     #[test]
     fn fft_matches_naive_dft_on_a_power_of_two_signal() {

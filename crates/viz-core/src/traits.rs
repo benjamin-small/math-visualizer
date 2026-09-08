@@ -59,6 +59,15 @@ pub trait Rule {
     ) {
     }
 
+    /// Optional bulk-path hook: replace the config's path from packed
+    /// `[x0, y0, x1, y1, …]` coordinates plus one 0/1 pen flag per sample.
+    /// Rules whose config has no path keep the default and return `false`.
+    /// Backs `Engine::update_rule_config_with_path`, which lets a 65k-point
+    /// path cross the WASM boundary as typed-array views instead of JSON.
+    fn apply_path(&self, _cfg: &mut Self::Config, _xy: &[f32], _pen: &[u8]) -> bool {
+        false
+    }
+
     /// Optional structured summary of the rule's current model for the UI
     /// (e.g. the DFT terms behind a Fourier trace). Read by the shell after
     /// config changes, never per frame. Default: `null`.

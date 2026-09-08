@@ -23,6 +23,18 @@ export function samplesFor(epicycles: number): number {
   return 2 ** Math.ceil(Math.log2(want));
 }
 
+/** Pack a path for the typed-array engine call: `xy` = [x0, y0, x1, y1, …], `pen` = one 0/1 flag per point. */
+export function packPath(points: PathPoint[]): { xy: Float32Array; pen: Uint8Array } {
+  const xy = new Float32Array(points.length * 2);
+  const pen = new Uint8Array(points.length);
+  for (let i = 0; i < points.length; i++) {
+    xy[2 * i] = points[i].x;
+    xy[2 * i + 1] = points[i].y;
+    pen[i] = points[i].pen ? 1 : 0;
+  }
+  return { xy, pen };
+}
+
 export type TextToPathOptions = {
   /** Total samples in the closed loop (uniform arc length). Default 2000. */
   samples?: number;

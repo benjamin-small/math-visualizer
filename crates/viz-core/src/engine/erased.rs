@@ -27,6 +27,8 @@ use crate::traits::{Capabilities, InputEvent, Rule, Visualization};
 pub enum ErasedError {
     StateDowncastFailed,
     ConfigParse(serde_json::Error),
+    /// The active rule's config has no path (`Rule::apply_path` returned false).
+    PathUnsupported,
 }
 
 impl std::fmt::Display for ErasedError {
@@ -34,6 +36,7 @@ impl std::fmt::Display for ErasedError {
         match self {
             ErasedError::StateDowncastFailed => f.write_str("scene state has wrong concrete type"),
             ErasedError::ConfigParse(e) => write!(f, "config parse error: {e}"),
+            ErasedError::PathUnsupported => f.write_str("this rule does not accept a path"),
         }
     }
 }
@@ -50,6 +53,18 @@ pub trait ErasedRule {
     /// config is kept, so a rejected update never leaves the rule
     /// half-applied.
     fn set_config(&mut self, cfg: &Value) -> Result<(), ErasedError>;
+
+    /// Parse the scalar fields from `cfg`, then install `xy`/`pen` as the
+    /// path via `Rule::apply_path`. Atomic: the old config survives any error.
+    fn set_config_with_path(
+        &mut self,
+        cfg: &Value,
+        xy: &[f32],
+        pen: &[u8],
+    ) -> Result<(), ErasedError>;
+    /// The current typed config, serialized on demand (large paths included —
+    /// callers that only need scalars should avoid calling this per frame).
+    fn config_json(&self) -> Value;
 
     fn init(&self, seed: u64) -> Box<dyn Any>;
     fn advance_to(&self, state: &mut dyn Any, seed: u64, n: u32) -> Result<(), ErasedError>;
@@ -98,6 +113,25 @@ where
         // so `self.cfg` is untouched on error.
         self.cfg = serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
         Ok(())
+    }
+
+    fn set_config_with_path(
+        &mut self,
+        cfg: &Value,
+        xy: &[f32],
+        pen: &[u8],
+    ) -> Result<(), ErasedError> {
+        let mut typed: R::Config =
+            serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
+        if !self.rule.apply_path(&mut typed, xy, pen) {
+            return Err(ErasedError::PathUnsupported);
+        }
+        self.cfg = typed;
+        Ok(())
+    }
+
+    fn config_json(&self) -> Value {
+        serde_json::to_value(&self.cfg).unwrap_or(Value::Null)
     }
 
     fn init(&self, seed: u64) -> Box<dyn Any> {
@@ -293,5 +327,40 @@ mod tests {
             rule.summary(&wrong),
             Err(ErasedError::StateDowncastFailed)
         ));
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+    use crate::rules::fourier_epicycles::FourierEpicycles;
+    use crate::rules::sierpinski_chaos::SierpinskiChaos;
+    use serde_json::json;
+
+    const XY: [f32; 8] = [1.0, 0.0, 0.0, 1.0, -1.0, 0.0, 0.0, -1.0];
+    const PEN: [u8; 4] = [1, 1, 1, 0];
+
+    #[test]
+    fn typed_array_path_installs_into_a_path_rule() {
+        let mut r = TypedRule::new(FourierEpicycles);
+        r.set_config_with_path(&json!({"epicycles": 3, "max_iterations": 4}), &XY, &PEN)
+            .expect("fourier accepts a path");
+        let cfg = r.config_json();
+        assert_eq!(cfg["epicycles"], 3);
+        let path = cfg["path"].as_array().expect("path array");
+        assert_eq!(path.len(), 4);
+        assert_eq!(path[3]["pen"], false);
+        assert_eq!(path[1]["y"], 1.0);
+    }
+
+    #[test]
+    fn typed_array_path_is_rejected_by_rules_without_one() {
+        let mut r = TypedRule::new(SierpinskiChaos);
+        let before = r.config_json();
+        let err = r
+            .set_config_with_path(&json!({"max_iterations": 10}), &XY, &PEN)
+            .expect_err("sierpinski has no path");
+        assert!(matches!(err, ErasedError::PathUnsupported));
+        assert_eq!(r.config_json(), before, "config untouched on error");
     }
 }
