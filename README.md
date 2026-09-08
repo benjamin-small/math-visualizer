@@ -13,6 +13,8 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   glyph outlines become one closed path, the path's DFT becomes a chain of rotating
 >   circles, and the chain's tip traces the letters live (pen lifts between glyphs).
 >   Hundreds of circles render in one instanced draw call.
+>   Share a message with `#/fourier?text=YOUR+TEXT` (`&n=` sets the epicycle count) —
+>   the URL updates as you type, and **Copy link** puts it on the clipboard.
 >
 > The midpoint-on-circle and ColorCycle rules remain in the codebase as alternative
 > examples. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for designs and

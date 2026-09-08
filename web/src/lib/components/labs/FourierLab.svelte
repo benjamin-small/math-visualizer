@@ -1,19 +1,75 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import LabShell from '../LabShell.svelte';
   import FormulaPanel from '../FormulaPanel.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
   import { textToPath } from '../../fourier/textPath';
   import { readSummary, type FourierSummary } from '../../fourier/summary';
+  import { route, replaceQuery } from '../../router.svelte';
+  import { buildQuery } from '../../router';
 
   const DEFAULT_TEXT = 'POIETIC TECH';
   const SAMPLES = 2000;
   const MAX_EPICYCLES = 2000;
   const DEBOUNCE_MS = 150;
+  const DEFAULT_EPICYCLES = 2000;
+  const MAX_TEXT = 40;
 
-  let text = $state(DEFAULT_TEXT);
-  let epicycles = $state(2000);
+  /** Read the shareable-link params from a hash query: `text=…` and `n=…` (epicycles). */
+  function paramsOf(query: string) {
+    const p = new URLSearchParams(query);
+    const t = p.get('text');
+    const n = Math.floor(Number(p.get('n')));
+    return {
+      text: t !== null && t.trim() !== '' ? t.slice(0, MAX_TEXT) : undefined,
+      epicycles: Number.isFinite(n) && n >= 1 ? Math.min(n, MAX_EPICYCLES) : undefined,
+    };
+  }
+  const initialParams = paramsOf(route.query);
+
+  let text = $state(initialParams.text ?? DEFAULT_TEXT);
+  let epicycles = $state(initialParams.epicycles ?? DEFAULT_EPICYCLES);
+  /** Query we last wrote (or consumed), so our own replaceQuery() doesn't re-trigger a push. */
+  let appliedQuery = route.query;
+  let copied = $state(false);
+
+  /** Keep the URL a shareable link to the current message (defaults are omitted). */
+  function syncUrl() {
+    const q = buildQuery({
+      text: text === DEFAULT_TEXT ? undefined : text,
+      n: epicycles === DEFAULT_EPICYCLES ? undefined : String(epicycles),
+    });
+    appliedQuery = q;
+    replaceQuery(q);
+  }
+
+  // A pasted link / back-forward while on this page: adopt its params and redraw.
+  $effect(() => {
+    const q = route.query;
+    untrack(() => {
+      if (q === appliedQuery) return;
+      appliedQuery = q;
+      const p = paramsOf(q);
+      const nextText = p.text ?? DEFAULT_TEXT;
+      const nextN = p.epicycles ?? DEFAULT_EPICYCLES;
+      if (nextText !== text || nextN !== epicycles) {
+        text = nextText;
+        epicycles = nextN;
+        void push();
+      }
+    });
+  });
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(location.href);
+      copied = true;
+      window.setTimeout(() => { copied = false; }, 1500);
+    } catch (err) {
+      console.warn('copy link failed:', err);
+    }
+  }
   /** True when the current text produced no drawable path (blank, or no outline). */
   let empty = $state(false);
   /** The DFT terms behind the current trace, read from the engine after each config push (null when nothing is drawn). */
@@ -42,6 +98,7 @@
     }
     if (my !== gen || !api?.engine) return; // superseded, or shell torn down / not ready yet
     empty = path.length === 0;
+    syncUrl();
     if (empty) {
       summary = null;
       return;
@@ -146,6 +203,9 @@
         title="Epicycles"
       />
     </label>
+    <button class="copy" type="button" onclick={copyLink} title="Copy a link to this message">
+      {copied ? 'Copied ✓' : 'Copy link'}
+    </button>
     {#if empty}<span class="hint">Nothing to draw — type some letters.</span>{/if}
   {/snippet}
 </LabShell>
@@ -196,4 +256,15 @@
   }
   span.swatch.pen { background: #fa9959; }
   span.swatch.ink { background: #a6d9f2; }
+  .copy {
+    background: #2a2a2f;
+    color: #eee;
+    border: 1px solid #3a3a40;
+    border-radius: 4px;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .copy:hover { background: #34343a; }
 </style>
