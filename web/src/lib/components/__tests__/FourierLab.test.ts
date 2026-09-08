@@ -105,3 +105,32 @@ describe('FourierLab.svelte', () => {
     expect(getByText('Sierpinski Pyramid', { selector: 'h2' })).toBeTruthy();
   });
 });
+
+describe('FourierLab.svelte — shareable link params', () => {
+  beforeEach(() => {
+    dispatchSpy.mockClear();
+    updateRuleConfigSpy.mockClear();
+  });
+
+  it('reads text and n from the hash query and uses them for the first push', async () => {
+    navigate('fourier', 'text=HELLO&n=12');
+    const { getByLabelText } = render(App);
+    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalled());
+    const cfg = updateRuleConfigSpy.mock.calls[0][0] as { epicycles: number };
+    expect(cfg.epicycles).toBe(12);
+    expect((getByLabelText('Text to trace') as HTMLInputElement).value).toBe('HELLO');
+  });
+
+  it('keeps the URL in sync as the text changes and offers a copy-link button', async () => {
+    navigate('fourier');
+    const { getByLabelText, getByTitle } = render(App);
+    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1));
+    expect(location.hash).toBe('#/fourier'); // defaults are omitted from the link
+
+    const input = getByLabelText('Text to trace') as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'ABC' } });
+    await vi.waitFor(() => expect(updateRuleConfigSpy).toHaveBeenCalledTimes(2));
+    expect(location.hash).toBe('#/fourier?text=ABC');
+    expect(getByTitle('Copy a link to this message')).toBeTruthy();
+  });
+});
