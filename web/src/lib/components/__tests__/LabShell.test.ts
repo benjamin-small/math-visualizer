@@ -12,7 +12,9 @@ vi.mock('../../wasm/loader', async () => {
 });
 
 // The Fourier lab fetches a font on mount; jsdom has no origin to fetch from.
-vi.mock('../../fourier/textPath', () => ({ textToPath: vi.fn(async () => []) }));
+vi.mock('../../fourier/textPath', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../fourier/textPath')>()), // keep pure helpers (samplesFor) real
+ textToPath: vi.fn(async () => []) }));
 
 import App from '../../../App.svelte';
 

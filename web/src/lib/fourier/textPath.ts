@@ -9,6 +9,20 @@ import type * as opentype from 'opentype.js';
 import { loadFont } from './font';
 import { buildLoop, flattenCommands, normalize, resampleClosed, type PathCommand, type PathPoint } from './geometry';
 
+/** Sample-count bounds for the Fourier lab: powers of two so the Rust side takes the FFT path. */
+export const MIN_SAMPLES = 2048;
+export const MAX_SAMPLES = 65536;
+
+/**
+ * Samples to request for a given epicycle count: the DFT of an M-sample loop
+ * has only M−1 usable terms, so the loop must be sampled at least `epicycles + 1`
+ * times. Rounded up to a power of two within [MIN_SAMPLES, MAX_SAMPLES].
+ */
+export function samplesFor(epicycles: number): number {
+  const want = Math.max(MIN_SAMPLES, Math.min(MAX_SAMPLES, Math.floor(epicycles) + 1));
+  return 2 ** Math.ceil(Math.log2(want));
+}
+
 export type TextToPathOptions = {
   /** Total samples in the closed loop (uniform arc length). Default 2000. */
   samples?: number;

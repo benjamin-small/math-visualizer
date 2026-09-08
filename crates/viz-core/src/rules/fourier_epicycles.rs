@@ -28,7 +28,8 @@ pub struct PathPoint {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FourierConfig {
-    /// Closed path to trace, ~2000 samples produced by the UI.
+    /// Closed path to trace. The UI sends a power-of-two sample count
+    /// (2048–65536, growing with `epicycles`) so the DFT takes the FFT path.
     pub path: Vec<PathPoint>,
     /// Number of DFT terms kept (K), largest amplitudes first.
     pub epicycles: u32,
@@ -71,7 +72,7 @@ impl ConfigSchema for FourierConfig {
                     label: "Epicycles",
                     default: 2000.0,
                     min: 1.0,
-                    max: 2000.0,
+                    max: 50_000.0,
                     step: 1.0,
                     integer: true,
                     cosmetic: false,
@@ -157,27 +158,20 @@ pub fn dft(path: &[PathPoint]) -> ([f32; 2], Vec<Epicycle>) {
         return ([0.0, 0.0], Vec::new());
     }
 
-    // w[j] = e^{-2πi·j/M}
-    let twiddle: Vec<(f64, f64)> = (0..m)
-        .map(|j| {
-            let a = -std::f64::consts::TAU * j as f64 / m as f64;
-            (a.cos(), a.sin())
-        })
-        .collect();
     let z: Vec<(f64, f64)> = path.iter().map(|p| (p.x as f64, p.y as f64)).collect();
+    // O(M log M) when M is a power of two (the UI always sends one), else O(M²).
+    let coeffs = if m.is_power_of_two() {
+        fft_radix2(&z)
+    } else {
+        naive_dft(&z)
+    };
     let inv_m = 1.0 / m as f64;
 
     let mut origin = [0.0f32; 2];
     let mut eps = Vec::with_capacity(m - 1);
-    for k_idx in 0..m {
-        let (mut re, mut im) = (0.0f64, 0.0f64);
-        for (j, &(zr, zi)) in z.iter().enumerate() {
-            let (wr, wi) = twiddle[(j * k_idx) % m];
-            re += zr * wr - zi * wi;
-            im += zr * wi + zi * wr;
-        }
-        re *= inv_m;
-        im *= inv_m;
+    for (k_idx, &(re0, im0)) in coeffs.iter().enumerate() {
+        let re = re0 * inv_m;
+        let im = im0 * inv_m;
 
         let k = if 2 * k_idx < m {
             k_idx as i32
@@ -196,6 +190,70 @@ pub fn dft(path: &[PathPoint]) -> ([f32; 2], Vec<Epicycle>) {
     }
     eps.sort_by(|a, b| b.amp.total_cmp(&a.amp));
     (origin, eps)
+}
+
+/// Unnormalized forward DFT, `X[k] = Σ_j x[j]·e^{-2πi·jk/N}`, via a twiddle
+/// table so the inner loop is a complex multiply-add. O(N²); used when N is
+/// not a power of two.
+fn naive_dft(x: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let n = x.len();
+    let twiddle: Vec<(f64, f64)> = (0..n)
+        .map(|j| {
+            let a = -std::f64::consts::TAU * j as f64 / n as f64;
+            (a.cos(), a.sin())
+        })
+        .collect();
+    (0..n)
+        .map(|k| {
+            let (mut re, mut im) = (0.0f64, 0.0f64);
+            for (j, &(zr, zi)) in x.iter().enumerate() {
+                let (wr, wi) = twiddle[(j * k) % n];
+                re += zr * wr - zi * wi;
+                im += zr * wi + zi * wr;
+            }
+            (re, im)
+        })
+        .collect()
+}
+
+/// Unnormalized forward FFT (same contract as `naive_dft`) — iterative
+/// radix-2 Cooley–Tukey in f64. `x.len()` must be a power of two.
+fn fft_radix2(x: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let n = x.len();
+    debug_assert!(n.is_power_of_two());
+    let mut a = x.to_vec();
+    let bits = n.trailing_zeros();
+    for i in 0..n {
+        let j = if bits == 0 {
+            0
+        } else {
+            i.reverse_bits() >> (usize::BITS - bits)
+        };
+        if j > i {
+            a.swap(i, j);
+        }
+    }
+    let mut len = 2;
+    while len <= n {
+        let half = len / 2;
+        let ang = -std::f64::consts::TAU / len as f64;
+        let (wr, wi) = (ang.cos(), ang.sin());
+        for start in (0..n).step_by(len) {
+            let (mut cr, mut ci) = (1.0f64, 0.0f64);
+            for k in 0..half {
+                let (ur, ui) = a[start + k];
+                let (vr0, vi0) = a[start + k + half];
+                let (vr, vi) = (vr0 * cr - vi0 * ci, vr0 * ci + vi0 * cr);
+                a[start + k] = (ur + vr, ui + vi);
+                a[start + k + half] = (ur - vr, ui - vi);
+                let ncr = cr * wr - ci * wi;
+                ci = cr * wi + ci * wr;
+                cr = ncr;
+            }
+        }
+        len <<= 1;
+    }
+    a
 }
 
 /// Rotation angle of one epicycle at time `t`. `rem_euclid` keeps the angle
@@ -355,6 +413,46 @@ impl Rule for FourierEpicycles {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fft_matches_naive_dft_on_a_power_of_two_signal() {
+        let z: Vec<(f64, f64)> = (0..64)
+            .map(|j| {
+                let t = j as f64 * 0.37;
+                (t.sin() + 0.3 * (3.0 * t).cos(), (2.0 * t).cos() - 0.2 * t)
+            })
+            .collect();
+        let a = fft_radix2(&z);
+        let b = naive_dft(&z);
+        assert_eq!(a.len(), b.len());
+        for (k, (p, q)) in a.iter().zip(&b).enumerate() {
+            assert!(
+                (p.0 - q.0).abs() < 1e-9 && (p.1 - q.1).abs() < 1e-9,
+                "bin {k}: {p:?} vs {q:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dft_of_a_non_power_of_two_circle_is_one_dominant_term() {
+        // M = 30 is not a power of two → exercises the naive path end-to-end.
+        let m = 30;
+        let path: Vec<PathPoint> = (0..m)
+            .map(|j| {
+                let a = std::f64::consts::TAU * j as f64 / m as f64;
+                PathPoint {
+                    x: a.cos() as f32,
+                    y: a.sin() as f32,
+                    pen: true,
+                }
+            })
+            .collect();
+        let (origin, eps) = dft(&path);
+        assert!(origin[0].abs() < 1e-5 && origin[1].abs() < 1e-5);
+        assert_eq!(eps[0].freq.abs(), 1);
+        assert!((eps[0].amp - 1.0).abs() < 1e-5);
+        assert!(eps[1].amp < 1e-5);
+    }
     use crate::config::ConfigSchema;
     use crate::traits::{Rule, SceneState};
 
