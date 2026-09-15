@@ -29,6 +29,8 @@ pub enum ErasedError {
     ConfigParse(serde_json::Error),
     /// The active rule's config has no path (`Rule::apply_path` returned false).
     PathUnsupported,
+    /// `Rule::apply_action` rejected the action as malformed.
+    Action(String),
 }
 
 impl std::fmt::Display for ErasedError {
@@ -37,6 +39,7 @@ impl std::fmt::Display for ErasedError {
             ErasedError::StateDowncastFailed => f.write_str("scene state has wrong concrete type"),
             ErasedError::ConfigParse(e) => write!(f, "config parse error: {e}"),
             ErasedError::PathUnsupported => f.write_str("this rule does not accept a path"),
+            ErasedError::Action(msg) => write!(f, "action rejected: {msg}"),
         }
     }
 }
@@ -70,6 +73,9 @@ pub trait ErasedRule {
     fn advance_to(&self, state: &mut dyn Any, seed: u64, n: u32) -> Result<(), ErasedError>;
     fn substep(&self, state: &mut dyn Any, seed: u64, n: u32, sub: f32) -> Result<(), ErasedError>;
     fn summary(&self, state: &dyn Any) -> Result<Value, ErasedError>;
+
+    /// Mutate live state without resetting playback. See `Rule::apply_action`.
+    fn action(&self, state: &mut dyn Any, action: &Value) -> Result<bool, ErasedError>;
 }
 
 /// A concrete `Rule` together with its deserialized config.
@@ -159,6 +165,15 @@ where
             .downcast_ref::<R::State>()
             .ok_or(ErasedError::StateDowncastFailed)?;
         Ok(self.rule.summary(typed))
+    }
+
+    fn action(&self, state: &mut dyn Any, action: &Value) -> Result<bool, ErasedError> {
+        let typed_state = state
+            .downcast_mut::<R::State>()
+            .ok_or(ErasedError::StateDowncastFailed)?;
+        self.rule
+            .apply_action(typed_state, &self.cfg, action)
+            .map_err(ErasedError::Action)
     }
 }
 
@@ -362,5 +377,32 @@ mod path_tests {
             .expect_err("sierpinski has no path");
         assert!(matches!(err, ErasedError::PathUnsupported));
         assert_eq!(r.config_json(), before, "config untouched on error");
+    }
+}
+
+#[cfg(test)]
+mod action_tests {
+    use super::*;
+    use crate::rules::sierpinski_chaos::SierpinskiChaos;
+    use serde_json::json;
+
+    #[test]
+    fn rule_without_actions_returns_ok_false() {
+        let rule = TypedRule::new(SierpinskiChaos);
+        let mut state = rule.init(0);
+        let handled = rule
+            .action(state.as_mut(), &json!({"kind": "toggle"}))
+            .expect("default action hook does not error");
+        assert!(!handled);
+    }
+
+    #[test]
+    fn action_rejects_wrong_state_type() {
+        let rule = TypedRule::new(SierpinskiChaos);
+        let mut wrong = 42u8;
+        let err = rule
+            .action(&mut wrong as &mut dyn Any, &json!({}))
+            .expect_err("u8 is not ChaosGameState");
+        assert!(matches!(err, ErasedError::StateDowncastFailed), "{err:?}");
     }
 }

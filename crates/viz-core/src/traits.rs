@@ -74,6 +74,17 @@ pub trait Rule {
     fn summary(&self, _state: &Self::State) -> serde_json::Value {
         serde_json::Value::Null
     }
+
+    /// Mutate live state without resetting playback (e.g. toggle a sub-simulation).
+    /// Return Ok(false) when the rule has no actions; Err(msg) for a malformed action.
+    fn apply_action(
+        &self,
+        _state: &mut Self::State,
+        _cfg: &Self::Config,
+        _action: &serde_json::Value,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 
 /// A visualization renders a rule's state to a WebGL2 context.
