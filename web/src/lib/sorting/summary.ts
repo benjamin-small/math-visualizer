@@ -23,7 +23,13 @@ export interface SortingSummary {
   lanes: LaneSummary[];
 }
 
-/** Rows of the matrix, in the order the engine lays lanes out. */
+/**
+ * Rows of the matrix, in the order the engine lays lanes out. The `id`s and
+ * labels here are a hand-kept mirror of the Rust source of truth —
+ * `crates/viz-core/src/rules/sorting/algorithms.rs::Algorithm::label` (ids
+ * are the serde `snake_case` variant names) — and `datasets.rs::Dataset::label`
+ * for `DATASETS` below. Keep both lists in sync if either side changes.
+ */
 export const ALGORITHMS: readonly { id: string; label: string; complexity: string }[] = [
   { id: 'bubble', label: 'Bubble sort', complexity: 'O(n²)' },
   { id: 'insertion', label: 'Insertion sort', complexity: 'O(n²)' },
