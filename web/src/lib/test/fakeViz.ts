@@ -3,6 +3,7 @@
 // mounts without a WebGL context.
 import { vi } from 'vitest';
 import type { FourierSummary } from '../fourier/summary';
+import type { LaneSummary, SortingSummary } from '../sorting/summary';
 
 /** jsdom has no rAF; drive frame loops off setTimeout(0) so one frame runs per macrotask. */
 export function installRafPolyfill() {
@@ -39,27 +40,6 @@ export const ruleSummaryFixture: FourierSummary = {
   ],
 };
 
-/** One sorting-lab grid cell (lane = row * cols + col). */
-export interface SortingLane {
-  algorithm: string;
-  dataset: string;
-  compares: number;
-  writes: number;
-  cursor: number;
-  total: number;
-  running: boolean;
-  done: boolean;
-}
-
-/** Shape of the sorting lab's `rule_summary()`: a 7 (algorithms) x 4 (datasets) grid of lanes. */
-export interface SortingSummary {
-  rows: number;
-  cols: number;
-  tick: number;
-  all_done: boolean;
-  lanes: SortingLane[];
-}
-
 const SORTING_ALGORITHMS = ['bubble', 'insertion', 'selection', 'shell', 'merge', 'quick', 'heap'] as const;
 const SORTING_DATASETS = ['random', 'nearly_sorted', 'reversed', 'few_unique'] as const;
 
@@ -70,16 +50,18 @@ export const sortingSummaryFixture: SortingSummary = {
   tick: 0,
   all_done: false,
   lanes: SORTING_ALGORITHMS.flatMap((algorithm) =>
-    SORTING_DATASETS.map((dataset) => ({
-      algorithm,
-      dataset,
-      compares: 0,
-      writes: 0,
-      cursor: 0,
-      total: 100,
-      running: false,
-      done: false,
-    })),
+    SORTING_DATASETS.map(
+      (dataset): LaneSummary => ({
+        algorithm,
+        dataset,
+        compares: 0,
+        writes: 0,
+        cursor: 0,
+        total: 100,
+        running: false,
+        done: false,
+      }),
+    ),
   ),
 };
 

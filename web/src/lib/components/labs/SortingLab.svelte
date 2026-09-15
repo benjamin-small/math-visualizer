@@ -21,13 +21,17 @@
   const ALL_LANES = allLanes(rows, cols);
   const clamp = (n: number) => Math.min(Math.max(Math.floor(n), MIN_SIZE), MAX_SIZE);
 
-  /** Read the shareable-link param from a hash query: `n=…` (array size). */
+  /**
+   * Read the shareable-link param from a hash query: `n=…` (array size).
+   * Returns the raw parsed value, unclamped, so a caller can tell an
+   * out-of-range link apart from an already-canonical one.
+   */
   function paramsOf(query: string) {
     const n = Math.floor(Number(new URLSearchParams(query).get('n')));
-    return { size: Number.isFinite(n) && n > 0 ? clamp(n) : undefined };
+    return { size: Number.isFinite(n) && n > 0 ? n : undefined };
   }
 
-  let size = $state(paramsOf(route.query).size ?? DEFAULT_SIZE);
+  let size = $state(clamp(paramsOf(route.query).size ?? DEFAULT_SIZE));
   let speed = $state(DEFAULT_SPEED);
   /** The engine's lane grid, re-read every frame (null until the engine is up). */
   let summary = $state<SortingSummary | null>(null);
@@ -70,6 +74,11 @@
   function pushCells() {
     const canvas = overlayEl?.closest('.canvas-wrap')?.querySelector('canvas');
     if (!api?.engine || !canvas) return;
+    // The cell buttons are bound via `bind:this={cellEls[i]}` as the grid
+    // renders; a resize/observer callback firing mid-render (or before the
+    // first paint) can see a short or sparse array. Skip that frame rather
+    // than measuring a bogus rect.
+    if (cellEls.length !== rows * cols || cellEls.some((e) => !e)) return;
     api.patchVizConfig({
       cells: cellRects(
         cellEls.map((e) => e.getBoundingClientRect()),
@@ -96,6 +105,11 @@
     // leaves playback paused at 0, so Play always follows.
     if (size !== DEFAULT_SIZE) a.patchRuleConfig({ size });
     a.dispatch(cmd.play());
+    // An out-of-range ?n= (e.g. ?n=5) was clamped into `size` above; rewrite
+    // the link to the canonical value so a shared/reloaded link matches what
+    // actually loaded.
+    const linked = paramsOf(route.query).size;
+    if (linked !== undefined && linked !== size) syncUrl();
     pushCells();
     observeResize();
   }
@@ -118,8 +132,9 @@
     api?.ruleAction({ kind: 'set_running', lanes, running: shouldRun(summary, lanes) });
   }
 
+  /** Toolbar "Run all": always starts every lane, never toggles to pause. */
   function runAll() {
-    runGroup(ALL_LANES);
+    api?.ruleAction({ kind: 'set_running', lanes: ALL_LANES, running: true });
   }
 
   function pauseAll() {
@@ -146,7 +161,10 @@
 
   function onSize(e: Event) {
     const n = Number((e.target as HTMLInputElement).value);
-    if (Number.isFinite(n) && n > 0) applySize(n);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const next = clamp(n);
+    (e.target as HTMLInputElement).value = String(next);
+    if (next !== size) applySize(next);
   }
 
   function onSpeed(e: Event) {
@@ -160,7 +178,7 @@
     <div
       class="grid"
       bind:this={overlayEl}
-      style="grid-template-columns: auto repeat({cols}, 1fr); grid-template-rows: auto repeat({rows}, 1fr)"
+      style="grid-template-columns: var(--rowhdr, auto) repeat({cols}, minmax(0, 1fr)); grid-template-rows: auto repeat({rows}, minmax(0, 1fr))"
     >
       <div></div><!-- empty top-left corner -->
       {#each DATASETS as ds, c (ds.id)}
@@ -273,6 +291,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
   }
   .hdr:hover { color: var(--text-strong); background: rgba(42, 42, 47, 0.85); }
   .hdr.row { text-align: left; }
@@ -324,8 +343,9 @@
   span.swatch.sorted { background: #a6d9f2; }
 
   @media (max-width: 768px) {
-    .grid { gap: 1px; padding: 0.25rem; }
+    .grid { gap: 1px; padding: 0.25rem; --rowhdr: 5.5rem; }
     .hdr { font-size: 0.7rem; padding: 0.2rem 0.3rem; }
+    .hdr.row { font-size: 0.62rem; }
     .hdr small, .badge { display: none; }
     .speed { margin-left: 0; }
   }

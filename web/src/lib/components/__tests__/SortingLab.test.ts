@@ -6,6 +6,7 @@ import {
   ruleActionSpy,
   updateRuleConfigSpy,
   updateVizConfigSpy,
+  sortingSummaryFixture,
 } from '../../test/fakeViz';
 import { navigate } from '../../router.svelte';
 
@@ -96,6 +97,22 @@ describe('SortingLab.svelte', () => {
     expect(action(2)).toEqual({ kind: 'reset_all' });
   });
 
+  it('"Run all" always starts every lane, even when every lane already appears to be running', async () => {
+    const { container, getByText } = await renderLab();
+    const original = sortingSummaryFixture.lanes;
+    sortingSummaryFixture.lanes = original.map((l) => ({ ...l, running: true }));
+    try {
+      await vi.waitFor(() => expect(container.querySelectorAll('.cell.running')).toHaveLength(28));
+      ruleActionSpy.mockClear();
+      const button = (label: string) => getByText(label, { selector: 'button' });
+      await fireEvent.click(button('Run all'));
+      const all = Array.from({ length: 28 }, (_, i) => i);
+      expect(action(0)).toEqual({ kind: 'set_running', lanes: all, running: true });
+    } finally {
+      sortingSummaryFixture.lanes = original;
+    }
+  });
+
   it('reseeds and restarts the clock on New data', async () => {
     const { getByText } = await renderLab();
     dispatchSpy.mockClear();
@@ -157,5 +174,24 @@ describe('SortingLab.svelte', () => {
     await fireEvent.change(input, { target: { value: '9999' } });
     expect(updateRuleConfigSpy).toHaveBeenLastCalledWith(expect.objectContaining({ size: 300 }));
     expect(location.hash).toBe('#/sorting?n=300');
+  });
+
+  it('does not re-push the config when a repeated out-of-range entry clamps to the same value', async () => {
+    const { getByLabelText } = await renderLab();
+    const input = getByLabelText('Array size') as HTMLInputElement;
+
+    await fireEvent.change(input, { target: { value: '9999' } });
+    expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1);
+    expect(input.value).toBe('300');
+
+    await fireEvent.change(input, { target: { value: '99999' } });
+    expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1); // still clamps to 300 — no new push
+    expect(input.value).toBe('300');
+  });
+
+  it('rewrites an out-of-range ?n= link to the clamped value', async () => {
+    const { getByLabelText } = await renderLab('n=5');
+    expect((getByLabelText('Array size') as HTMLInputElement).value).toBe('10');
+    expect(location.hash).toBe('#/sorting?n=10');
   });
 });
