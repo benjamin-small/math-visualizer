@@ -450,7 +450,7 @@ mod tests {
                 pen: true
             }
         );
-        assert_eq!(cfg.path[2].pen, false);
+        assert!(!cfg.path[2].pen);
         // odd coordinate count / flag count mismatch → refused, path unchanged
         assert!(!rule.apply_path(&mut cfg, &[1.0, 0.0, 0.0], &[1, 1]));
         assert_eq!(cfg.path.len(), 3);
