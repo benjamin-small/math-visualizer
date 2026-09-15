@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::rng::splitmix64;
 use crate::config::{number_property, ConfigSchema, NumberOpts};
 use crate::traits::{Capabilities, Rule, SceneState};
 
@@ -168,14 +169,6 @@ fn lerp(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
         a[1] + (b[1] - a[1]) * t,
         a[2] + (b[2] - a[2]) * t,
     ]
-}
-
-/// SplitMix64 — deterministic mixer used per iteration.
-fn splitmix64(mut z: u64) -> u64 {
-    z = z.wrapping_add(0x9E3779B97F4A7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-    z ^ (z >> 31)
 }
 
 /// Pick a corner index in `0..4` uniformly for iteration `i`. Uses the top
