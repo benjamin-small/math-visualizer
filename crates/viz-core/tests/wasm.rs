@@ -369,11 +369,15 @@ fn sorting_rule_action_toggles_a_lane() {
     assert_eq!(lane_field(&engine, 0, "running").as_bool(), Some(true));
 
     // One second of clock at the default speed = one tick = one op, applied
-    // to the running lane only.
+    // to the running lane only. frame()'s dt is clamped to 0.25s per call, so
+    // spread the second over four steps rather than one big jump.
     engine
         .dispatch(cmd(r#"{"kind":"Play"}"#))
         .expect("dispatch");
     engine.frame(0.0);
+    engine.frame(250.0);
+    engine.frame(500.0);
+    engine.frame(750.0);
     engine.frame(1000.0);
 
     let cursor0 = lane_field(&engine, 0, "cursor").as_f64().expect("cursor");
@@ -451,4 +455,31 @@ fn sorting_accepts_cells_viz_config() {
     engine.frame(0.0);
     engine.frame(1000.0);
     engine.frame(2000.0);
+}
+
+#[wasm_bindgen_test]
+fn frame_dt_is_clamped_so_a_huge_gap_cannot_fast_forward_a_lane() {
+    make_canvas("test-canvas-sorting-dt-clamp");
+    let mut engine = Engine::new("test-canvas-sorting-dt-clamp", Some("sorting".into()))
+        .expect("engine constructs");
+
+    engine
+        .rule_action(cmd(r#"{"kind":"toggle","lane":0}"#))
+        .expect("toggle accepted");
+    engine
+        .dispatch(cmd(r#"{"kind":"SetSpeed","value":60.0}"#))
+        .expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"Play"}"#))
+        .expect("dispatch");
+    engine.frame(0.0);
+    // A one-minute gap (e.g. a hidden tab) must be clamped to 0.25s of dt,
+    // so at 60 ops/s this tick advances the lane by at most 15 ops.
+    engine.frame(60_000.0);
+
+    let cursor = lane_field(&engine, 0, "cursor").as_f64().expect("cursor");
+    assert!(
+        cursor <= 15.0,
+        "cursor {cursor} exceeds the clamped dt budget"
+    );
 }

@@ -111,7 +111,9 @@ impl Engine {
     pub fn frame(&mut self, now_ms: f64) {
         let dt = match self.last_frame_ms {
             None => 0.0,
-            Some(prev) => ((now_ms - prev) as f32 / 1000.0).max(0.0),
+            // Clamp a huge gap (e.g. a hidden tab) so no lab can be fast-forwarded
+            // by minutes in one frame.
+            Some(prev) => ((now_ms - prev) as f32 / 1000.0).clamp(0.0, 0.25),
         };
         self.last_frame_ms = Some(now_ms);
 
