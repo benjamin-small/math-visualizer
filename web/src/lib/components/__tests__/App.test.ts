@@ -25,10 +25,12 @@ describe('App.svelte', () => {
     expect(container.textContent).toMatch(/0\s*\/\s*360/);
   });
 
-  it('renders the nav with both lab links', () => {
-    const { getByText } = render(App);
+  it('renders the nav with a link per lab', () => {
+    const { getByText, container } = render(App);
     // The info panel also carries an <h2>Sierpinski Pyramid</h2>; pin to the link.
     expect(getByText('Sierpinski Pyramid', { selector: 'a' })).toBeTruthy();
     expect(getByText('Fourier Epicycles')).toBeTruthy();
+    expect(getByText('Sorting Algorithms', { selector: 'a' })).toBeTruthy();
+    expect(container.querySelectorAll('.topnav a')).toHaveLength(3);
   });
 });

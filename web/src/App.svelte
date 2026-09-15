@@ -3,6 +3,7 @@
   import { route, installRouter } from './lib/router.svelte';
   import SierpinskiLab from './lib/components/labs/SierpinskiLab.svelte';
   import FourierLab from './lib/components/labs/FourierLab.svelte';
+  import SortingLab from './lib/components/labs/SortingLab.svelte';
 
   onMount(installRouter);
 </script>
@@ -12,11 +13,14 @@
     <span class="brand">Math Visualizer</span>
     <a href="#/sierpinski" class:active={route.id === 'sierpinski'}>Sierpinski Pyramid</a>
     <a href="#/fourier" class:active={route.id === 'fourier'}>Fourier Epicycles</a>
+    <a href="#/sorting" class:active={route.id === 'sorting'}>Sorting Algorithms</a>
   </nav>
   <!-- Distinct components per branch: switching destroys the old lab (and its
        LabShell → engine.free()) synchronously before the new canvas exists. -->
   {#if route.id === 'fourier'}
     <FourierLab />
+  {:else if route.id === 'sorting'}
+    <SortingLab />
   {:else}
     <SierpinskiLab />
   {/if}
