@@ -69,8 +69,10 @@ pub trait Rule {
     }
 
     /// Optional structured summary of the rule's current model for the UI
-    /// (e.g. the DFT terms behind a Fourier trace). Read by the shell after
-    /// config changes, never per frame. Default: `null`.
+    /// (e.g. the DFT terms behind a Fourier trace, or the sorting lab's live
+    /// lane grid). Typically read by the shell after config changes, but a
+    /// lab whose UI needs live stats (sorting reads this every frame) may
+    /// call it more often — keep it cheap. Default: `null`.
     fn summary(&self, _state: &Self::State) -> serde_json::Value {
         serde_json::Value::Null
     }
