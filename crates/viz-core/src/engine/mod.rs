@@ -203,6 +203,17 @@ impl Engine {
         to_js(&self.viz_cfg)
     }
 
+    /// Mutate live rule state without resetting playback (e.g. toggle a
+    /// sub-simulation). Returns whether the rule handled the action; never
+    /// touches `self.playback`. See `Rule::apply_action`.
+    pub fn rule_action(&mut self, action: JsValue) -> Result<bool, JsValue> {
+        let parsed: Value = serde_wasm_bindgen::from_value(action)
+            .map_err(|e| JsValue::from_str(&format!("bad rule action: {e}")))?;
+        self.rule
+            .action(self.state.as_mut(), &parsed)
+            .map_err(|e| JsValue::from_str(&format!("{e}")))
+    }
+
     /// Replace the rule config and reset playback. Phase 4's panel will call
     /// this on structural field edits.
     pub fn update_rule_config(&mut self, cfg: JsValue) -> Result<(), JsValue> {
