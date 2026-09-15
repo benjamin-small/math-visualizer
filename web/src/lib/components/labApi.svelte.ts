@@ -47,4 +47,29 @@ export class LabApi {
       console.warn('update_rule_config failed:', err);
     }
   }
+
+  /** Merge a partial viz config into the current one (the engine replaces the whole object). */
+  patchVizConfig(patch: object) {
+    const cur = (this.engine?.viz_config() ?? {}) as object;
+    try {
+      this.engine?.update_viz_config({ ...cur, ...patch });
+    } catch (err) {
+      console.warn('update_viz_config failed:', err);
+    }
+  }
+
+  /** Send a rule-defined action (e.g. a sorting lab's "start lane" or "pause all"). Returns false if the rule rejects it. */
+  ruleAction(action: object): boolean {
+    try {
+      return this.engine?.rule_action(action) ?? false;
+    } catch (err) {
+      console.warn('rule_action failed:', err);
+      return false;
+    }
+  }
+
+  /** Read the rule's summary snapshot (shape is rule-specific; the caller knows what to expect). */
+  readSummary(): unknown {
+    return this.engine?.rule_summary() ?? null;
+  }
 }

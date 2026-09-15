@@ -19,6 +19,10 @@ export const dispatchSpy = vi.fn();
 export const updateRuleConfigSpy = vi.fn();
 /** Records every `Engine.update_rule_config_with_path(cfg, xy, pen)` — the Fourier lab's typed-array push. */
 export const updateRuleConfigWithPathSpy = vi.fn();
+/** Records every `Engine.update_viz_config(cfg)` call. */
+export const updateVizConfigSpy = vi.fn();
+/** Records every `Engine.rule_action(action)` call; the fake always accepts (returns true). */
+export const ruleActionSpy = vi.fn();
 /**
  * What the fake's `rule_summary()` returns on the Fourier lab (null elsewhere,
  * like the real engine). Mutable so a test can reshape it before a push;
@@ -33,6 +37,50 @@ export const ruleSummaryFixture: FourierSummary = {
     { freq: -1, amp: 0.25, phase: -0.2 },
     { freq: 2, amp: 0.125, phase: 0 },
   ],
+};
+
+/** One sorting-lab grid cell (lane = row * cols + col). */
+export interface SortingLane {
+  algorithm: string;
+  dataset: string;
+  compares: number;
+  writes: number;
+  cursor: number;
+  total: number;
+  running: boolean;
+  done: boolean;
+}
+
+/** Shape of the sorting lab's `rule_summary()`: a 7 (algorithms) x 4 (datasets) grid of lanes. */
+export interface SortingSummary {
+  rows: number;
+  cols: number;
+  tick: number;
+  all_done: boolean;
+  lanes: SortingLane[];
+}
+
+const SORTING_ALGORITHMS = ['bubble', 'insertion', 'selection', 'shell', 'merge', 'quick', 'heap'] as const;
+const SORTING_DATASETS = ['random', 'nearly_sorted', 'reversed', 'few_unique'] as const;
+
+/** What the fake's `rule_summary()` returns on the sorting lab: 7x4=28 idle lanes, row-major (lane = row*4 + col). */
+export const sortingSummaryFixture: SortingSummary = {
+  rows: 7,
+  cols: 4,
+  tick: 0,
+  all_done: false,
+  lanes: SORTING_ALGORITHMS.flatMap((algorithm) =>
+    SORTING_DATASETS.map((dataset) => ({
+      algorithm,
+      dataset,
+      compares: 0,
+      writes: 0,
+      cursor: 0,
+      total: 100,
+      running: false,
+      done: false,
+    })),
+  ),
 };
 
 export class FakeEngine {
@@ -58,11 +106,16 @@ export class FakeEngine {
   rule_schema() { return {}; }
   viz_schema() { return {}; }
   rule_config() { return {}; }
-  rule_summary() { return this._lab === 'fourier' ? ruleSummaryFixture : null; }
+  rule_summary() {
+    if (this._lab === 'fourier') return ruleSummaryFixture;
+    if (this._lab === 'sorting') return sortingSummaryFixture;
+    return null;
+  }
   viz_config() { return {}; }
   update_rule_config(cfg: unknown) { updateRuleConfigSpy(cfg); }
   update_rule_config_with_path(cfg: unknown, xy: Float32Array, pen: Uint8Array) { updateRuleConfigWithPathSpy(cfg, xy, pen); }
-  update_viz_config(_: unknown) {}
+  update_viz_config(cfg: unknown) { updateVizConfigSpy(cfg); }
+  rule_action(action: unknown) { ruleActionSpy(action); return true; }
   capabilities() { return { supports_scrub: true, cheap_recompute: true, checkpoint_every: null }; }
   resize(_w: number, _h: number) {}
   forward_input(_ev: unknown) {}
