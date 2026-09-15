@@ -37,13 +37,20 @@ impl Dataset {
     }
 }
 
-/// Distinct salts keep the streams of the different generators independent
-/// even when they share a seed.
+/// Distinct salts, combined with a multiplicatively-mixed index (below),
+/// keep the streams of the different generators independent even when they
+/// share a seed — plain `index ^ salt` alone would let a low-bit index and a
+/// low-bit salt cancel each other out.
 const SALT_RANDOM: u64 = 0x5EED_0001;
 const SALT_NEARLY_PICK: u64 = 0x5EED_0002;
 const SALT_NEARLY_STEP: u64 = 0x5EED_0003;
 const SALT_FEW_PICK: u64 = 0x5EED_0004;
 const SALT_FEW_SHUFFLE: u64 = 0x5EED_0005;
+
+/// Odd multiplier (splitmix64's own golden-ratio increment) used to spread an
+/// index's bits before it's XOR-ed with a salt, so consecutive indices don't
+/// land on similar inputs to `splitmix64`.
+const INDEX_MIX: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// Build the initial array for `ds` with `n` elements. `n == 0` yields an
 /// empty vec. Values are in `1..=n` (or the five levels, for `FewUnique`).
@@ -61,10 +68,13 @@ pub fn generate(ds: Dataset, n: usize, seed: u64) -> Vec<u16> {
             let mut v: Vec<u16> = (1..=n as u16).collect();
             let disturbances = (n / 10).max(1);
             for k in 0..disturbances {
-                let i = (splitmix64(seed ^ (k as u64) ^ SALT_NEARLY_PICK) % n as u64) as usize;
+                let i = (splitmix64(seed ^ (k as u64).wrapping_mul(INDEX_MIX) ^ SALT_NEARLY_PICK)
+                    % n as u64) as usize;
                 // Swap with a neighbour one or two slots to the right, clamped
                 // to the end of the array so the shuffle stays local.
-                let step = 1 + (splitmix64(seed ^ (k as u64) ^ SALT_NEARLY_STEP) % 2) as usize;
+                let step = 1
+                    + (splitmix64(seed ^ (k as u64).wrapping_mul(INDEX_MIX) ^ SALT_NEARLY_STEP) % 2)
+                        as usize;
                 let j = (i + step).min(n - 1);
                 v.swap(i, j);
             }
@@ -75,7 +85,9 @@ pub fn generate(ds: Dataset, n: usize, seed: u64) -> Vec<u16> {
             let levels: [u16; 5] = core::array::from_fn(|k| (((k + 1) * n) / 5).max(1) as u16);
             let mut v: Vec<u16> = (0..n)
                 .map(|i| {
-                    let pick = (splitmix64(seed ^ (i as u64) ^ SALT_FEW_PICK) % 5) as usize;
+                    let pick =
+                        (splitmix64(seed ^ (i as u64).wrapping_mul(INDEX_MIX) ^ SALT_FEW_PICK) % 5)
+                            as usize;
                     levels[pick]
                 })
                 .collect();
@@ -85,14 +97,14 @@ pub fn generate(ds: Dataset, n: usize, seed: u64) -> Vec<u16> {
     }
 }
 
-/// In-place Fisher-Yates using `splitmix64(seed ^ i ^ salt)` per step.
+/// In-place Fisher-Yates using `splitmix64(seed ^ (i * INDEX_MIX) ^ salt)` per step.
 fn shuffle(values: &mut [u16], seed: u64, salt: u64) {
     let n = values.len();
     if n < 2 {
         return;
     }
     for i in (1..n).rev() {
-        let r = splitmix64(seed ^ (i as u64) ^ salt);
+        let r = splitmix64(seed ^ (i as u64).wrapping_mul(INDEX_MIX) ^ salt);
         let j = (r % (i as u64 + 1)) as usize;
         values.swap(i, j);
     }
@@ -180,6 +192,12 @@ mod tests {
                 let distinct: BTreeSet<u16> = v.iter().copied().collect();
                 assert!(distinct.len() <= 5, "n={n} seed={seed} -> {distinct:?}");
                 assert!(distinct.iter().all(|&x| x >= 1), "values must be >= 1");
+                if n >= 10 {
+                    assert!(
+                        distinct.len() >= 2 && distinct.len() < n,
+                        "n={n} seed={seed}: expected a genuinely repeated, non-trivial set of values, got {distinct:?}"
+                    );
+                }
             }
         }
     }

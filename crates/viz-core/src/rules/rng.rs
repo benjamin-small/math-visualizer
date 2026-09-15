@@ -19,4 +19,13 @@ mod tests {
         assert_ne!(splitmix64(0), splitmix64(1));
         assert_ne!(splitmix64(7), splitmix64(8));
     }
+
+    /// Known-answer test: pins the exact output of the current implementation
+    /// so a future change to the mixing constants is caught, not just a
+    /// change in behavior.
+    #[test]
+    fn known_answer_vectors() {
+        assert_eq!(splitmix64(0), 0xe220a8397b1dcdaf);
+        assert_eq!(splitmix64(1), 0x910a2dec89025cc1);
+    }
 }

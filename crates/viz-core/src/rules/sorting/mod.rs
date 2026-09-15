@@ -200,7 +200,8 @@ impl Rule for SortingRace {
     /// gets a single array that every algorithm in it sorts, so the race is
     /// fair; the traces are recorded here, once.
     fn init(&self, cfg: &Self::Config, seed: u64) -> Self::State {
-        let size = cfg.size as usize;
+        let size = (cfg.size as usize).clamp(10, 300);
+        debug_assert!(size <= u16::MAX as usize);
         let column_inputs: Vec<Vec<u16>> = cfg
             .datasets
             .iter()
@@ -441,6 +442,21 @@ mod tests {
         assert_eq!(empty.size, 50);
         assert_eq!(empty.algorithms.len(), 7);
         assert_eq!(empty.datasets.len(), 4);
+    }
+
+    #[test]
+    fn init_clamps_an_out_of_range_size() {
+        let rule = SortingRace;
+        let huge = SortingConfig {
+            size: 100_000,
+            ..cfg()
+        };
+        let st = rule.init(&huge, 0);
+        assert_eq!(st.lanes[0].initial.len(), 300);
+
+        let tiny = SortingConfig { size: 1, ..cfg() };
+        let st = rule.init(&tiny, 0);
+        assert_eq!(st.lanes[0].initial.len(), 10);
     }
 
     #[test]
