@@ -315,3 +315,140 @@ fn typed_array_path_rejects_bad_shapes_and_non_path_rules() {
         .update_rule_config_with_path(cmd(r#"{"max_iterations":10}"#), &[1.0, 0.0], &[1])
         .is_err());
 }
+
+// ---- "sorting" lab ----
+
+/// `rule_summary().lanes[i]` as a JsValue.
+fn summary_lane(engine: &Engine, i: u32) -> JsValue {
+    let s = engine.rule_summary();
+    let lanes = js_sys::Reflect::get(&s, &JsValue::from_str("lanes")).expect("lanes");
+    js_sys::Reflect::get(&lanes, &JsValue::from_f64(i as f64)).expect("lane")
+}
+
+fn lane_field(engine: &Engine, i: u32, name: &str) -> JsValue {
+    js_sys::Reflect::get(&summary_lane(engine, i), &JsValue::from_str(name))
+        .unwrap_or_else(|_| panic!("lane field {name}"))
+}
+
+#[wasm_bindgen_test]
+fn sorting_lab_constructs_and_renders() {
+    make_canvas("test-canvas-sorting");
+    let mut engine =
+        Engine::new("test-canvas-sorting", Some("sorting".into())).expect("engine constructs");
+    assert_eq!(engine.lab_id(), "sorting");
+    // No cells yet: this clears to the background and issues an empty draw.
+    engine.frame(0.0);
+
+    let rule_props = js_sys::Reflect::get(&engine.rule_schema(), &JsValue::from_str("properties"))
+        .expect("rule properties");
+    let size = js_sys::Reflect::get(&rule_props, &JsValue::from_str("size")).expect("size");
+    assert!(
+        !size.is_undefined() && !size.is_null(),
+        "rule schema has size"
+    );
+
+    let viz_props = js_sys::Reflect::get(&engine.viz_schema(), &JsValue::from_str("properties"))
+        .expect("viz properties");
+    let cells = js_sys::Reflect::get(&viz_props, &JsValue::from_str("cells")).expect("cells");
+    assert!(
+        !cells.is_undefined() && !cells.is_null(),
+        "viz schema has cells"
+    );
+}
+
+#[wasm_bindgen_test]
+fn sorting_rule_action_toggles_a_lane() {
+    make_canvas("test-canvas-sorting-action");
+    let mut engine = Engine::new("test-canvas-sorting-action", Some("sorting".into()))
+        .expect("engine constructs");
+
+    let handled = engine
+        .rule_action(cmd(r#"{"kind":"toggle","lane":0}"#))
+        .expect("toggle accepted");
+    assert!(handled, "sorting handles rule actions");
+    assert_eq!(lane_field(&engine, 0, "running").as_bool(), Some(true));
+
+    // One second of clock at the default speed = one tick = one op, applied
+    // to the running lane only.
+    engine
+        .dispatch(cmd(r#"{"kind":"Play"}"#))
+        .expect("dispatch");
+    engine.frame(0.0);
+    engine.frame(1000.0);
+
+    let cursor0 = lane_field(&engine, 0, "cursor").as_f64().expect("cursor");
+    let cursor1 = lane_field(&engine, 1, "cursor").as_f64().expect("cursor");
+    assert!(cursor0 > 0.0, "toggled lane advanced (cursor {cursor0})");
+    assert_eq!(cursor1, 0.0, "idle lane stood still");
+}
+
+#[wasm_bindgen_test]
+fn rule_action_rejects_bad_lane_and_unknown_kind() {
+    make_canvas("test-canvas-sorting-bad-action");
+    let mut engine = Engine::new("test-canvas-sorting-bad-action", Some("sorting".into()))
+        .expect("engine constructs");
+
+    assert!(engine
+        .rule_action(cmd(r#"{"kind":"toggle","lane":9999}"#))
+        .is_err());
+    assert!(engine.rule_action(cmd(r#"{"kind":"fly"}"#)).is_err());
+    assert!(engine.rule_action(cmd(r#"{"lane":0}"#)).is_err());
+}
+
+#[wasm_bindgen_test]
+fn rule_action_is_unsupported_on_other_labs() {
+    make_canvas("test-canvas-fourier-action");
+    let mut engine = Engine::new("test-canvas-fourier-action", Some("fourier".into()))
+        .expect("engine constructs");
+    // Not an error — the rule simply has no actions.
+    assert_eq!(
+        engine.rule_action(cmd(r#"{"kind":"toggle","lane":0}"#)),
+        Ok(false)
+    );
+}
+
+#[wasm_bindgen_test]
+fn sorting_accepts_cells_viz_config() {
+    make_canvas("test-canvas-sorting-cells");
+    let mut engine = Engine::new("test-canvas-sorting-cells", Some("sorting".into()))
+        .expect("engine constructs");
+    engine.resize(64, 64);
+
+    // A 7×4 grid of cells over the 64×64 canvas, row-major like the lanes.
+    let mut cells = String::from("[");
+    for row in 0..7 {
+        for col in 0..4 {
+            if row + col > 0 {
+                cells.push(',');
+            }
+            let x = col as f32 * 16.0;
+            let y = row as f32 * 9.0;
+            cells.push_str(&format!("[{x},{y},16,9]"));
+        }
+    }
+    cells.push(']');
+
+    let cfg = format!(
+        r#"{{"background":[0.0,0.0,0.0,1.0],"bar_color":[0.6,0.6,0.7,1.0],"compare_color":[0.9,0.7,0.3,1.0],"write_color":[0.9,0.3,0.3,1.0],"done_color":[0.3,0.8,0.5,1.0],"bar_gap":0.15,"cell_padding_px":1.0,"cells":{cells}}}"#
+    );
+    engine
+        .update_viz_config(cmd(&cfg))
+        .expect("cells config accepted");
+
+    let installed = js_sys::Reflect::get(&engine.viz_config(), &JsValue::from_str("cells"))
+        .expect("cells echoed back");
+    assert_eq!(js_sys::Array::from(&installed).length(), 28);
+
+    // Run every lane so the draw covers bars, highlights and finished lanes.
+    engine
+        .rule_action(cmd(
+            r#"{"kind":"set_running","lanes":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27],"running":true}"#,
+        ))
+        .expect("set_running accepted");
+    engine
+        .dispatch(cmd(r#"{"kind":"Play"}"#))
+        .expect("dispatch");
+    engine.frame(0.0);
+    engine.frame(1000.0);
+    engine.frame(2000.0);
+}

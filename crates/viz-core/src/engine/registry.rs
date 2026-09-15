@@ -7,8 +7,10 @@ use super::erased::{ErasedRule, ErasedVisualization, TypedRule, TypedViz};
 use crate::config::ConfigSchema;
 use crate::rules::fourier_epicycles::{FourierConfig, FourierEpicycles};
 use crate::rules::sierpinski_chaos::{ChaosGameConfig, SierpinskiChaos};
+use crate::rules::sorting::{SortingConfig, SortingRace};
 use crate::visualizations::fourier_epicycles::{FourierEpicyclesViz, FourierEpicyclesVizConfig};
 use crate::visualizations::sierpinski_pyramid::{SierpinskiPyramid, SierpinskiPyramidVizConfig};
+use crate::visualizations::sorting::{SortingViz, SortingVizConfig};
 
 /// Everything the engine needs to stand up one lab: the type-erased rule and
 /// visualization plus the default config JSON for each.
@@ -28,7 +30,7 @@ pub struct LabParts {
 pub const DEFAULT_LAB: &str = "sierpinski";
 
 /// Every id `build_lab` accepts.
-pub const LAB_IDS: &[&str] = &["sierpinski", "fourier"];
+pub const LAB_IDS: &[&str] = &["sierpinski", "fourier", "sorting"];
 
 /// Build the rule/viz pair for `id`, or `None` if the id is unknown.
 ///
@@ -48,6 +50,12 @@ pub fn build_lab(id: &str) -> Option<LabParts> {
             viz: Box::new(TypedViz::new(FourierEpicyclesViz::new())),
             rule_cfg: FourierConfig::defaults(),
             viz_cfg: FourierEpicyclesVizConfig::defaults(),
+        }),
+        "sorting" => Some(LabParts {
+            rule: Box::new(TypedRule::new(SortingRace)),
+            viz: Box::new(TypedViz::new(SortingViz::new())),
+            rule_cfg: SortingConfig::defaults(),
+            viz_cfg: SortingVizConfig::defaults(),
         }),
         _ => None,
     }
@@ -123,6 +131,18 @@ mod tests {
         assert_eq!(parts.rule.id(), "fourier-epicycles");
         assert_eq!(parts.viz.id(), "fourier-epicycles");
         assert_eq!(max_iterations_of(&parts.rule_cfg, 1), 1200);
+    }
+
+    #[test]
+    fn sorting_lab_pairs_rule_and_viz() {
+        let parts = build_lab("sorting").expect("sorting lab should build");
+        assert_eq!(parts.rule.id(), "sorting");
+        assert_eq!(parts.viz.id(), "sorting");
+        // The grid is 7 algorithms × 4 datasets by default.
+        assert_eq!(parts.rule_cfg["algorithms"].as_array().unwrap().len(), 7);
+        assert_eq!(parts.rule_cfg["datasets"].as_array().unwrap().len(), 4);
+        // Cells arrive from the DOM, so the defaults start empty.
+        assert!(parts.viz_cfg["cells"].as_array().unwrap().is_empty());
     }
 
     #[test]
