@@ -17,9 +17,25 @@
     initialSpeed?: number;
     /** When set, the first Play from iteration 0 ramps speed exponentially up to `target` over `durationMs`. */
     speedRamp?: { target: number; durationMs: number };
+    /** Show the reset/step/play buttons + iteration readout + speed slider (default true). Set false for labs with their own toolbar. */
+    playback?: boolean;
+    /** Show the +/-/reset zoom controls overlaid on the canvas (default true). */
+    zoom?: boolean;
+    /** Extra DOM overlaid on the canvas (e.g. a grid of cells), rendered after the canvas below the info toggle/backdrop. */
+    overlay?: Snippet<[LabApi]>;
   }
 
-  let { labId, info, controls, onReady, initialSpeed, speedRamp }: Props = $props();
+  let {
+    labId,
+    info,
+    controls,
+    onReady,
+    initialSpeed,
+    speedRamp,
+    playback = true,
+    zoom = true,
+    overlay,
+  }: Props = $props();
 
   const api = new LabApi();
 
@@ -247,12 +263,19 @@
       onpointerup={onCanvasPointerUp}
       onpointercancel={onCanvasPointerUp}
     ></canvas>
-    <div class="zoom-controls">
-      <button onclick={zoomIn} title="Zoom in">+</button>
-      <button onclick={zoomOut} title="Zoom out">−</button>
-      <button onclick={zoomReset} title="Reset zoom" disabled={zoomLevel === 1.0}>⌖</button>
-      <span class="zoom-readout">{zoomLevel.toFixed(2)}×</span>
-    </div>
+    {#if overlay}
+      <div class="overlay">
+        {@render overlay(api)}
+      </div>
+    {/if}
+    {#if zoom}
+      <div class="zoom-controls">
+        <button onclick={zoomIn} title="Zoom in">+</button>
+        <button onclick={zoomOut} title="Zoom out">−</button>
+        <button onclick={zoomReset} title="Reset zoom" disabled={zoomLevel === 1.0}>⌖</button>
+        <span class="zoom-readout">{zoomLevel.toFixed(2)}×</span>
+      </div>
+    {/if}
     <button
       class="info-toggle"
       onclick={() => (infoOpen = !infoOpen)}
@@ -269,33 +292,37 @@
   </div>
 
   <footer class="playback-bar">
-    <button onclick={onReset} title="Reset to iteration 0">↺</button>
-    <button onclick={onStepBack} title="Step back">◀</button>
-    <button
-      onclick={onTogglePlay}
-      title={api.snapshot.playing ? 'Pause' : 'Play'}
-    >{api.snapshot.playing ? '⏸' : '▶'}</button>
-    <button onclick={onStepForward} title="Step forward">▶▶</button>
+    {#if playback}
+      <button onclick={onReset} title="Reset to iteration 0">↺</button>
+      <button onclick={onStepBack} title="Step back">◀</button>
+      <button
+        onclick={onTogglePlay}
+        title={api.snapshot.playing ? 'Pause' : 'Play'}
+      >{api.snapshot.playing ? '⏸' : '▶'}</button>
+      <button onclick={onStepForward} title="Step forward">▶▶</button>
 
-    <span class="iteration">
-      {api.snapshot.iteration} / {api.snapshot.max_iterations}
-      <span class="sub">{api.snapshot.sub_progress.toFixed(2)}</span>
-    </span>
+      <span class="iteration">
+        {api.snapshot.iteration} / {api.snapshot.max_iterations}
+        <span class="sub">{api.snapshot.sub_progress.toFixed(2)}</span>
+      </span>
+    {/if}
 
     {@render controls?.(api)}
 
-    <label class="speed">
-      Speed
-      <input
-        type="range"
-        min="0.25"
-        max="360"
-        step="0.25"
-        value={api.snapshot.speed}
-        oninput={(e) => onSpeedInput(Number((e.target as HTMLInputElement).value))}
-      />
-      <span class="value">{api.snapshot.speed.toFixed(1)}</span>
-    </label>
+    {#if playback}
+      <label class="speed">
+        Speed
+        <input
+          type="range"
+          min="0.25"
+          max="360"
+          step="0.25"
+          value={api.snapshot.speed}
+          oninput={(e) => onSpeedInput(Number((e.target as HTMLInputElement).value))}
+        />
+        <span class="value">{api.snapshot.speed.toFixed(1)}</span>
+      </label>
+    {/if}
   </footer>
 </div>
 
@@ -387,10 +414,16 @@
     display: block;
     touch-action: none;
   }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
   .zoom-controls {
     position: absolute;
     top: 0.75rem;
     left: 0.75rem;
+    z-index: 2;
     display: flex;
     flex-direction: column;
     align-items: stretch;
