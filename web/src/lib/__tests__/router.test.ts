@@ -14,6 +14,9 @@ describe('parseHash', () => {
     expect(parseHash('#/')).toBe(DEFAULT_LAB);
     expect(parseHash('#/nope')).toBe(DEFAULT_LAB);
   });
+  it('maps #/sorting to sorting', () => {
+    expect(parseHash('#/sorting')).toBe('sorting');
+  });
   it('ignores trailing path/query segments', () => {
     expect(parseHash('#/fourier/extra')).toBe('fourier');
     expect(parseHash('#/fourier?x=1')).toBe('fourier');
@@ -31,6 +34,10 @@ describe('parseHashQuery / buildQuery', () => {
   });
   it('route id parsing ignores the query', () => {
     expect(parseHash('#/fourier?text=HI')).toBe('fourier');
+  });
+  it('splits a sorting link into its id and query', () => {
+    expect(parseHash('#/sorting?n=80')).toBe('sorting');
+    expect(parseHashQuery('#/sorting?n=80')).toBe('n=80');
   });
   it('buildQuery omits undefined/empty values and encodes the rest', () => {
     expect(buildQuery({ text: 'HELLO WORLD', n: '12' })).toBe('text=HELLO+WORLD&n=12');
