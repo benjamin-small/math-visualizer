@@ -12,6 +12,9 @@ function lane(patch: Partial<LaneSummary> = {}): LaneSummary {
     total: 10,
     running: false,
     done: false,
+    size: 50,
+    last_kind: null,
+    last_value: null,
     ...patch,
   };
 }
