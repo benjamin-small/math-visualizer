@@ -23,6 +23,9 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   a cell to run/pause/restart it, or use the ▶ on a row/column header to run a whole
 >   group; the toolbar runs or pauses everything, generates new data, and adjusts speed
 >   and array size (10–300, default 50). Share a size with `#/sorting?n=<size>`.
+>   Click 🔊 for sound: every running panel hums the value it just touched (pitch
+>   rises with the value, writes ring brighter than compares) and chimes when it
+>   finishes; the slider beside it sets the volume.
 >
 > The midpoint-on-circle and ColorCycle rules remain in the codebase as alternative
 > examples. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for designs and
