@@ -142,6 +142,19 @@ impl Lane {
             .and_then(|i| self.ops.get(i).copied())
     }
 
+    /// What the last op touched, for the lab's sonification: the kind of op
+    /// (`"compare"` or `"write"` — a swap is a write) and the value it
+    /// landed on — the larger of a compared/swapped pair, or the value
+    /// written. `None` before the first tick.
+    pub fn last_touch(&self) -> Option<(&'static str, u16)> {
+        let at = |i: u16| self.values.get(usize::from(i)).copied().unwrap_or(0);
+        self.last_op().map(|op| match op {
+            Op::Compare(i, j) => ("compare", at(i).max(at(j))),
+            Op::Swap(i, j) => ("write", at(i).max(at(j))),
+            Op::Write(_, v) => ("write", v),
+        })
+    }
+
     /// Rewind to the initial array with the counters zeroed. Leaves
     /// `running` alone — the callers decide that.
     pub fn reset(&mut self) {
@@ -277,13 +290,19 @@ impl Rule for SortingRace {
     }
 
     /// `{ rows, cols, tick, all_done, lanes: [{algorithm, dataset, compares,
-    /// writes, cursor, total, running, done}, …] }`. The lab reads this every
-    /// frame, so the op traces deliberately stay out of it.
+    /// writes, cursor, total, running, done, size, last_kind, last_value}, …] }`.
+    /// The lab reads this every frame, so the op traces deliberately stay out
+    /// of it; `last_kind`/`last_value` (null before the first tick) describe
+    /// only the most recent op, enough for the lab to voice each lane.
     fn summary(&self, state: &Self::State) -> serde_json::Value {
         let lanes: Vec<serde_json::Value> = state
             .lanes
             .iter()
             .map(|l| {
+                let (last_kind, last_value) = match l.last_touch() {
+                    Some((kind, value)) => (Some(kind), Some(value)),
+                    None => (None, None),
+                };
                 serde_json::json!({
                     "algorithm": l.algorithm,
                     "dataset": l.dataset,
@@ -293,6 +312,9 @@ impl Rule for SortingRace {
                     "total": l.ops.len(),
                     "running": l.running,
                     "done": l.done(),
+                    "size": l.values.len(),
+                    "last_kind": last_kind,
+                    "last_value": last_value,
                 })
             })
             .collect();
@@ -804,6 +826,9 @@ mod tests {
         assert_eq!(lanes[0]["writes"], 0);
         assert_eq!(lanes[0]["running"], json!(false));
         assert_eq!(lanes[0]["done"], json!(false));
+        assert_eq!(lanes[0]["size"], st.lanes[0].values.len());
+        assert_eq!(lanes[0]["last_kind"], json!(null), "no op yet");
+        assert_eq!(lanes[0]["last_value"], json!(null), "no op yet");
         assert!(lanes[0].get("ops").is_none(), "traces stay out of summary");
 
         run_all(&rule, &mut st, &c);
@@ -813,6 +838,40 @@ mod tests {
         assert!(s["lanes"][0]["compares"].as_u64().unwrap() > 0);
         assert_eq!(s["lanes"][0]["running"], json!(false));
         assert_eq!(s["lanes"][0]["done"], json!(true));
+        assert!(
+            ["compare", "write"].contains(&s["lanes"][0]["last_kind"].as_str().unwrap()),
+            "a finished lane still reports its final op"
+        );
+        assert!(s["lanes"][0]["last_value"].is_u64());
+    }
+
+    #[test]
+    fn last_touch_reports_the_value_the_last_op_landed_on() {
+        let rule = SortingRace;
+        let c = cfg();
+        let mut st = rule.init(&c, 6);
+        assert!(st.lanes[0].last_touch().is_none(), "nothing applied yet");
+
+        // Walk lane 0 one op at a time and check every step against its trace.
+        st.lanes[0].running = true;
+        let total = st.lanes[0].ops.len();
+        for k in 1..=total {
+            rule.advance_to(&mut st, &c, 6, k as u32);
+            let lane = &st.lanes[0];
+            let op = lane.ops[k - 1];
+            let expected = match op {
+                Op::Compare(i, j) => (
+                    "compare",
+                    lane.values[i as usize].max(lane.values[j as usize]),
+                ),
+                Op::Swap(i, j) => (
+                    "write",
+                    lane.values[i as usize].max(lane.values[j as usize]),
+                ),
+                Op::Write(_, v) => ("write", v),
+            };
+            assert_eq!(lane.last_touch(), Some(expected), "op {k}: {op:?}");
+        }
     }
 
     #[test]
