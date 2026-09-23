@@ -91,6 +91,14 @@ describe('LabShell extension points', () => {
     ).toBeTruthy();
   });
 
+  it('renders the controls bar before the canvas, so tab order matches the top-of-page layout', async () => {
+    const { container } = render(LabShellHost);
+    await vi.waitFor(() => expect(container.querySelector('.playback-bar')).toBeTruthy());
+    const bar = container.querySelector('.playback-bar')!;
+    const wrap = container.querySelector('.canvas-wrap')!;
+    expect(bar.compareDocumentPosition(wrap) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('omits the overlay div entirely when no overlay snippet is passed', async () => {
     const { container } = render(LabShellHost);
     await vi.waitFor(() => expect(container.querySelector('.canvas-wrap')).toBeTruthy());
