@@ -2,6 +2,9 @@
 // `rule_summary()`, plus the row/column vocabulary the page renders. Pure and
 // dependency-free so it's trivially testable (same style as lib/fourier/summary.ts).
 
+/** What the last op touched: a compare, or a write (swaps count as writes). */
+export type TouchKind = 'compare' | 'write';
+
 /** One grid cell: an algorithm running one dataset, with its live counters. */
 export interface LaneSummary {
   algorithm: string;
@@ -12,6 +15,12 @@ export interface LaneSummary {
   total: number;
   running: boolean;
   done: boolean;
+  /** Length of the array under sort — `last_value` is in `[0, size)`. */
+  size: number;
+  /** Kind of the most recent op, or null before the first tick. */
+  last_kind: TouchKind | null;
+  /** The value the most recent op landed on (larger of a compared/swapped pair, or the value written), or null before the first tick. */
+  last_value: number | null;
 }
 
 /** The whole grid: `rows` algorithms × `cols` datasets, row-major in `lanes`. */
@@ -61,15 +70,25 @@ function isCount(v: unknown): v is number {
   return isFiniteNumber(v) && Number.isInteger(v) && v > 0;
 }
 
+function isTouchKind(v: unknown): v is TouchKind {
+  return v === 'compare' || v === 'write';
+}
+
 function readLane(raw: unknown): LaneSummary | null {
   if (typeof raw !== 'object' || raw === null) return null;
-  const { algorithm, dataset, compares, writes, cursor, total, running, done } =
+  const { algorithm, dataset, compares, writes, cursor, total, running, done, size, last_kind, last_value } =
     raw as Record<string, unknown>;
   if (typeof algorithm !== 'string' || typeof dataset !== 'string') return null;
   if (!isFiniteNumber(compares) || !isFiniteNumber(writes)) return null;
   if (!isFiniteNumber(cursor) || !isFiniteNumber(total)) return null;
   if (typeof running !== 'boolean' || typeof done !== 'boolean') return null;
-  return { algorithm, dataset, compares, writes, cursor, total, running, done };
+  if (!isFiniteNumber(size)) return null;
+  // Both null before the first tick, both set after it — never one without the other.
+  if (last_kind === null && last_value === null) {
+    return { algorithm, dataset, compares, writes, cursor, total, running, done, size, last_kind, last_value };
+  }
+  if (!isTouchKind(last_kind) || !isFiniteNumber(last_value)) return null;
+  return { algorithm, dataset, compares, writes, cursor, total, running, done, size, last_kind, last_value };
 }
 
 /**

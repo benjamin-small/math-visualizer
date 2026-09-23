@@ -469,8 +469,9 @@
     border-bottom: 1px solid var(--border);
     padding: 0.5rem 1rem;
     display: flex;
+    flex-wrap: wrap;         /* a lab's extra controls wrap rather than widen the page */
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem 0.75rem;
     font-size: 0.9rem;
   }
   .playback-bar button {
@@ -564,9 +565,7 @@
     /* Let the playback bar wrap to multiple rows; align center so it
        balances vertically when items wrap. */
     .playback-bar {
-      flex-wrap: wrap;
       justify-content: center;
-      row-gap: 0.5rem;
     }
     .speed {
       margin-left: 0;          /* no more push-to-right with wrapping */

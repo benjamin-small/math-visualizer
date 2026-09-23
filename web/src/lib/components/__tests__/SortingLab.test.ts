@@ -189,6 +189,32 @@ describe('SortingLab.svelte', () => {
     expect(input.value).toBe('300');
   });
 
+  it('starts with sound off, the volume slider disabled, and no AudioContext needed', async () => {
+    const { getByLabelText } = await renderLab();
+    const mute = getByLabelText('Sound off') as HTMLButtonElement;
+    expect(mute.getAttribute('aria-pressed')).toBe('false');
+    expect((getByLabelText('Volume') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('the speaker button toggles sound on and off and enables the volume slider', async () => {
+    const { getByLabelText, queryByLabelText } = await renderLab();
+    await fireEvent.click(getByLabelText('Sound off'));
+    const on = getByLabelText('Sound on') as HTMLButtonElement;
+    expect(on.getAttribute('aria-pressed')).toBe('true');
+    expect(on.textContent).toBe('🔊');
+    const volume = getByLabelText('Volume') as HTMLInputElement;
+    expect(volume.disabled).toBe(false);
+    expect(volume.value).toBe('0.5');
+
+    await fireEvent.input(volume, { target: { value: '0.8' } });
+    expect(volume.value).toBe('0.8');
+
+    await fireEvent.click(on);
+    expect(queryByLabelText('Sound on')).toBeNull();
+    expect((getByLabelText('Sound off') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('false');
+    expect(volume.disabled).toBe(true);
+  });
+
   it('rewrites an out-of-range ?n= link to the clamped value', async () => {
     const { getByLabelText } = await renderLab('n=5');
     expect((getByLabelText('Array size') as HTMLInputElement).value).toBe('10');
