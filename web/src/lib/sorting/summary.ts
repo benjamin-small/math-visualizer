@@ -83,9 +83,11 @@ function readLane(raw: unknown): LaneSummary | null {
   if (!isFiniteNumber(cursor) || !isFiniteNumber(total)) return null;
   if (typeof running !== 'boolean' || typeof done !== 'boolean') return null;
   if (!isFiniteNumber(size)) return null;
-  // Both null before the first tick, both set after it — never one without the other.
-  if (last_kind === null && last_value === null) {
-    return { algorithm, dataset, compares, writes, cursor, total, running, done, size, last_kind, last_value };
+  // Both unset before the first tick, both set after it — never one without
+  // the other. The engine's `None` crosses wasm-bindgen as `undefined`, not
+  // `null`, so accept either and normalize to null.
+  if (last_kind == null && last_value == null) {
+    return { algorithm, dataset, compares, writes, cursor, total, running, done, size, last_kind: null, last_value: null };
   }
   if (!isTouchKind(last_kind) || !isFiniteNumber(last_value)) return null;
   return { algorithm, dataset, compares, writes, cursor, total, running, done, size, last_kind, last_value };
