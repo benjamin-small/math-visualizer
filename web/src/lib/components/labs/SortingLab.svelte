@@ -245,7 +245,7 @@
         class="mute"
         onclick={toggleMute}
         aria-pressed={!muted}
-        aria-label={muted ? 'Sound off' : 'Sound on'}
+        aria-label="Sound"
         title={muted ? 'Turn sound on' : 'Turn sound off'}
       >{muted ? '🔇' : '🔊'}</button>
       <input type="range" min="0" max="1" step="0.01" value={volume} oninput={onVolume} disabled={muted} aria-label="Volume" />
