@@ -24,28 +24,50 @@ function grid(lanes: LaneSummary[]): SortingSummary {
 }
 
 describe('pitchOf', () => {
-  it('maps the value range onto OCTAVES octaves above BASE_HZ, log-spaced', () => {
-    expect(pitchOf(0, 50)).toBe(BASE_HZ);
-    expect(pitchOf(49, 50)).toBeCloseTo(BASE_HZ * 2 ** OCTAVES);
+  it('maps the 1..=size value range onto OCTAVES octaves above BASE_HZ, log-spaced', () => {
+    expect(pitchOf(1, 50)).toBe(BASE_HZ);
+    expect(pitchOf(50, 50)).toBeCloseTo(BASE_HZ * 2 ** OCTAVES);
     // The midpoint of a 3-octave span is 1.5 octaves up.
-    expect(pitchOf(49.5, 100)).toBeCloseTo(BASE_HZ * 2 ** 1.5);
+    expect(pitchOf(50.5, 100)).toBeCloseTo(BASE_HZ * 2 ** 1.5);
+    // Adjacent top values are distinct notes, not both clamped to the ceiling.
+    expect(pitchOf(9, 10)).toBeLessThan(pitchOf(10, 10));
   });
 
   it('clamps out-of-range values and pins the base note for a degenerate size', () => {
+    expect(pitchOf(0, 50)).toBe(BASE_HZ);
     expect(pitchOf(-5, 50)).toBe(BASE_HZ);
     expect(pitchOf(500, 50)).toBeCloseTo(BASE_HZ * 2 ** OCTAVES);
-    expect(pitchOf(0, 1)).toBe(BASE_HZ);
+    expect(pitchOf(1, 1)).toBe(BASE_HZ);
     expect(pitchOf(3, 0)).toBe(BASE_HZ);
   });
 });
 
 describe('planAudio', () => {
-  it('rests every lane when nothing has moved', () => {
+  it('rests every stopped lane when nothing has moved', () => {
     const s = grid([lane(), lane()]);
     expect(planAudio(s, s)).toEqual([
       { kind: 'rest', lane: 0 },
       { kind: 'rest', lane: 1 },
     ]);
+  });
+
+  it('leaves a running lane alone between ops, so its last blip rings out', () => {
+    const s = grid([lane({ running: true, cursor: 5, last_kind: 'compare', last_value: 3 })]);
+    expect(planAudio(s, s)).toEqual([]);
+  });
+
+  it('rests a lane the moment it is paused', () => {
+    const on = grid([lane({ running: true, cursor: 5, last_kind: 'compare', last_value: 3 })]);
+    const off = grid([lane({ running: false, cursor: 5, last_kind: 'compare', last_value: 3 })]);
+    expect(planAudio(on, off)).toEqual([{ kind: 'rest', lane: 0 }]);
+  });
+
+  it('treats a cursor going backwards (reset, restart, resize) as a rest with no chime', () => {
+    const late = grid([lane({ running: true, cursor: 80, last_kind: 'write', last_value: 9 })]);
+    const rewound = grid([lane({ running: false, cursor: 0 })]);
+    expect(planAudio(late, rewound)).toEqual([{ kind: 'rest', lane: 0 }]);
+    const finished = grid([lane({ done: true, cursor: 100, last_kind: 'write', last_value: 9 })]);
+    expect(planAudio(finished, rewound)).toEqual([{ kind: 'rest', lane: 0 }]);
   });
 
   it('voices a lane whose cursor advanced, at the pitch of the value it touched', () => {
@@ -58,18 +80,17 @@ describe('planAudio', () => {
 
   it('treats a missing previous frame as "any progress counts"', () => {
     const s = grid([
-      lane({ running: true, cursor: 1, last_kind: 'compare', last_value: 0 }),
+      lane({ running: true, cursor: 1, last_kind: 'compare', last_value: 1 }),
       lane({ running: true, cursor: 0 }),
     ]);
     expect(planAudio(null, s)).toEqual([
       { kind: 'tone', lane: 0, touch: 'compare', freq: BASE_HZ },
-      { kind: 'rest', lane: 1 },
     ]);
   });
 
   it('stays silent for a lane that reports progress but no last op', () => {
     const s = grid([lane({ running: true, cursor: 5 })]);
-    expect(planAudio(null, s)).toEqual([{ kind: 'rest', lane: 0 }]);
+    expect(planAudio(null, s)).toEqual([]);
   });
 
   it('chimes once when a lane flips to done, alongside its final tone', () => {
@@ -79,7 +100,7 @@ describe('planAudio', () => {
       { kind: 'tone', lane: 0, touch: 'write', freq: pitchOf(2, 50) },
       { kind: 'chime', lane: 0 },
     ]);
-    // Still done next frame: no second chime, and no tone.
+    // Still done next frame: no second chime, no tone, and the stopped lane rests.
     expect(planAudio(after, after)).toEqual([{ kind: 'rest', lane: 0 }]);
   });
 
@@ -114,7 +135,15 @@ function param(value = 0) {
 function makeStubContext() {
   const oscillators: ReturnType<typeof makeOsc>[] = [];
   function makeOsc() {
-    return { type: 'sine', frequency: param(440), connect: vi.fn(), start: vi.fn(), stop: vi.fn() };
+    return {
+      type: 'sine',
+      frequency: param(440),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+      onended: null as null | (() => void),
+    };
   }
   const ctx = {
     currentTime: 1,
@@ -123,7 +152,7 @@ function makeStubContext() {
     resume: vi.fn(async () => { ctx.state = 'running'; }),
     close: vi.fn(async () => { ctx.state = 'closed'; }),
     createOscillator: vi.fn(() => { const o = makeOsc(); oscillators.push(o); return o; }),
-    createGain: vi.fn(() => ({ gain: param(1), connect: vi.fn() })),
+    createGain: vi.fn(() => ({ gain: param(1), connect: vi.fn(), disconnect: vi.fn() })),
     createDynamicsCompressor: vi.fn(() => ({ connect: vi.fn() })),
   };
   return { ctx: ctx as unknown as AudioContextLike, raw: ctx, oscillators };
@@ -183,6 +212,10 @@ describe('SortingAudio', () => {
     expect(chime.start).toHaveBeenCalledWith(1);
     expect(chime.stop).toHaveBeenCalledWith(1.5);
     expect(chime.frequency.setValueAtTime).toHaveBeenCalledWith(880, 1);
+    // The throwaway nodes unhook themselves once the chime has played out.
+    expect(chime.onended).toEqual(expect.any(Function));
+    chime.onended!();
+    expect(chime.disconnect).toHaveBeenCalledTimes(1);
   });
 
   it('applies volume on a squared curve and clamps it', () => {

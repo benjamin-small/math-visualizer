@@ -21,21 +21,24 @@ export type AudioEvent =
 
 /**
  * Value → pitch, log-spaced so every octave covers the same share of the
- * array: value 0 is `BASE_HZ`, value `size - 1` is `OCTAVES` above it.
- * Values are clamped into range, and a degenerate size pins the base note.
+ * array. The engine's datasets hold values in `1..=size`: value 1 is
+ * `BASE_HZ`, value `size` is `OCTAVES` above it. Values are clamped into
+ * range, and a degenerate size pins the base note.
  */
 export function pitchOf(value: number, size: number): number {
   if (!(size > 1)) return BASE_HZ;
-  const t = Math.min(Math.max(value, 0), size - 1) / (size - 1);
+  const t = (Math.min(Math.max(value, 1), size) - 1) / (size - 1);
   return BASE_HZ * 2 ** (OCTAVES * t);
 }
 
 /**
  * Events to voice for the frame that moved `prev` to `next`. Per lane:
- * a `chime` when it just finished, a `tone` when it is running and its cursor
- * advanced since `prev` (with `prev === null` meaning "any progress at all"),
- * else a `rest`. A lane that finished this frame gets both its final tone
- * and the chime. A null `next` rests every lane `prev` had.
+ * a `tone` when its cursor advanced since `prev` (with `prev === null`
+ * meaning "any progress at all"), a `rest` when it is not running, and
+ * nothing at all for a running lane between ops — its last blip is left to
+ * ring out on its own envelope rather than being cut every frame. A lane
+ * that just finished gets its final tone, a `chime`, and (being stopped) a
+ * rest. A null `next` rests every lane `prev` had.
  */
 export function planAudio(prev: SortingSummary | null, next: SortingSummary | null): AudioEvent[] {
   const events: AudioEvent[] = [];
@@ -48,7 +51,7 @@ export function planAudio(prev: SortingSummary | null, next: SortingSummary | nu
     const advanced = l.cursor > (before?.cursor ?? 0);
     if (advanced && l.last_kind !== null && l.last_value !== null) {
       events.push({ kind: 'tone', lane, touch: l.last_kind, freq: pitchOf(l.last_value, l.size) });
-    } else {
+    } else if (!l.running) {
       events.push({ kind: 'rest', lane });
     }
     if (l.done && before !== undefined && !before.done) events.push({ kind: 'chime', lane });
@@ -214,6 +217,10 @@ export class SortingAudio {
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
     osc.connect(gain);
     gain.connect(this.master);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
     osc.start(now);
     osc.stop(now + 0.5);
   }
