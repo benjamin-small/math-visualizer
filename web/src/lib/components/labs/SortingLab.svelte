@@ -12,6 +12,7 @@
   import { cellRects } from '../../sorting/layout';
   import { readSummary, laneIndex, ALGORITHMS, DATASETS, type SortingSummary } from '../../sorting/summary';
   import { allLanes, rowLanes, colLanes, laneState, shouldRun, LANE_GLYPH } from '../../sorting/lanes';
+  import { SortingAudio } from '../../sorting/audio';
   import { route, replaceQuery } from '../../router.svelte';
   import { buildQuery } from '../../router';
 
@@ -33,6 +34,10 @@
 
   let size = $state(clamp(paramsOf(route.query).size ?? DEFAULT_SIZE));
   let speed = $state(DEFAULT_SPEED);
+  /** Sonification: one voice per lane, off until the speaker button is clicked. */
+  const audio = new SortingAudio();
+  let muted = $state(audio.muted);
+  let volume = $state(audio.volume);
   /** The engine's lane grid, re-read every frame (null until the engine is up). */
   let summary = $state<SortingSummary | null>(null);
   /** Query we last wrote (or consumed), so our own replaceQuery() doesn't re-trigger a push. */
@@ -62,12 +67,17 @@
     });
   });
 
-  // The shell replaces `snapshot` every frame; re-read the lane grid off that clock.
+  // The shell replaces `snapshot` every frame; re-read the lane grid off that
+  // clock and voice whatever moved.
   $effect(() => {
     const a = api;
     if (!a) return;
     void a.snapshot;
-    summary = readSummary(a.readSummary());
+    // Hand the audio the raw value, not the `summary` state: reading state
+    // this effect just wrote would make it re-run on its own write.
+    const next = readSummary(a.readSummary());
+    summary = next;
+    audio.update(next);
   });
 
   /** Measure the cell buttons and hand the viz their device-pixel rects. */
@@ -118,6 +128,7 @@
     ro?.disconnect();
     ro = null;
     window.removeEventListener('resize', pushCells);
+    audio.destroy();
   });
 
   const laneAt = (i: number) => summary?.lanes[i];
@@ -171,6 +182,17 @@
     speed = Number((e.target as HTMLInputElement).value);
     api?.dispatch(cmd.setSpeed(speed));
   }
+
+  /** The click is the user gesture that lets the browser start audio. */
+  function toggleMute() {
+    audio.setMuted(!muted);
+    muted = audio.muted;
+  }
+
+  function onVolume(e: Event) {
+    audio.setVolume(Number((e.target as HTMLInputElement).value));
+    volume = audio.volume;
+  }
 </script>
 
 <LabShell labId="sorting" playback={false} zoom={false} {onReady}>
@@ -218,6 +240,16 @@
       <input type="range" min="1" max={MAX_SPEED} step="1" value={speed} oninput={onSpeed} aria-label="Speed" />
       <span class="value">{speed} ops/s</span>
     </label>
+    <div class="sound">
+      <button
+        class="mute"
+        onclick={toggleMute}
+        aria-pressed={!muted}
+        aria-label="Sound"
+        title={muted ? 'Turn sound on' : 'Turn sound off'}
+      >{muted ? '🔇' : '🔊'}</button>
+      <input type="range" min="0" max="1" step="0.01" value={volume} oninput={onVolume} disabled={muted} aria-label="Volume" />
+    </div>
   {/snippet}
 
   {#snippet info()}
@@ -262,6 +294,11 @@
       column always face the same array, which is what makes the race fair.
       <em>Size</em> changes the array length (10–300) and is shareable: it
       lands in the link as <em>?n=</em>.
+    </p>
+    <p class="tip">
+      <em>🔊</em> turns on sound: every running panel hums the value it just
+      touched — low for small, high for large, brighter on a write than on a
+      compare — and rings a chime when it finishes. The slider sets the volume.
     </p>
   {/snippet}
 </LabShell>
@@ -332,9 +369,12 @@
     width: 5rem;
     font-variant-numeric: tabular-nums;
   }
-  .size, .speed { display: flex; align-items: center; gap: 0.5rem; color: #bbb; }
+  .size, .speed, .sound { display: flex; align-items: center; gap: 0.5rem; color: #bbb; }
   .speed { margin-left: auto; }
   .speed .value { font-variant-numeric: tabular-nums; width: 5rem; text-align: right; }
+  .sound input { width: 6rem; }
+  .sound input:disabled { opacity: 0.4; }
+  .mute[aria-pressed="true"] { border-color: #6f8fc9; }
 
   /* Legend swatches — the shell supplies the base dot; `span` outranks it. */
   span.swatch.bar { background: #8c99bf; }
@@ -348,5 +388,6 @@
     .hdr.row { font-size: 0.62rem; }
     .hdr small, .badge { display: none; }
     .speed { margin-left: 0; }
+    .sound input { width: 5rem; }
   }
 </style>

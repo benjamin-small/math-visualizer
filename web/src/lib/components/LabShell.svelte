@@ -9,7 +9,7 @@
     labId: LabId;
     /** Left-hand description panel (becomes a slide-in drawer under 768px). */
     info: Snippet;
-    /** Extra playback-bar controls, rendered between the iteration readout and the Speed slider. */
+    /** Extra controls-bar controls, rendered between the iteration readout and the Speed slider. */
     controls?: Snippet<[LabApi]>;
     /** Called once the engine is constructed and the frame loop is running. */
     onReady?: (api: LabApi) => void;
@@ -254,6 +254,40 @@
     {@render info()}
   </aside>
 
+  <div class="playback-bar">
+    {#if playback}
+      <button onclick={onReset} title="Reset to iteration 0">↺</button>
+      <button onclick={onStepBack} title="Step back">◀</button>
+      <button
+        onclick={onTogglePlay}
+        title={api.snapshot.playing ? 'Pause' : 'Play'}
+      >{api.snapshot.playing ? '⏸' : '▶'}</button>
+      <button onclick={onStepForward} title="Step forward">▶▶</button>
+
+      <span class="iteration">
+        {api.snapshot.iteration} / {api.snapshot.max_iterations}
+        <span class="sub">{api.snapshot.sub_progress.toFixed(2)}</span>
+      </span>
+    {/if}
+
+    {@render controls?.(api)}
+
+    {#if playback}
+      <label class="speed">
+        Speed
+        <input
+          type="range"
+          min="0.25"
+          max="360"
+          step="0.25"
+          value={api.snapshot.speed}
+          oninput={(e) => onSpeedInput(Number((e.target as HTMLInputElement).value))}
+        />
+        <span class="value">{api.snapshot.speed.toFixed(1)}</span>
+      </label>
+    {/if}
+  </div>
+
   <div class="canvas-wrap">
     <canvas
       id="viz-canvas-{labId}"
@@ -291,49 +325,16 @@
     {/if}
   </div>
 
-  <footer class="playback-bar">
-    {#if playback}
-      <button onclick={onReset} title="Reset to iteration 0">↺</button>
-      <button onclick={onStepBack} title="Step back">◀</button>
-      <button
-        onclick={onTogglePlay}
-        title={api.snapshot.playing ? 'Pause' : 'Play'}
-      >{api.snapshot.playing ? '⏸' : '▶'}</button>
-      <button onclick={onStepForward} title="Step forward">▶▶</button>
-
-      <span class="iteration">
-        {api.snapshot.iteration} / {api.snapshot.max_iterations}
-        <span class="sub">{api.snapshot.sub_progress.toFixed(2)}</span>
-      </span>
-    {/if}
-
-    {@render controls?.(api)}
-
-    {#if playback}
-      <label class="speed">
-        Speed
-        <input
-          type="range"
-          min="0.25"
-          max="360"
-          step="0.25"
-          value={api.snapshot.speed}
-          oninput={(e) => onSpeedInput(Number((e.target as HTMLInputElement).value))}
-        />
-        <span class="value">{api.snapshot.speed.toFixed(1)}</span>
-      </label>
-    {/if}
-  </footer>
 </div>
 
 <style>
   .layout {
     display: grid;
     grid-template-columns: 320px 1fr;
-    grid-template-rows: 1fr auto;
+    grid-template-rows: auto 1fr;
     grid-template-areas:
-      "info canvas"
-      "info bar";
+      "info bar"
+      "info canvas";
     height: 100%;     /* the app grid owns 100dvh; we fill our row */
     min-height: 0;
   }
@@ -465,11 +466,12 @@
   .playback-bar {
     grid-area: bar;
     background: var(--bar);
-    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
     padding: 0.5rem 1rem;
     display: flex;
+    flex-wrap: wrap;         /* a lab's extra controls wrap rather than widen the page */
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem 0.75rem;
     font-size: 0.9rem;
   }
   .playback-bar button {
@@ -508,14 +510,14 @@
 
   /* ===== Mobile ===== */
   @media (max-width: 768px) {
-    /* Canvas + playback bar fill the viewport. Info panel becomes a
+    /* Controls bar + canvas fill the viewport. Info panel becomes a
        slide-in drawer triggered by the info-toggle button. */
     .layout {
       grid-template-columns: 1fr;
-      grid-template-rows: 1fr auto;
+      grid-template-rows: auto 1fr;
       grid-template-areas:
-        "canvas"
-        "bar";
+        "bar"
+        "canvas";
     }
     .info {
       position: fixed;
@@ -563,9 +565,7 @@
     /* Let the playback bar wrap to multiple rows; align center so it
        balances vertically when items wrap. */
     .playback-bar {
-      flex-wrap: wrap;
       justify-content: center;
-      row-gap: 0.5rem;
     }
     .speed {
       margin-left: 0;          /* no more push-to-right with wrapping */

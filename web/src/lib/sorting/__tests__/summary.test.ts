@@ -12,6 +12,9 @@ function lane(patch: Partial<LaneSummary> = {}): LaneSummary {
     total: 100,
     running: true,
     done: false,
+    size: 50,
+    last_kind: 'compare',
+    last_value: 17,
     ...patch,
   };
 }
@@ -67,6 +70,27 @@ describe('readSummary', () => {
     expect(readSummary({ ...oneLane, lanes: [{ ...lane(), running: 1 }] })).toBeNull();
     const { done: _done, ...noDone } = lane();
     expect(readSummary({ ...oneLane, lanes: [noDone] })).toBeNull();
+  });
+
+  it('accepts a lane before its first tick (no last op) and after (kind + value)', () => {
+    const idle = lane({ last_kind: null, last_value: null });
+    expect(readSummary({ ...oneLane, lanes: [idle] })?.lanes[0]).toEqual(idle);
+    // wasm-bindgen hands the engine's `None` over as `undefined`; it normalizes to null.
+    const { last_kind: _k, last_value: _v, ...bare } = lane();
+    expect(readSummary({ ...oneLane, lanes: [{ ...bare, last_kind: undefined, last_value: undefined }] })?.lanes[0]).toEqual(idle);
+    expect(readSummary({ ...oneLane, lanes: [bare] })?.lanes[0]).toEqual(idle);
+    const written = lane({ last_kind: 'write', last_value: 0 });
+    expect(readSummary({ ...oneLane, lanes: [written] })?.lanes[0]).toEqual(written);
+  });
+
+  it('rejects a bad size, an unknown touch kind, or a half-set last op', () => {
+    expect(readSummary({ ...oneLane, lanes: [lane({ size: NaN })] })).toBeNull();
+    expect(readSummary({ ...oneLane, lanes: [{ ...lane(), last_kind: 'swap' }] })).toBeNull();
+    expect(readSummary({ ...oneLane, lanes: [lane({ last_kind: null, last_value: 3 })] })).toBeNull();
+    expect(readSummary({ ...oneLane, lanes: [lane({ last_kind: 'write', last_value: null })] })).toBeNull();
+    expect(readSummary({ ...oneLane, lanes: [{ ...lane(), last_kind: undefined }] })).toBeNull();
+    const { size: _size, ...noSize } = lane();
+    expect(readSummary({ ...oneLane, lanes: [noSize] })).toBeNull();
   });
 });
 
