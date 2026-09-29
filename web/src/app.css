@@ -1,19 +1,82 @@
+/* Design tokens — see docs/superpowers/specs/2026-09-28-showcase-redesign-design.md.
+   Light is the default; dark follows the OS unless <html data-theme="light">,
+   and is forced by <html data-theme="dark">. */
 :root {
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #111;
-  color: #eee;
+  --paper: #FAF7F2;
+  --card: #FFFFFF;
+  --line: #E7E0D5;
+  --stone: #6E655A;
+  --ink: #2B2620;
+  --accent: #A65A31;
+  --accent-deep: #8A4722;
+  --tint: #F4E6DC;
+  --stage: #111111;
+  --ring: #2B2620;
+
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --radius-panel: 14px;
+  --radius-button: 9px;
+  --radius-input: 8px;
+  --shadow-panel: 0 1px 2px rgba(43, 38, 32, 0.06);
+  --shadow-lift: 0 2px 6px rgba(43, 38, 32, 0.1);
+  --nav-h: 56px;
+
+  color-scheme: light;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #1E1B17;
+    --card: #26221D;
+    --line: #3A342C;
+    --stone: #A79C8E;
+    --ink: #EDE6DC;
+    --accent: #D08A62;
+    --accent-deep: #E8A27A;
+    --tint: #33291F;
+    --ring: #3A342C;
+    --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #1E1B17;
+  --card: #26221D;
+  --line: #3A342C;
+  --stone: #A79C8E;
+  --ink: #EDE6DC;
+  --accent: #D08A62;
+  --accent-deep: #E8A27A;
+  --tint: #33291F;
+  --ring: #3A342C;
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
-html, body, #app { height: 100%; margin: 0; }
+html, body, #app { margin: 0; min-height: 100%; }
+body { background: var(--paper); color: var(--ink); }
 
-/* Shared design tokens — used by the app nav and the lab shell. */
-:root {
-  --panel: #14141a;
-  --border: #2a2a2f;
-  --bar: #1c1c1f;
-  --text: #c9c9d0;
-  --text-strong: #f0f0f5;
-  --tip-bg: #1c1c24;
-  --nav-h: 44px;
+h1, h2, h3 { font-weight: 600; line-height: 1.25; margin: 0; }
+p { margin: 0; }
+a { color: var(--accent-deep); }
+button, input { font: inherit; color: inherit; }
+
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Theme and route transitions are the only chrome motion. */
+:root, body { transition: background-color 200ms ease-out, color 200ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

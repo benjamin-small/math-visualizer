@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, parseHashQuery, buildQuery, DEFAULT_LAB, LAB_IDS } from '../router';
+import { parseHash, parseHashQuery, buildQuery, LAB_IDS } from '../router';
 
 describe('parseHash', () => {
   it('maps #/fourier to fourier', () => {
@@ -8,11 +8,8 @@ describe('parseHash', () => {
   it('accepts the slash-less form', () => {
     expect(parseHash('#fourier')).toBe('fourier');
   });
-  it('defaults empty, bare, and unknown hashes to sierpinski', () => {
-    expect(parseHash('')).toBe(DEFAULT_LAB);
-    expect(parseHash('#')).toBe(DEFAULT_LAB);
-    expect(parseHash('#/')).toBe(DEFAULT_LAB);
-    expect(parseHash('#/nope')).toBe(DEFAULT_LAB);
+  it('routes empty, bare, and unknown hashes to home', () => {
+    for (const h of ['', '#', '#/', '#/nope', '#/nope?x=1']) expect(parseHash(h)).toBe('home');
   });
   it('maps #/sorting to sorting', () => {
     expect(parseHash('#/sorting')).toBe('sorting');
