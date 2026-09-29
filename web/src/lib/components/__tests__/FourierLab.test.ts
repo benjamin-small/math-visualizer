@@ -100,8 +100,8 @@ describe('FourierLab.svelte', () => {
   });
 
   it('keeps the nav and swaps the lab when routing back to Sierpinski', async () => {
-    const { getByText, getByLabelText, queryByLabelText } = render(App);
-    expect(getByText('Sierpinski Pyramid', { selector: 'a' })).toBeTruthy();
+    const { getByText, getByRole, getByLabelText, queryByLabelText } = render(App);
+    expect(getByRole('link', { name: 'Sierpinski Pyramid' })).toBeTruthy();
     expect(getByLabelText('Text to trace')).toBeTruthy();
 
     navigate('sierpinski');

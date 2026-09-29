@@ -16,9 +16,9 @@
     <a class="wordmark" href="#/">Math Visualizer</a>
     {#if route.id !== 'home'}
       <nav class="tabs" aria-label="Labs">
-        <a href="#/sierpinski" aria-current={route.id === 'sierpinski' ? 'page' : undefined}>Sierpinski Pyramid</a>
-        <a href="#/fourier" aria-current={route.id === 'fourier' ? 'page' : undefined}>Fourier Epicycles</a>
-        <a href="#/sorting" aria-current={route.id === 'sorting' ? 'page' : undefined}>Sorting Algorithms</a>
+        <a href="#/sierpinski" aria-current={route.id === 'sierpinski' ? 'page' : undefined}>Sierpinski <span class="rest">Pyramid</span></a>
+        <a href="#/fourier" aria-current={route.id === 'fourier' ? 'page' : undefined}>Fourier <span class="rest">Epicycles</span></a>
+        <a href="#/sorting" aria-current={route.id === 'sorting' ? 'page' : undefined}>Sorting <span class="rest">Algorithms</span></a>
       </nav>
     {/if}
     <a class="source" href="https://github.com/benjamin-small/math-visualizer" rel="noopener" aria-label="Source">
@@ -86,5 +86,9 @@
   @media (max-width: 480px) {
     .source .text { display: none; }
     .bar :global(.theme .word) { display: none; }
+    /* Short lab names fit without scrolling; icon-only header controls get a 44px hit area. */
+    .tabs .rest { display: none; }
+    .tabs { gap: 20px; }
+    .source, .bar :global(.theme) { min-width: 44px; min-height: 44px; justify-content: center; padding: 0 6px; }
   }
 </style>
