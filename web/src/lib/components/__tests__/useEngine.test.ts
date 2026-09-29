@@ -33,6 +33,17 @@ describe('useEngine', () => {
     expect(freeSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('removes its resize listener on destroy', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'c4';
+    const removed = vi.spyOn(window, 'removeEventListener');
+    const h = useEngine('sorting');
+    await h.start(canvas);
+    h.destroy();
+    expect(removed.mock.calls.some(([type, fn]) => type === 'resize' && fn === h.sizeCanvas)).toBe(true);
+    removed.mockRestore();
+  });
+
   it('skips the SetSpeed dispatch for the engine default of 1', async () => {
     const canvas = document.createElement('canvas');
     canvas.id = 'c3';

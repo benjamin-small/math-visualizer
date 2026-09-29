@@ -28,6 +28,11 @@
   let paused = $state(false);
   let hiddenPaused = false;
   let cleanup: (() => void) | void;
+  /** The foot line, re-evaluated every frame whatever the readout reads. */
+  const line = $derived.by(() => {
+    void api.snapshot;
+    return paused ? 'Paused' : readout(api);
+  });
 
   function onVis() {
     if (document.hidden) {
@@ -71,7 +76,7 @@
   );
 </script>
 
-<a class="tile" href="#/{lab}">
+<a class="tile" href="#/{lab}" aria-label={title}>
   <div class="stage">
     <div class="clock" style="width: {progressPct}%"></div>
     <canvas id="tile-canvas-{lab}" bind:this={canvas}></canvas>
@@ -80,7 +85,7 @@
     <h2>{title}</h2>
     <p>{thesis}</p>
     <div class="foot">
-      <span class="readout mono">{paused ? 'Paused' : readout(api)}</span>
+      <span class="readout mono">{line}</span>
       <span class="open">Open</span>
     </div>
   </div>
