@@ -15,8 +15,11 @@
     thesis: string;
     /** The live foot line; reads `api.snapshot` so it re-renders each frame. */
     readout: (api: LabApi) => string;
-    /** Demo settings dispatched once the engine is ready. */
-    setup: (api: LabApi) => void;
+    /**
+     * Demo settings applied once the engine is ready. Gets the canvas too, for
+     * labs that need its size; may return a cleanup run on destroy.
+     */
+    setup: (api: LabApi, canvas: HTMLCanvasElement) => void | (() => void);
   }
 
   let { lab, title, thesis, readout, setup }: Props = $props();
@@ -24,6 +27,7 @@
   let canvas: HTMLCanvasElement;
   let paused = $state(false);
   let hiddenPaused = false;
+  let cleanup: (() => void) | void;
 
   function onVis() {
     if (document.hidden) {
@@ -38,7 +42,7 @@
   }
 
   function onReady(api: LabApi) {
-    setup(api);
+    cleanup = setup(api, canvas);
     const reduce =
       typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (reduce) {
@@ -57,6 +61,7 @@
   });
 
   onDestroy(() => {
+    cleanup?.();
     document.removeEventListener('visibilitychange', onVis);
     engine.destroy();
   });
