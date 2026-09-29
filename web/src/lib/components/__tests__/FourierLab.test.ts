@@ -107,7 +107,16 @@ describe('FourierLab.svelte', () => {
     navigate('sierpinski');
     await tick();
     expect(queryByLabelText('Text to trace')).toBeNull();
-    expect(getByText('Sierpinski Pyramid', { selector: 'h2' })).toBeTruthy();
+    expect(getByText('Sierpinski Pyramid', { selector: 'h1' })).toBeTruthy();
+  });
+
+  it('labels the text field, shows the legend, and the Copy link button carries an icon', async () => {
+    const { container, getByLabelText, getByRole } = render(App);
+    await vi.waitFor(() => expect(container.querySelector('canvas')).toBeTruthy());
+    expect(getByLabelText('Text to trace')).toBeTruthy();
+    expect(getByLabelText('Epicycles')).toBeTruthy();
+    expect(container.querySelectorAll('.legend .swatch')).toHaveLength(4);
+    expect(getByRole('button', { name: /Copy link/ }).querySelector('svg')).toBeTruthy();
   });
 });
 

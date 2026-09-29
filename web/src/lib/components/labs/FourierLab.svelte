@@ -2,6 +2,7 @@
   import { onDestroy, untrack } from 'svelte';
   import LabShell from '../LabShell.svelte';
   import FormulaPanel from '../FormulaPanel.svelte';
+  import Icon from '../Icon.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
   import { textToPath, samplesFor, packPath } from '../../fourier/textPath';
@@ -82,7 +83,7 @@
   let timer = 0;
 
   /**
-   * Text → path → engine. Runs on ready, on (debounced) text edits, and on
+   * Text to path to engine. Runs on ready, on (debounced) text edits, and on
    * epicycle changes — one code path so every route re-derives the same way.
    * update_rule_config resets playback to iteration 0 *paused*, so we follow
    * it with Play to start the trace.
@@ -149,9 +150,50 @@
 <LabShell
   labId="fourier"
   title="Fourier Epicycles"
-  thesis="Your words, redrawn by a chain of spinning circles." initialSpeed={120} {onReady}>
+  thesis="Your words, redrawn by a chain of spinning circles."
+  initialSpeed={120}
+  {onReady}
+>
+  {#snippet controls()}
+    <label class="field">
+      Text
+      <input
+        class="text"
+        type="text"
+        bind:value={text}
+        oninput={schedulePush}
+        placeholder="Type something"
+        aria-label="Text to trace"
+        maxlength="40"
+      />
+    </label>
+    <label class="field">
+      Epicycles
+      <input
+        type="number"
+        min="1"
+        max={MAX_EPICYCLES}
+        step="1"
+        value={epicycles}
+        onchange={onEpicycles}
+        aria-label="Epicycles"
+      />
+    </label>
+    <button class="btn" type="button" onclick={copyLink} title="Copy a link to this message">
+      <Icon name={copied ? 'check' : 'copy'} />{copied ? 'Copied' : 'Copy link'}
+    </button>
+    {#if empty}<span class="hint">Nothing to draw. Type some letters.</span>{/if}
+  {/snippet}
+
+  {#snippet legend()}
+    <span class="item"><i class="swatch ring"></i>Rings</span>
+    <span class="item"><i class="swatch arm"></i>Arms</span>
+    <span class="item"><i class="swatch pen"></i>Pen</span>
+    <span class="item"><i class="swatch ink"></i>Ink</span>
+  {/snippet}
+
   {#snippet story()}
-    <h2>Fourier Epicycles</h2>
+    <h2>How it works</h2>
     <p>
       The outline of the text is turned into one closed path (the pen lifts
       between letters). That path's <strong>discrete Fourier transform</strong>
@@ -164,16 +206,9 @@
       <li>The chain's tip is the pen; where the pen is down, it leaves ink.</li>
     </ol>
     <p>One full playthrough traces the text once.</p>
-    <h3>What you're seeing</h3>
-    <ul>
-      <li><span class="swatch ring"></span> Rings — the epicycles</li>
-      <li><span class="swatch arm"></span> Arms — center-to-center links</li>
-      <li><span class="swatch pen"></span> Pen — the moving tip</li>
-      <li><span class="swatch ink"></span> Ink — the traced text</li>
-    </ul>
     <FormulaPanel {summary} />
     <p class="tip">
-      <em>Type your own text</em> in the bar below. More epicycles means
+      <em>Type your own text</em> in the bezel above. More epicycles means
       sharper letters; fewer gives a smoother caricature — try <em>20</em>.
     </p>
     <p class="tip">
@@ -182,94 +217,42 @@
     </p>
     <p class="tip">
       Once the trace completes the circles and arms disappear, leaving the
-      text. Hit <em>Reset ↺</em> then <em>▶</em> to watch it draw again.
+      text. Hit <em>Reset</em>, then <em>Play</em> to watch it draw again.
     </p>
-  {/snippet}
-
-  {#snippet controls()}
-    <input
-      class="text"
-      type="text"
-      bind:value={text}
-      oninput={schedulePush}
-      placeholder="Type something…"
-      aria-label="Text to trace"
-      maxlength="40"
-    />
-    <label class="epicycles">
-      Epicycles
-      <input
-        type="number"
-        min="1"
-        max={MAX_EPICYCLES}
-        step="1"
-        value={epicycles}
-        onchange={onEpicycles}
-        title="Epicycles"
-      />
-    </label>
-    <button class="copy" type="button" onclick={copyLink} title="Copy a link to this message">
-      {copied ? 'Copied ✓' : 'Copy link'}
-    </button>
-    {#if empty}<span class="hint">Nothing to draw — type some letters.</span>{/if}
   {/snippet}
 </LabShell>
 
 <style>
-  /* Rendered inside LabShell's .playback-bar via the `controls` snippet;
-     snippet markup carries this component's scope, so the rules live here.
-     Inputs match the shell's buttons and Sierpinski's Iterations field. */
-  .text,
-  .epicycles input {
-    background: #2a2a2f;
-    color: #eee;
-    border: 1px solid #3a3a40;
-    border-radius: 4px;
-    padding: 0.25rem 0.4rem;
+  /* The bezel extras render inside LabShell via the `controls` snippet.
+     The shell supplies the shared `.field` / `.btn` look (as :global rules);
+     snippet markup carries this component's scope, so sizing lives here. */
+  .field input.text {
+    width: 16rem;
+    font-family: var(--font-sans);
   }
-  .text {
-    width: 11rem;
-  }
-  .epicycles {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: #bbb;
-  }
-  .epicycles input {
-    width: 5rem;
-    font-variant-numeric: tabular-nums;
+  .field input[type='number'] {
+    width: 6rem;
   }
   .hint {
-    color: #a0a0aa;
-    font-size: 0.8rem;
+    color: var(--stone);
+    font-size: 13px;
   }
 
-  /* Legend swatches. The shell's `.info :global(.swatch)` supplies the base
-     dot (size, shape, flex-shrink); the `span` prefix outranks it so the
-     per-kind rules below win. Colors mirror the viz defaults in
+  /* Legend swatches. The shell's `.legend :global(.swatch)` supplies the
+     base dot (size, shape, flex-shrink); the element prefix outranks it so
+     the per-kind rules below win. Colours mirror the viz defaults in
      crates/viz-core/src/visualizations/fourier_epicycles.rs. */
-  span.swatch.ring {
+  i.swatch.ring {
     background: transparent;
     border: 2px solid rgba(140, 153, 191, 0.9);
     box-sizing: border-box;
   }
-  span.swatch.arm {
-    background: #d9d9e6;
-    border-radius: 0;
+  i.swatch.arm {
+    width: 14px;
     height: 2px;
+    border-radius: 0;
+    background: #8f8fa3;
   }
-  span.swatch.pen { background: #fa9959; }
-  span.swatch.ink { background: #a6d9f2; }
-  .copy {
-    background: #2a2a2f;
-    color: #eee;
-    border: 1px solid #3a3a40;
-    border-radius: 4px;
-    padding: 0.35rem 0.7rem;
-    font-size: 0.85rem;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .copy:hover { background: #34343a; }
+  i.swatch.pen { background: #fa9959; }
+  i.swatch.ink { background: #a6d9f2; }
 </style>
