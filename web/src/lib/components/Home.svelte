@@ -21,6 +21,7 @@
   function sortingCells(canvas: HTMLCanvasElement) {
     const dpr = window.devicePixelRatio || 1;
     const box = canvas.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return null; // collapsed or not laid out yet
     const pad = 6;
     const gap = 3;
     const w = (box.width - 2 * pad - (SORT_COLS - 1) * gap) / SORT_COLS;
@@ -66,17 +67,21 @@
             console.warn('home tile: textToPath failed:', err);
           }
         })();
-        api.dispatch(cmd.play());
       },
       readout: (api: LabApi) =>
-        `${fmt(FOURIER_EPICYCLES)} circles, ${fmt(api.snapshot.iteration)} / ${fmt(api.snapshot.max_iterations)}`,
+        api.snapshot.max_iterations > 1
+          ? `${fmt(FOURIER_EPICYCLES)} circles, ${fmt(api.snapshot.iteration)} / ${fmt(api.snapshot.max_iterations)}`
+          : 'Loading the font',
     },
     {
       lab: 'sorting' as const,
       title: 'Sorting Algorithms',
       thesis: 'Seven algorithms race four datasets on one clock, so you see the work each one does.',
       setup: (api: LabApi, canvas: HTMLCanvasElement) => {
-        const pushCells = () => api.patchVizConfig({ cells: sortingCells(canvas) });
+        const pushCells = () => {
+          const cells = sortingCells(canvas);
+          if (cells) api.patchVizConfig({ cells });
+        };
         pushCells();
         window.addEventListener('resize', pushCells);
         api.dispatch(cmd.setSpeed(60));

@@ -88,14 +88,14 @@
 
   /* Legend swatches: the only literal colours in this file, because they
      must match the colours the viz paints on the stage. */
-  .swatch.corner { background: #d9d9e0; }
-  .swatch.highlight { background: #fad94d; }
-  .swatch.guide {
+  i.swatch.corner { background: #d9d9e0; }
+  i.swatch.highlight { background: #fad94d; }
+  i.swatch.guide {
     width: 14px;
     height: 2px;
     border-radius: 0;
     background: linear-gradient(90deg, transparent 0, #f2bf59 30%, #f2bf59 70%, transparent 100%);
   }
-  .swatch.current { background: #f28c5a; }
-  .swatch.trail { background: #a6daf2; }
+  i.swatch.current { background: #f28c5a; }
+  i.swatch.trail { background: #a6daf2; }
 </style>

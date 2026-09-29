@@ -10,7 +10,7 @@ beforeEach(() => {
 describe('ThemeToggle', () => {
   it('shows the current theme word and cycles on click', async () => {
     const { getByLabelText } = render(ThemeToggle);
-    const b = getByLabelText('Theme');
+    const b = getByLabelText(/^Theme:/);
     expect(b.textContent).toContain('System');
     await fireEvent.click(b);
     expect(b.textContent).toContain('Light');
@@ -23,6 +23,6 @@ describe('ThemeToggle', () => {
   });
   it('renders an svg icon, not text glyphs', () => {
     const { getByLabelText } = render(ThemeToggle);
-    expect(getByLabelText('Theme').querySelector('svg')).toBeTruthy();
+    expect(getByLabelText(/^Theme:/).querySelector('svg')).toBeTruthy();
   });
 });

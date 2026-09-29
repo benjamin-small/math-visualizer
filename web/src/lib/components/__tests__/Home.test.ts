@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/svelte';
-import { installRafPolyfill, freeSpy, dispatchSpy, ruleActionSpy } from '../../test/fakeViz';
+import { installRafPolyfill, freeSpy, dispatchSpy, ruleActionSpy, sortingSummaryFixture } from '../../test/fakeViz';
 
 installRafPolyfill();
 
@@ -38,13 +38,37 @@ describe('Home', () => {
 
   it('frees all three engines on unmount', async () => {
     const { unmount } = render(Home);
-    // The canvases exist before the (async) loader resolves; wait until every
-    // tile's setup has run (each dispatches exactly one Play) so all three
-    // engines are actually constructed before we tear them down.
+    // The canvases exist before the (async) loader resolves; the loader is
+    // single-flight, so once one tile's setup has run (the Sierpinski and
+    // sorting tiles each dispatch one Play; the Fourier tile plays only once
+    // its text path arrives, which the mock never delivers) all three engines
+    // are constructed. Wait for both Plays before tearing down.
     const plays = () => dispatchSpy.mock.calls.filter(([c]) => (c as { kind: string }).kind === 'Play');
-    await vi.waitFor(() => expect(plays()).toHaveLength(3));
+    await vi.waitFor(() => expect(plays()).toHaveLength(2));
     unmount();
     expect(freeSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps the sorting readout live: it follows the engine summary frame by frame', async () => {
+    const original = sortingSummaryFixture.lanes;
+    try {
+      const { container } = render(Home);
+      await vi.waitFor(() => expect(container.textContent).toMatch(/0 of 28 lanes running/));
+      sortingSummaryFixture.lanes = original.map((l, i) => ({ ...l, running: i < 5 }));
+      // The readout reads the summary, not the snapshot; it must still re-render on the frame clock.
+      await vi.waitFor(() => expect(container.textContent).toMatch(/5 of 28 lanes running/));
+    } finally {
+      sortingSummaryFixture.lanes = original;
+    }
+  });
+
+  it('runs the tile cleanup (the sorting resize listener) on unmount', async () => {
+    const removed = vi.spyOn(window, 'removeEventListener');
+    const { container, unmount } = render(Home);
+    await vi.waitFor(() => expect(container.textContent).toMatch(/lanes running/));
+    unmount();
+    expect(removed.mock.calls.some(([type]) => type === 'resize')).toBe(true);
+    removed.mockRestore();
   });
 
   it('pauses tiles when reduced motion is preferred', async () => {
