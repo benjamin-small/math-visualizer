@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy, type Snippet } from 'svelte';
-  import { loadVizCore } from '../wasm/loader';
   import type { LabId } from '../router';
-  import { cmd, type PlaybackSnapshot } from '../playback/commands';
-  import { LabApi } from './labApi.svelte';
+  import { cmd } from '../playback/commands';
+  import type { LabApi } from './labApi.svelte';
+  import { useEngine } from './useEngine.svelte';
 
   interface Props {
     labId: LabId;
@@ -37,57 +37,22 @@
     overlay,
   }: Props = $props();
 
-  const api = new LabApi();
+  const engine = useEngine(labId, { initialSpeed, onReady });
+  const api = engine.api;
 
   let canvas: HTMLCanvasElement;
   // Per-pointerId anchor so simultaneous touches (or a mouse + a touch)
   // don't share a single lastPointer and produce delta = (finger 2) − (finger 1).
   const lastPointer: Map<number, { x: number; y: number }> = new Map();
-  let destroyed = false;
-  let rafId = 0;
 
-  onMount(async () => {
-    const viz = await loadVizCore();
-    if (destroyed) return; // route changed while the WASM loaded
-    const engine = new viz.Engine(`viz-canvas-${labId}`, labId);
-    api.engine = engine;
-    sizeCanvas();
-    if (initialSpeed !== undefined && initialSpeed !== 1) engine.dispatch(cmd.setSpeed(initialSpeed));
-
-    const loop = (now: number) => {
-      const e = api.engine;
-      if (!e) return;
-      e.frame(now);
-      api.snapshot = e.snapshot() as PlaybackSnapshot;
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-
-    window.addEventListener('resize', sizeCanvas);
-    onReady?.(api);
+  onMount(() => {
+    void engine.start(canvas);
   });
 
   onDestroy(() => {
-    destroyed = true;
-    cancelAnimationFrame(rafId);
     cancelRamp();
-    window.removeEventListener('resize', sizeCanvas);
-    // Null the handle BEFORE freeing so the rAF loop and any late handler
-    // bail instead of touching a freed WASM object. The Rust side implements
-    // Drop for its GL resources, so free() is what actually releases them.
-    const e = api.engine;
-    api.engine = null;
-    e?.free();
+    engine.destroy();
   });
-
-  function sizeCanvas() {
-    if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = Math.floor(rect.width * dpr);
-    canvas.height = Math.floor(rect.height * dpr);
-    api.engine?.resize(canvas.width, canvas.height);
-  }
 
   // Speed ramp: when play starts from iteration 0, ramp speed from its current
   // value up to speedRamp.target over speedRamp.durationMs. Any manual speed
