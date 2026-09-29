@@ -8,8 +8,11 @@
   }
 </script>
 
-<LabShell labId="sierpinski" speedRamp={{ target: 240, durationMs: 10_000 }}>
-  {#snippet info()}
+<LabShell
+  labId="sierpinski"
+  title="Sierpinski Pyramid"
+  thesis="Pick a corner, move halfway toward it, drop a dot. Repeat fifty thousand times and a tetrahedron of tetrahedra appears." speedRamp={{ target: 240, durationMs: 10_000 }}>
+  {#snippet story()}
     <h2>Sierpinski Pyramid</h2>
     <p>
       Four tetrahedron corners in 3D, plus a deterministic random starting

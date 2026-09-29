@@ -146,8 +146,11 @@
   });
 </script>
 
-<LabShell labId="fourier" initialSpeed={120} {onReady}>
-  {#snippet info()}
+<LabShell
+  labId="fourier"
+  title="Fourier Epicycles"
+  thesis="Your words, redrawn by a chain of spinning circles." initialSpeed={120} {onReady}>
+  {#snippet story()}
     <h2>Fourier Epicycles</h2>
     <p>
       The outline of the text is turned into one closed path (the pen lifts

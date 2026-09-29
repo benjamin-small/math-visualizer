@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { route, installRouter } from './lib/router.svelte';
+  import Icon from './lib/components/Icon.svelte';
+  import ThemeToggle from './lib/components/ThemeToggle.svelte';
+  import Home from './lib/components/Home.svelte';
   import SierpinskiLab from './lib/components/labs/SierpinskiLab.svelte';
   import FourierLab from './lib/components/labs/FourierLab.svelte';
   import SortingLab from './lib/components/labs/SortingLab.svelte';
@@ -9,55 +12,64 @@
 </script>
 
 <div class="app">
-  <nav class="topnav">
-    <span class="brand">Math Visualizer</span>
-    <a href="#/sierpinski" class:active={route.id === 'sierpinski'}>Sierpinski Pyramid</a>
-    <a href="#/fourier" class:active={route.id === 'fourier'}>Fourier Epicycles</a>
-    <a href="#/sorting" class:active={route.id === 'sorting'}>Sorting Algorithms</a>
-  </nav>
+  <header class="bar">
+    <a class="wordmark" href="#/">Math Visualizer</a>
+    {#if route.id !== 'home'}
+      <nav class="tabs" aria-label="Labs">
+        <a href="#/sierpinski" aria-current={route.id === 'sierpinski' ? 'page' : undefined}>Sierpinski Pyramid</a>
+        <a href="#/fourier" aria-current={route.id === 'fourier' ? 'page' : undefined}>Fourier Epicycles</a>
+        <a href="#/sorting" aria-current={route.id === 'sorting' ? 'page' : undefined}>Sorting Algorithms</a>
+      </nav>
+    {/if}
+    <a class="source" href="https://github.com/benjamin-small/math-visualizer" rel="noopener" aria-label="Source">
+      <Icon name="github" /><span class="text">Source</span>
+    </a>
+    <ThemeToggle />
+  </header>
   <!-- Distinct components per branch: switching destroys the old lab (and its
-       LabShell → engine.free()) synchronously before the new canvas exists. -->
-  {#if route.id === 'fourier'}
-    <FourierLab />
-  {:else if route.id === 'sorting'}
-    <SortingLab />
-  {:else}
-    <SierpinskiLab />
-  {/if}
+       engine) synchronously before the new canvas exists. -->
+  <main>
+    {#if route.id === 'home'}
+      <Home />
+    {:else if route.id === 'fourier'}
+      <FourierLab />
+    {:else if route.id === 'sorting'}
+      <SortingLab />
+    {:else}
+      <SierpinskiLab />
+    {/if}
+  </main>
 </div>
 
 <style>
-  .app {
-    display: grid;
-    grid-template-rows: var(--nav-h) 1fr;
-    height: 100vh;
-    height: 100dvh;  /* dynamic vh so mobile address bars don't clip */
-  }
-  .topnav {
+  .app { min-height: 100dvh; display: flex; flex-direction: column; }
+  .bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    height: var(--nav-h);
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding: 0 1rem;
-    background: var(--bar);
-    border-bottom: 1px solid var(--border);
-    font-size: 0.9rem;
+    gap: 20px;
+    padding: 0 32px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
   }
-  .brand {
-    color: var(--text-strong);
-    font-weight: 600;
-    margin-right: 0.5rem;
+  .wordmark { font-weight: 600; color: var(--ink); text-decoration: none; margin-right: auto; white-space: nowrap; }
+  .tabs { display: flex; gap: 18px; overflow-x: auto; }
+  .tabs a { color: var(--stone); text-decoration: none; font-size: 15px; padding: 4px 0; white-space: nowrap; }
+  .tabs a:hover { color: var(--ink); }
+  .tabs a[aria-current="page"] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+  .source { display: inline-flex; align-items: center; gap: 6px; color: var(--stone); text-decoration: none; font-size: 15px; }
+  .source:hover { color: var(--ink); }
+  main { flex: 1; }
+
+  @media (max-width: 768px) {
+    .bar { padding: 0 16px; gap: 12px; }
+    .tabs { gap: 12px; }
+    .tabs a { font-size: 14px; }
   }
-  .topnav a {
-    color: var(--text);
-    text-decoration: none;
-    padding: 0.35rem 0.6rem;
-    border-radius: 4px;
-  }
-  .topnav a.active {
-    background: #2a2a2f;
-    color: var(--text-strong);
-  }
-  .topnav a:hover {
-    color: var(--text-strong);
+  @media (max-width: 480px) {
+    .source .text { display: none; }
   }
 </style>
