@@ -11,9 +11,34 @@
 <LabShell
   labId="sierpinski"
   title="Sierpinski Pyramid"
-  thesis="Pick a corner, move halfway toward it, drop a dot. Repeat fifty thousand times and a tetrahedron of tetrahedra appears." speedRamp={{ target: 240, durationMs: 10_000 }}>
+  thesis="Pick a corner, move halfway toward it, drop a dot. Repeat fifty thousand times and a tetrahedron of tetrahedra appears."
+  speedRamp={{ target: 240, durationMs: 10_000 }}
+>
+  {#snippet controls(api: LabApi)}
+    <label class="field">
+      Iterations
+      <input
+        type="number"
+        min="1"
+        max="200000"
+        step="1"
+        value={api.snapshot.max_iterations}
+        onchange={(e) => onMaxIterationsChange(api, e)}
+        aria-label="Iterations"
+      />
+    </label>
+  {/snippet}
+
+  {#snippet legend()}
+    <span class="item"><i class="swatch corner"></i>Corners</span>
+    <span class="item"><i class="swatch highlight"></i>Chosen corner</span>
+    <span class="item"><i class="swatch guide"></i>Guide line</span>
+    <span class="item"><i class="swatch current"></i>In-flight dot</span>
+    <span class="item"><i class="swatch trail"></i>Trail</span>
+  {/snippet}
+
   {#snippet story()}
-    <h2>Sierpinski Pyramid</h2>
+    <h2>How it works</h2>
     <p>
       Four tetrahedron corners in 3D, plus a deterministic random starting
       point somewhere inside. Each iteration:
@@ -31,14 +56,6 @@
       the color of the corner it moved toward, the four sub-pyramids paint
       themselves in distinct hues.
     </p>
-    <h3>What you're seeing</h3>
-    <ul>
-      <li><span class="swatch corner"></span> Tetrahedron corners (anchors)</li>
-      <li><span class="swatch highlight"></span> Highlighted corner (chosen this iteration)</li>
-      <li><span class="swatch guide"></span> Guide line from current position to the chosen corner</li>
-      <li><span class="swatch current"></span> In-flight dot, moving toward the halfway point</li>
-      <li><span class="swatch trail"></span> Trail of permanent dots (color-tinted per corner)</li>
-    </ul>
     <p class="tip">
       The pyramid turntables on its own so you can see the structure from
       every angle. <em>Click and drag the canvas</em> to grab the camera
@@ -50,7 +67,8 @@
       <em>240</em> to race through 10k+ iterations and watch the four
       sub-pyramids resolve.
     </p>
-    <p class="tip">
+    <h3>Why the first dots are hidden</h3>
+    <p>
       The first ~20 dots are hidden — the chaos orbit converges onto the
       Sierpinski set at rate <em>(1/2)<sup>n</sup></em>, so very early
       dots can sit in regions that get "carved out" only at deeper levels.
@@ -58,38 +76,26 @@
       and everything past that traces the true attractor.
     </p>
   {/snippet}
-
-  {#snippet controls(api: LabApi)}
-    <label class="iterations">
-      Iterations
-      <input
-        type="number"
-        min="1"
-        max="200000"
-        step="1"
-        value={api.snapshot.max_iterations}
-        onchange={(e) => onMaxIterationsChange(api, e)}
-      />
-    </label>
-  {/snippet}
 </LabShell>
 
 <style>
-  /* Rendered inside LabShell's .playback-bar via the `controls` snippet;
-     snippet markup carries this component's scope, so the rules live here. */
-  .iterations {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: #bbb;
+  /* Snippet markup carries this component's scope, so these rules reach the
+     elements LabShell renders inside its bezel and legend. The shell provides
+     the base .field, .swatch (10px dot) and .tip styling. */
+  .field input {
+    width: 90px;
   }
-  .iterations input {
-    background: #2a2a2f;
-    color: #eee;
-    border: 1px solid #3a3a40;
-    border-radius: 4px;
-    padding: 0.25rem 0.4rem;
-    width: 5rem;
-    font-variant-numeric: tabular-nums;
+
+  /* Legend swatches: the only literal colours in this file, because they
+     must match the colours the viz paints on the stage. */
+  .swatch.corner { background: #d9d9e0; }
+  .swatch.highlight { background: #fad94d; }
+  .swatch.guide {
+    width: 14px;
+    height: 2px;
+    border-radius: 0;
+    background: linear-gradient(90deg, transparent 0, #f2bf59 30%, #f2bf59 70%, transparent 100%);
   }
+  .swatch.current { background: #f28c5a; }
+  .swatch.trail { background: #a6daf2; }
 </style>
