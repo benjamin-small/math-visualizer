@@ -235,22 +235,26 @@
   {/snippet}
 
   {#snippet controls()}
-    <button class="btn" onclick={runAll} title="Start every lane">Run all</button>
-    <button class="btn" onclick={pauseAll} title="Pause every lane">Pause all</button>
-    <button class="btn" onclick={resetAll} title="Send every lane back to its unsorted array">Reset</button>
-    <button class="btn" onclick={newData} title="Reshuffle every dataset">New data</button>
+    <div class="group">
+      <button class="btn primary" onclick={runAll} title="Start every lane">Run all</button>
+      <button class="btn" onclick={pauseAll} title="Pause every lane">Pause all</button>
+      <button class="btn" onclick={resetAll} title="Send every lane back to its unsorted array">Reset</button>
+      <button class="btn" onclick={newData} title="Reshuffle every dataset">New data</button>
+    </div>
     <label class="field">
       Size
       <input type="number" min={MIN_SIZE} max={MAX_SIZE} step="1" value={size} onchange={onSize} aria-label="Array size" />
     </label>
-    <span class="stat">Running <span class="mono">{running} / {laneCount}</span></span>
-    <span class="stat">Done <span class="mono">{done} / {laneCount}</span></span>
+    <div class="group">
+      <span class="stat">Running <span class="mono">{running} / {laneCount}</span></span>
+      <span class="stat">Done <span class="mono">{done} / {laneCount}</span></span>
+    </div>
     <label class="speed">
       Speed
       <input type="range" min="1" max={MAX_SPEED} step="1" value={speed} oninput={onSpeed} aria-label="Speed" />
       <span class="value mono">{speed} ops/s</span>
     </label>
-    <div class="sound">
+    <div class="sound group">
       <button
         class="btn mute"
         onclick={toggleMute}
@@ -331,7 +335,7 @@
     backdrop-filter: blur(2px);
     color: #EDE6DC;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: 0.75rem;
     padding: 0.25rem 0.45rem;
     cursor: pointer;
@@ -342,13 +346,13 @@
   }
   .hdr:hover { background: rgba(58, 52, 44, 0.95); }
   .hdr.row { text-align: left; }
-  .hdr small { color: #A79C8E; margin-left: 0.3rem; font-size: 0.68rem; }
+  .hdr small { color: #A79C8E; margin-left: 0.3rem; font-size: 0.75rem; }
   .hdr :global(.icon) { color: #A79C8E; vertical-align: -1px; }
   .cell {
     position: relative;
     background: transparent;
     border: 1px solid rgba(58, 52, 44, 0.9);
-    border-radius: 3px;
+    border-radius: 6px;
     padding: 0;
     cursor: pointer;
     min-height: 0;
@@ -363,9 +367,9 @@
     position: absolute;
     bottom: 2px;
     left: 4px;
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     line-height: 1;
-    color: #A79C8E;
+    color: rgba(232, 225, 216, 0.85);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -388,8 +392,15 @@
   @media (max-width: 768px) {
     .grid { gap: 1px; padding: 0.25rem; --rowhdr: 5.5rem; }
     .hdr { font-size: 0.7rem; padding: 0.2rem 0.3rem; }
-    .hdr.row { font-size: 0.62rem; }
-    .hdr small, .badge { display: none; }
+    .hdr.row { font-size: 0.66rem; }
+    .hdr small { display: none; }
+    .badge { font-size: 0.7rem; }
+  }
+  @media (max-width: 480px) {
+    /* Too narrow for 28 counters; the headers name the datasets on two lines instead. */
+    .grid { --rowhdr: 4.25rem; }
+    .hdr.col { white-space: normal; line-height: 1.1; font-size: 0.62rem; padding: 0.15rem 0.2rem; }
+    .badge { display: none; }
     .speed input { width: 120px; }
     .sound input { width: 5rem; }
   }

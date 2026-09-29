@@ -129,7 +129,8 @@
   .thesis { font-size: 22px; font-weight: 500; max-width: 34ch; line-height: 1.3; }
   .lede { color: var(--stone); max-width: 56ch; margin: 10px 0 36px; }
   .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-  .foot { display: flex; gap: 24px; margin-top: 44px; color: var(--stone); font-size: 14px; }
+  .foot { display: flex; flex-wrap: wrap; gap: 6px 24px; margin-top: 44px; color: var(--stone); font-size: 14px; }
+  .foot span { white-space: nowrap; }
 
   @media (max-width: 900px) {
     .cards { grid-template-columns: 1fr; }

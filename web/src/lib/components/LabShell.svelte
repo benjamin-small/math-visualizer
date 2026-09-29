@@ -225,13 +225,15 @@
   <div class="frame">
     <div class="bezel">
       {#if playback}
-        <button class="btn" onclick={onReset} title="Back to iteration 0"><Icon name="rotate-ccw" />Reset</button>
-        <button class="btn" onclick={onStepBack} title="Step back one iteration"><Icon name="skip-back" />Back</button>
-        <button class="btn primary" onclick={onTogglePlay}>
-          <Icon name={api.snapshot.playing ? 'pause' : 'play'} />{api.snapshot.playing ? 'Pause' : 'Play'}
-        </button>
-        <button class="btn" onclick={onStepForward} title="Step forward one iteration"><Icon name="skip-forward" />Forward</button>
-        <span class="readout mono">{fmt(api.snapshot.iteration)} <span class="of">/ {fmt(api.snapshot.max_iterations)}</span></span>
+        <div class="group transport">
+          <button class="btn" onclick={onReset} title="Back to iteration 0"><Icon name="rotate-ccw" />Reset</button>
+          <button class="btn" onclick={onStepBack} title="Step back one iteration"><Icon name="skip-back" />Back</button>
+          <button class="btn primary" onclick={onTogglePlay}>
+            <Icon name={api.snapshot.playing ? 'pause' : 'play'} />{api.snapshot.playing ? 'Pause' : 'Play'}
+          </button>
+          <button class="btn" onclick={onStepForward} title="Step forward one iteration"><Icon name="skip-forward" />Forward</button>
+        </div>
+        <span class="readout mono" title="Iteration / total">{fmt(api.snapshot.iteration)} <span class="of">/ {fmt(api.snapshot.max_iterations)}</span></span>
       {/if}
 
       {@render controls?.(api)}
@@ -315,13 +317,16 @@
     box-shadow: var(--shadow-panel);
     overflow: hidden;
   }
+  /* Groups keep 8px inside and ~3x that between them (T-006), and a wrap
+     moves a whole group rather than one control. */
   .bezel {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 10px;
+    gap: 10px 28px;
     padding: 12px 16px;
   }
+  .bezel :global(.group) { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   /* One .btn base for the shell's own buttons and the labs' bezel extras
      (snippet content renders in this tree, so the base is :global). The
      variants below must come AFTER it: same specificity, order decides. */
@@ -331,7 +336,7 @@
   .bezel :global(.btn.primary:hover) { background: var(--accent-deep); border-color: var(--accent-deep); }
   .bezel :global(.btn.icon) { padding: 0 9px; }
   .bezel :global(.btn.quiet) { background: none; border-color: transparent; color: var(--accent-deep); }
-  .readout { font-size: 15px; margin-left: 6px; white-space: nowrap; }
+  .readout { font-size: 15px; margin-left: -14px; white-space: nowrap; }
   .readout .of { color: var(--stone); }
 
   .bezel :global(.field) { display: inline-flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; white-space: nowrap; }
@@ -385,12 +390,22 @@
   }
   .story :global(em) { font-style: normal; font-weight: 500; color: var(--ink); }
   .story :global(strong) { color: var(--ink); }
+  .story :global(sup) { font-size: 0.75em; line-height: 0; vertical-align: 0.45em; }
 
   @media (max-width: 768px) {
     .lab { padding: 20px 16px 48px; }
-    .bezel { justify-content: center; }
+    .bezel { gap: 12px 20px; }
     .stage { height: clamp(300px, 55vh, 520px); }
     .zoom { margin-left: 0; }
     .speed input { width: 120px; }
+  }
+  @media (max-width: 480px) {
+    /* A left-aligned stack: the transport block, then one row per control. */
+    .bezel { flex-direction: column; align-items: stretch; gap: 14px; }
+    .transport { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .readout { margin-left: 0; }
+    .bezel :global(.btn) { min-height: 44px; justify-content: center; }
+    .bezel :global(.field), .speed { justify-content: space-between; }
+    .speed input, .bezel :global(input[type="range"]) { flex: 1; width: auto; }
   }
 </style>
