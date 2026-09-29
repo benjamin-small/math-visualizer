@@ -170,7 +170,7 @@
     padding-top: 14px;
     font-size: 13px;
   }
-  .status { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+  .status { display: inline-flex; align-items: center; gap: 4px 10px; min-width: 0; flex-wrap: wrap; }
   .readout { color: var(--stone); }
   .done { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-deep); font-weight: 500; }
   .open { color: var(--accent-deep); font-weight: 500; }
