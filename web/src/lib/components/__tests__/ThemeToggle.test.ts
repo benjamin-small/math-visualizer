@@ -11,7 +11,7 @@ describe('ThemeToggle', () => {
   it('shows the current theme word and cycles on click', async () => {
     const { getByLabelText } = render(ThemeToggle);
     const b = getByLabelText(/^Theme:/);
-    expect(b.textContent).toContain('System');
+    expect(b.textContent).toContain('Theme: System');
     await fireEvent.click(b);
     expect(b.textContent).toContain('Light');
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');

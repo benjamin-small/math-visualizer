@@ -15,7 +15,7 @@
 </script>
 
 <button class="theme" onclick={cycle} aria-label="Theme: {LABEL[theme]}" title="Theme: {LABEL[theme]} (click to change)">
-  <Icon name={ICON[theme]} /><span class="word">{LABEL[theme]}</span>
+  <Icon name={ICON[theme]} /><span class="word">Theme: {LABEL[theme]}</span>
 </button>
 
 <style>
