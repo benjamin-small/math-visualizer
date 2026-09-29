@@ -19,6 +19,12 @@ describe('design tokens', () => {
     expect(css).toMatch(/--paper:\s*#1E1B17/i);
     expect(css).toMatch(/--accent:\s*#D08A62/i);
   });
+  it('keeps primary-button text on the paper token so it passes contrast in both themes', () => {
+    const shell = readFileSync(resolve(__dirname, '../components/LabShell.svelte'), 'utf8');
+    expect(shell).toMatch(/\.btn\.primary\)\s*\{[^}]*color:\s*var\(--paper\)/);
+    expect(shell).not.toMatch(/\.btn\.primary\)\s*\{[^}]*color:\s*#fff/);
+  });
+
   it('uses Plex Sans for text and Plex Mono for numbers', () => {
     expect(css).toMatch(/--font-sans:\s*"IBM Plex Sans"/);
     expect(css).toMatch(/--font-mono:\s*"IBM Plex Mono"/);

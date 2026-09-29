@@ -327,7 +327,7 @@
      variants below must come AFTER it: same specificity, order decides. */
   .bezel :global(.btn) { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-button); background: var(--paper); color: var(--ink); font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; }
   .bezel :global(.btn:hover) { border-color: var(--stone); }
-  .bezel :global(.btn.primary) { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .bezel :global(.btn.primary) { background: var(--accent); border-color: var(--accent); color: var(--paper); }
   .bezel :global(.btn.primary:hover) { background: var(--accent-deep); border-color: var(--accent-deep); }
   .bezel :global(.btn.icon) { padding: 0 9px; }
   .bezel :global(.btn.quiet) { background: none; border-color: transparent; color: var(--accent-deep); }
