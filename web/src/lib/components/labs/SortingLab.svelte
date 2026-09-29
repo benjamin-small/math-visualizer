@@ -365,13 +365,16 @@
   .cell.done .glyph { color: #a6d9f2; }
   .badge {
     position: absolute;
-    bottom: 2px;
+    bottom: 3px;
     left: 4px;
     font-size: 0.75rem;
     line-height: 1;
-    color: rgba(232, 225, 216, 0.85);
-    font-variant-numeric: tabular-nums;
+    color: rgba(232, 225, 216, 0.92);
+    background: rgba(17, 17, 17, 0.72);
+    padding: 2px 5px;
+    border-radius: 4px;
     white-space: nowrap;
+    pointer-events: none;
   }
 
   /* Bezel bits, rendered into LabShell's bezel via `controls`. The shell
