@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/svelte';
+import { render, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { installRafPolyfill, freeSpy } from '../../test/fakeViz';
 import { navigate } from '../../router.svelte';
@@ -49,59 +49,73 @@ describe('LabShell teardown', () => {
   });
 });
 
-describe('LabShell extension points', () => {
-  it('defaults preserve the playback bar and zoom controls', async () => {
-    const { getByTitle, queryByTitle } = render(LabShellHost);
-    await vi.waitFor(() => expect(queryByTitle('Play')).toBeTruthy());
-    expect(getByTitle('Play')).toBeTruthy();
-    expect(getByTitle('Reset to iteration 0')).toBeTruthy();
-    expect(getByTitle('Zoom in')).toBeTruthy();
+describe('LabShell layout', () => {
+  it('renders title, thesis, labelled playback buttons and the readout', async () => {
+    const { getByRole, getByText, container } = render(LabShellHost);
+    await vi.waitFor(() => expect(container.textContent).toMatch(/360/)); // engine up
+    expect(getByRole('heading', { level: 1 }).textContent).toBe('Test lab');
+    expect(getByText('A thesis.')).toBeTruthy();
+    for (const label of ['Reset', 'Back', 'Play', 'Forward']) expect(getByRole('button', { name: label })).toBeTruthy();
+    expect(container.querySelector('.readout')).toBeTruthy();
+    expect(container.querySelector('.info-toggle')).toBeNull();
+    expect(container.querySelector('.playback-bar')).toBeNull();
   });
 
-  it('playback={false} hides the reset/step/play/speed controls', async () => {
-    const { container, queryByTitle } = render(LabShellHost, { props: { playback: false } });
-    await vi.waitFor(() => expect(container.querySelector('.playback-bar')).toBeTruthy());
-    expect(queryByTitle('Play')).toBeNull();
-    expect(queryByTitle('Reset to iteration 0')).toBeNull();
-    expect(queryByTitle('Step forward')).toBeNull();
-    expect(queryByTitle('Step back')).toBeNull();
+  it('fills the clock line with playback progress', async () => {
+    const { container } = render(LabShellHost);
+    await vi.waitFor(() => expect(container.textContent).toMatch(/360/));
+    const clock = container.querySelector('.clock') as HTMLElement;
+    expect(clock).toBeTruthy();
+    expect(clock.style.width).toBe('0%');
+  });
+
+  it('playback={false} hides the playback buttons, readout, speed and clock line', async () => {
+    const { container, queryByRole } = render(LabShellHost, { props: { playback: false } });
+    await vi.waitFor(() => expect(container.querySelector('canvas')).toBeTruthy());
+    expect(queryByRole('button', { name: 'Play' })).toBeNull();
+    expect(queryByRole('button', { name: 'Reset' })).toBeNull();
+    expect(container.querySelector('.readout')).toBeNull();
     expect(container.querySelector('.speed')).toBeNull();
-    expect(container.querySelector('.iteration')).toBeNull();
+    expect(container.querySelector('.clock')).toBeNull();
   });
 
-  it('zoom={false} hides the zoom controls', async () => {
-    const { container, queryByTitle } = render(LabShellHost, { props: { zoom: false } });
-    await vi.waitFor(() => expect(container.querySelector('.canvas-wrap')).toBeTruthy());
-    expect(queryByTitle('Zoom in')).toBeNull();
-    expect(queryByTitle('Zoom out')).toBeNull();
-    expect(container.querySelector('.zoom-controls')).toBeNull();
+  it('zoom cluster is labelled, shows the level, and zoom={false} removes it', async () => {
+    const a = render(LabShellHost);
+    await vi.waitFor(() => expect(a.container.querySelector('canvas')).toBeTruthy());
+    expect(a.getByRole('button', { name: 'Zoom in' })).toBeTruthy();
+    expect(a.getByRole('button', { name: 'Zoom out' })).toBeTruthy();
+    expect(a.container.querySelector('.zoom .level')?.textContent).toBe('1.00×');
+    expect(a.queryByRole('button', { name: 'Reset zoom' })).toBeNull();
+    await fireEvent.click(a.getByRole('button', { name: 'Zoom in' }));
+    expect(a.container.querySelector('.zoom .level')?.textContent).toBe('1.25×');
+    expect(a.getByRole('button', { name: 'Reset zoom' })).toBeTruthy();
+    a.unmount();
+    const b = render(LabShellHost, { props: { zoom: false } });
+    await vi.waitFor(() => expect(b.container.querySelector('canvas')).toBeTruthy());
+    expect(b.container.querySelector('.zoom')).toBeNull();
   });
 
-  it('renders overlay snippet content inside .canvas-wrap, after the canvas', async () => {
+  it('renders legend and story snippets in their sections', async () => {
+    const { container } = render(LabShellHost);
+    await vi.waitFor(() => expect(container.querySelector('canvas')).toBeTruthy());
+    expect(container.querySelector('.legend')?.textContent).toContain('Legend item');
+    expect(container.querySelector('.story')?.textContent).toContain('Story text');
+  });
+
+  it('renders overlay snippet content inside .stage, after the canvas', async () => {
     const { container, findByTestId } = render(LabShellHost, { props: { showOverlay: true } });
     const overlay = await findByTestId('overlay-content');
-    const wrap = container.querySelector('.canvas-wrap');
-    expect(wrap).toBeTruthy();
-    expect(wrap?.contains(overlay)).toBe(true);
-    const canvas = wrap?.querySelector('canvas');
+    const stage = container.querySelector('.stage');
+    expect(stage).toBeTruthy();
+    expect(stage?.contains(overlay)).toBe(true);
+    const canvas = stage?.querySelector('canvas');
     expect(canvas).toBeTruthy();
-    // overlay div must come after the canvas in DOM order
-    expect(
-      canvas!.compareDocumentPosition(overlay) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it('renders the controls bar before the canvas, so tab order matches the top-of-page layout', async () => {
-    const { container } = render(LabShellHost);
-    await vi.waitFor(() => expect(container.querySelector('.playback-bar')).toBeTruthy());
-    const bar = container.querySelector('.playback-bar')!;
-    const wrap = container.querySelector('.canvas-wrap')!;
-    expect(bar.compareDocumentPosition(wrap) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(canvas!.compareDocumentPosition(overlay) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('omits the overlay div entirely when no overlay snippet is passed', async () => {
     const { container } = render(LabShellHost);
-    await vi.waitFor(() => expect(container.querySelector('.canvas-wrap')).toBeTruthy());
+    await vi.waitFor(() => expect(container.querySelector('canvas')).toBeTruthy());
     expect(container.querySelector('.overlay')).toBeNull();
   });
 });

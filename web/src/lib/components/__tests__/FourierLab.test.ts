@@ -72,7 +72,7 @@ describe('FourierLab.svelte', () => {
     await vi.waitFor(() => expect(container.textContent).toContain('1,992 more terms'));
     expect(container.textContent).not.toContain('Type some text');
     // KaTeX arrives via a dynamic import and typesets both blocks.
-    await vi.waitFor(() => expect(container.querySelectorAll('.info .katex')).toHaveLength(2));
+    await vi.waitFor(() => expect(container.querySelectorAll('.story .katex')).toHaveLength(2));
   });
 
   it('drops the expansion (keeping the general formula) when the text is cleared', async () => {

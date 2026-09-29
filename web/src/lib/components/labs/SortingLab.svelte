@@ -82,7 +82,7 @@
 
   /** Measure the cell buttons and hand the viz their device-pixel rects. */
   function pushCells() {
-    const canvas = overlayEl?.closest('.canvas-wrap')?.querySelector('canvas');
+    const canvas = overlayEl?.closest('.stage')?.querySelector('canvas');
     if (!api?.engine || !canvas) return;
     // The cell buttons are bound via `bind:this={cellEls[i]}` as the grid
     // renders; a resize/observer callback firing mid-render (or before the
@@ -195,7 +195,10 @@
   }
 </script>
 
-<LabShell labId="sorting" playback={false} zoom={false} {onReady}>
+<LabShell
+  labId="sorting"
+  title="Sorting Algorithms"
+  thesis="Seven algorithms, four starting arrays, one clock." playback={false} zoom={false} {onReady}>
   {#snippet overlay()}
     <div
       class="grid"
@@ -252,7 +255,7 @@
     </div>
   {/snippet}
 
-  {#snippet info()}
+  {#snippet story()}
     <h2>Sorting Algorithms</h2>
     <p>
       Twenty-eight sorters race at once: every row is an algorithm, every column the array it starts from. All of them share

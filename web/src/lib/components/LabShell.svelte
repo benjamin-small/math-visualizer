@@ -1,43 +1,58 @@
 <script lang="ts">
-  import { onMount, onDestroy, type Snippet } from 'svelte';
+  // The lab page: title and thesis, then the frame — a bezel of labelled
+  // controls above a dark stage that hosts the WebGL canvas — then the
+  // legend and the story. The engine lifecycle lives in useEngine; this
+  // component owns playback UI, the speed ramp, zoom, and pointer forwarding.
+  import { onMount, onDestroy, untrack, type Snippet } from 'svelte';
   import type { LabId } from '../router';
   import { cmd } from '../playback/commands';
   import type { LabApi } from './labApi.svelte';
   import { useEngine } from './useEngine.svelte';
+  import Icon from './Icon.svelte';
 
   interface Props {
     labId: LabId;
-    /** Left-hand description panel (becomes a slide-in drawer under 768px). */
-    info: Snippet;
-    /** Extra controls-bar controls, rendered between the iteration readout and the Speed slider. */
+    title: string;
+    /** One sentence under the title. */
+    thesis: string;
+    /** Extra bezel controls, rendered after the playback buttons and readout. */
     controls?: Snippet<[LabApi]>;
+    /** Swatch + label items rendered in a row under the frame. */
+    legend?: Snippet;
+    /** The explanation, rendered as an article below the legend. */
+    story?: Snippet;
+    /** Extra DOM overlaid on the canvas (e.g. a grid of cells). */
+    overlay?: Snippet<[LabApi]>;
     /** Called once the engine is constructed and the frame loop is running. */
     onReady?: (api: LabApi) => void;
     /** Speed to dispatch right after construction (skipped when 1, the engine default). */
     initialSpeed?: number;
     /** When set, the first Play from iteration 0 ramps speed exponentially up to `target` over `durationMs`. */
     speedRamp?: { target: number; durationMs: number };
-    /** Show the reset/step/play buttons + iteration readout + speed slider (default true). Set false for labs with their own toolbar. */
+    /** Show the reset/step/play buttons, readout, clock line and speed slider (default true). */
     playback?: boolean;
-    /** Show the +/-/reset zoom controls overlaid on the canvas (default true). */
+    /** Show the zoom cluster in the bezel (default true). */
     zoom?: boolean;
-    /** Extra DOM overlaid on the canvas (e.g. a grid of cells), rendered after the canvas below the info toggle/backdrop. */
-    overlay?: Snippet<[LabApi]>;
   }
 
   let {
     labId,
-    info,
+    title,
+    thesis,
     controls,
+    legend,
+    story,
+    overlay,
     onReady,
     initialSpeed,
     speedRamp,
     playback = true,
     zoom = true,
-    overlay,
   }: Props = $props();
 
-  const engine = useEngine(labId, { initialSpeed, onReady });
+  // The engine is created once for this component's lifetime; later prop
+  // changes are not meant to re-create it.
+  const engine = untrack(() => useEngine(labId, { initialSpeed, onReady }));
   const api = engine.api;
 
   let canvas: HTMLCanvasElement;
@@ -53,6 +68,11 @@
     cancelRamp();
     engine.destroy();
   });
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const progressPct = $derived(
+    api.snapshot.max_iterations > 0 ? Math.min(100, (100 * api.snapshot.iteration) / api.snapshot.max_iterations) : 0,
+  );
 
   // Speed ramp: when play starts from iteration 0, ramp speed from its current
   // value up to speedRamp.target over speedRamp.durationMs. Any manual speed
@@ -76,10 +96,10 @@
     // Skip ramp if user already has speed at or above the target (e.g. they
     // cranked the slider, then reset + played — ramping DOWN would feel weird).
     if (fromSpeed >= target) return;
-    rampStartSpeed = Math.max(fromSpeed, 0.01);  // log(0) would explode
+    rampStartSpeed = Math.max(fromSpeed, 0.01); // log(0) would explode
     rampStartMs = performance.now();
     const tick = (now: number) => {
-      if (rampHandle === 0) return;  // cancelled mid-tick
+      if (rampHandle === 0) return; // cancelled mid-tick
       const elapsed = now - rampStartMs;
       if (elapsed >= durationMs) {
         api.dispatch(cmd.setSpeed(target));
@@ -88,9 +108,6 @@
       }
       // Exponential (perceptually-logarithmic) ramp:
       //   speed(t) = start * (target/start)^(t/duration)
-      // Doubles every (duration * log(2) / log(target/start)) seconds, so the
-      // ear/eye feel a constant rate of change rather than the linear shape's
-      // huge early jump.
       const t = elapsed / durationMs;
       const speed = rampStartSpeed * Math.pow(target / rampStartSpeed, t);
       api.dispatch(cmd.setSpeed(speed));
@@ -104,16 +121,14 @@
     const wasAtStart = api.snapshot.iteration === 0;
     api.dispatch(cmd.togglePlay());
     if (wasPlaying) {
-      // Just paused — kill any active ramp.
       cancelRamp();
     } else if (wasAtStart && api.snapshot.iteration < api.snapshot.max_iterations) {
-      // Fresh play from the beginning — kick off the ramp.
       startRamp(api.snapshot.speed);
     }
   }
 
   function onSpeedInput(value: number) {
-    cancelRamp();  // user took manual control
+    cancelRamp(); // user took manual control
     api.dispatch(cmd.setSpeed(value));
   }
 
@@ -156,12 +171,7 @@
   // Payload shapes mirror the Rust InputEvent enum (serde tag = "kind").
   function pointerEventCommon(e: PointerEvent) {
     const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect();
-    return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      button: e.button,
-      buttons: e.buttons,
-    };
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top, button: e.button, buttons: e.buttons };
   }
 
   // forward_input throws if serde_wasm_bindgen rejects the payload (e.g.
@@ -179,7 +189,9 @@
     const target = e.currentTarget as HTMLCanvasElement;
     try {
       target.setPointerCapture(e.pointerId);
-    } catch { /* capture unavailable — ignore */ }
+    } catch {
+      /* capture unavailable — ignore */
+    }
     const c = pointerEventCommon(e);
     lastPointer.set(e.pointerId, { x: c.x, y: c.y });
     safeForwardInput({ kind: 'PointerDown', x: c.x, y: c.y, button: c.button });
@@ -191,14 +203,7 @@
     const dx = prev ? c.x - prev.x : 0;
     const dy = prev ? c.y - prev.y : 0;
     lastPointer.set(e.pointerId, { x: c.x, y: c.y });
-    safeForwardInput({
-      kind: 'PointerMove',
-      x: c.x,
-      y: c.y,
-      dx,
-      dy,
-      buttons: c.buttons,
-    });
+    safeForwardInput({ kind: 'PointerMove', x: c.x, y: c.y, dx, dy, buttons: c.buttons });
   }
 
   function onCanvasPointerUp(e: PointerEvent) {
@@ -206,349 +211,201 @@
     lastPointer.delete(e.pointerId);
     try {
       (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
-    } catch { /* not captured — ignore */ }
+    } catch {
+      /* not captured — ignore */
+    }
     safeForwardInput({ kind: 'PointerUp', x: c.x, y: c.y, button: c.button });
   }
-
-  // Info drawer (mobile only — desktop always shows the panel inline)
-  let infoOpen = $state(false);
 </script>
 
-<div class="layout" class:info-open={infoOpen}>
-  <aside class="info" class:open={infoOpen}>
-    {@render info()}
-  </aside>
+<article class="lab">
+  <h1>{title}</h1>
+  <p class="thesis">{thesis}</p>
 
-  <div class="playback-bar">
-    {#if playback}
-      <button onclick={onReset} title="Reset to iteration 0">↺</button>
-      <button onclick={onStepBack} title="Step back">◀</button>
-      <button
-        onclick={onTogglePlay}
-        title={api.snapshot.playing ? 'Pause' : 'Play'}
-      >{api.snapshot.playing ? '⏸' : '▶'}</button>
-      <button onclick={onStepForward} title="Step forward">▶▶</button>
+  <div class="frame">
+    <div class="bezel">
+      {#if playback}
+        <button class="btn" onclick={onReset} title="Back to iteration 0"><Icon name="rotate-ccw" />Reset</button>
+        <button class="btn" onclick={onStepBack} title="Step back one iteration"><Icon name="skip-back" />Back</button>
+        <button class="btn primary" onclick={onTogglePlay}>
+          <Icon name={api.snapshot.playing ? 'pause' : 'play'} />{api.snapshot.playing ? 'Pause' : 'Play'}
+        </button>
+        <button class="btn" onclick={onStepForward} title="Step forward one iteration"><Icon name="skip-forward" />Forward</button>
+        <span class="readout mono">{fmt(api.snapshot.iteration)} <span class="of">/ {fmt(api.snapshot.max_iterations)}</span></span>
+      {/if}
 
-      <span class="iteration">
-        {api.snapshot.iteration} / {api.snapshot.max_iterations}
-        <span class="sub">{api.snapshot.sub_progress.toFixed(2)}</span>
-      </span>
-    {/if}
+      {@render controls?.(api)}
 
-    {@render controls?.(api)}
+      {#if zoom}
+        <div class="zoom">
+          <span class="label">Zoom</span>
+          <button class="btn icon" onclick={zoomOut} aria-label="Zoom out" title="Zoom out"><Icon name="zoom-out" /></button>
+          <span class="level mono">{zoomLevel.toFixed(2)}×</span>
+          <button class="btn icon" onclick={zoomIn} aria-label="Zoom in" title="Zoom in"><Icon name="zoom-in" /></button>
+          {#if zoomLevel !== 1}<button class="btn quiet" onclick={zoomReset}>Reset zoom</button>{/if}
+        </div>
+      {/if}
 
-    {#if playback}
-      <label class="speed">
-        Speed
-        <input
-          type="range"
-          min="0.25"
-          max="360"
-          step="0.25"
-          value={api.snapshot.speed}
-          oninput={(e) => onSpeedInput(Number((e.target as HTMLInputElement).value))}
-        />
-        <span class="value">{api.snapshot.speed.toFixed(1)}</span>
-      </label>
-    {/if}
+      {#if playback}
+        <label class="speed">
+          Speed
+          <input
+            type="range"
+            min="0.25"
+            max="360"
+            step="0.25"
+            value={api.snapshot.speed}
+            oninput={(e) => onSpeedInput(Number((e.target as HTMLInputElement).value))}
+            aria-label="Speed"
+          />
+          <span class="value mono">{api.snapshot.speed.toFixed(1)}</span>
+        </label>
+      {/if}
+    </div>
+
+    <div class="stage">
+      {#if playback}<div class="clock" style="width: {progressPct}%"></div>{/if}
+      <canvas
+        id="viz-canvas-{labId}"
+        bind:this={canvas}
+        onpointerdown={onCanvasPointerDown}
+        onpointermove={onCanvasPointerMove}
+        onpointerup={onCanvasPointerUp}
+        onpointercancel={onCanvasPointerUp}
+      ></canvas>
+      {#if overlay}
+        <div class="overlay">
+          {@render overlay(api)}
+        </div>
+      {/if}
+    </div>
   </div>
 
-  <div class="canvas-wrap">
-    <canvas
-      id="viz-canvas-{labId}"
-      bind:this={canvas}
-      onpointerdown={onCanvasPointerDown}
-      onpointermove={onCanvasPointerMove}
-      onpointerup={onCanvasPointerUp}
-      onpointercancel={onCanvasPointerUp}
-    ></canvas>
-    {#if overlay}
-      <div class="overlay">
-        {@render overlay(api)}
-      </div>
-    {/if}
-    {#if zoom}
-      <div class="zoom-controls">
-        <button onclick={zoomIn} title="Zoom in">+</button>
-        <button onclick={zoomOut} title="Zoom out">−</button>
-        <button onclick={zoomReset} title="Reset zoom" disabled={zoomLevel === 1.0}>⌖</button>
-        <span class="zoom-readout">{zoomLevel.toFixed(2)}×</span>
-      </div>
-    {/if}
-    <button
-      class="info-toggle"
-      onclick={() => (infoOpen = !infoOpen)}
-      title={infoOpen ? 'Hide description' : 'Show description'}
-      aria-label={infoOpen ? 'Hide description' : 'Show description'}
-    >{infoOpen ? '✕' : 'ⓘ'}</button>
-    {#if infoOpen}
-      <button
-        class="info-backdrop"
-        onclick={() => (infoOpen = false)}
-        aria-label="Close description"
-      ></button>
-    {/if}
-  </div>
+  {#if legend}
+    <div class="legend">
+      {@render legend()}
+    </div>
+  {/if}
 
-</div>
+  {#if story}
+    <section class="story">
+      {@render story()}
+    </section>
+  {/if}
+</article>
 
 <style>
-  .layout {
-    display: grid;
-    grid-template-columns: 320px 1fr;
-    grid-template-rows: auto 1fr;
-    grid-template-areas:
-      "info bar"
-      "info canvas";
-    height: 100%;     /* the app grid owns 100dvh; we fill our row */
-    min-height: 0;
+  .lab {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 32px 64px;
+    animation: fade 200ms ease-out;
   }
-  /* Hide the info-toggle button on desktop — info panel is always visible. */
-  .info-toggle, .info-backdrop {
-    display: none;
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
-  .info {
-    grid-area: info;
-    background: var(--panel);
-    border-right: 1px solid var(--border);
-    padding: 1.25rem 1.25rem 1rem;
-    overflow-y: auto;
-    color: var(--text);
-    font-size: 0.85rem;
-    line-height: 1.5;
-  }
-  /* The panel body is a snippet rendered from the calling lab component, so
-     its elements carry THAT component's scope hash, not ours. Everything
-     under .info therefore has to be :global()-scoped to reach it. */
-  .info :global(h2) {
-    margin: 0 0 0.75rem;
-    color: var(--text-strong);
-    font-size: 1.05rem;
-    font-weight: 600;
-  }
-  .info :global(h3) {
-    margin: 1.25rem 0 0.5rem;
-    color: var(--text-strong);
-    font-size: 0.85rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .info :global(p) { margin: 0 0 0.75rem; }
-  .info :global(ol), .info :global(ul) {
-    margin: 0 0 0.75rem;
-    padding-left: 1.25rem;
-  }
-  .info :global(li) { margin-bottom: 0.35rem; }
-  .info :global(ul) { list-style: none; padding-left: 0; }
-  .info :global(ul li) {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-  }
-  .info :global(.tip) {
-    margin-top: 1rem;
-    padding: 0.6rem 0.75rem;
-    background: var(--tip-bg);
-    border-left: 2px solid #4a4a55;
-    border-radius: 2px;
-    font-size: 0.8rem;
-    color: #a0a0aa;
-  }
-  .info :global(em) { color: #d5d5db; font-style: normal; font-weight: 500; }
-  .info :global(strong) { color: var(--text-strong); }
-  .info :global(.swatch) {
-    display: inline-block;
-    width: 0.85rem;
-    height: 0.85rem;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .info :global(.swatch.corner)    { background: #d9d9e0; }
-  .info :global(.swatch.highlight) { background: #fad94d; }
-  .info :global(.swatch.guide)     { background: linear-gradient(90deg, transparent 0, #f2bf59 30%, #f2bf59 70%, transparent 100%); border-radius: 0; height: 2px; align-self: center; }
-  .info :global(.swatch.current)   { background: #f28c5a; }
-  .info :global(.swatch.trail)     { background: #a6daf2; }
-  .canvas-wrap {
-    grid-area: canvas;
-    position: relative;
+  h1 { font-size: 26px; }
+  .thesis { color: var(--stone); max-width: 60ch; margin: 6px 0 20px; }
+
+  .frame {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-panel);
     overflow: hidden;
   }
-  canvas {
-    width: 100%;
-    height: 100%;
-    display: block;
-    touch-action: none;
-  }
-  .overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-  }
-  .zoom-controls {
-    position: absolute;
-    top: 0.75rem;
-    left: 0.75rem;
-    z-index: 2;
+  .bezel {
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.25rem;
-    background: rgba(28, 28, 31, 0.75);
-    backdrop-filter: blur(4px);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.35rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 12px 16px;
   }
-  .zoom-controls button {
-    background: #2a2a2f;
-    color: #eee;
-    border: 1px solid #3a3a40;
-    border-radius: 4px;
-    width: 2rem;
-    height: 2rem;
-    font-size: 1.05rem;
-    line-height: 1;
-    cursor: pointer;
+  .btn {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-  }
-  .zoom-controls button:hover:not(:disabled) {
-    background: #34343a;
-  }
-  .zoom-controls button:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-  .zoom-readout {
-    font-size: 0.7rem;
-    color: #aaa;
-    font-variant-numeric: tabular-nums;
-    text-align: center;
-    padding-top: 0.15rem;
-  }
-  .playback-bar {
-    grid-area: bar;
-    background: var(--bar);
-    border-bottom: 1px solid var(--border);
-    padding: 0.5rem 1rem;
-    display: flex;
-    flex-wrap: wrap;         /* a lab's extra controls wrap rather than widen the page */
-    align-items: center;
-    gap: 0.5rem 0.75rem;
-    font-size: 0.9rem;
-  }
-  .playback-bar button {
-    background: #2a2a2f;
-    color: #eee;
-    border: 1px solid #3a3a40;
-    border-radius: 4px;
-    padding: 0.35rem 0.7rem;
-    font-size: 1rem;
+    gap: 7px;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-button);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 500;
     cursor: pointer;
+    white-space: nowrap;
   }
-  .playback-bar button:hover {
-    background: #34343a;
-  }
-  .iteration {
-    font-variant-numeric: tabular-nums;
-    color: #bbb;
-    min-width: 8rem;
-  }
-  .iteration .sub {
-    color: #666;
-    margin-left: 0.5rem;
-  }
-  .speed {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-left: auto;
-    color: #bbb;
-  }
-  .speed .value {
-    font-variant-numeric: tabular-nums;
-    width: 2.5rem;
-    text-align: right;
-  }
+  .btn:hover { border-color: var(--stone); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+  .btn.icon { padding: 0 9px; }
+  .btn.quiet { background: none; border-color: transparent; color: var(--accent-deep); }
+  .readout { font-size: 15px; margin-left: 6px; white-space: nowrap; }
+  .readout .of { color: var(--stone); }
 
-  /* ===== Mobile ===== */
+  /* Shared control styles for the labs' bezel extras (they render in this
+     component's tree via snippets, so they need :global). */
+  .bezel :global(.btn) { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-button); background: var(--paper); color: var(--ink); font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .bezel :global(.btn:hover) { border-color: var(--stone); }
+  .bezel :global(.field) { display: inline-flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; white-space: nowrap; }
+  .bezel :global(.field input) { height: 34px; border: 1px solid var(--line); border-radius: var(--radius-input); background: var(--card); color: var(--ink); padding: 0 10px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 14px; }
+  .bezel :global(.field input[type="text"]) { font-family: var(--font-sans); }
+  .bezel :global(.stat) { display: inline-flex; align-items: baseline; gap: 6px; color: var(--stone); font-size: 14px; white-space: nowrap; }
+  .bezel :global(.stat .mono) { color: var(--ink); font-size: 15px; }
+  .bezel :global(input[type="range"]) { accent-color: var(--accent); }
+
+  .zoom { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--stone); font-size: 14px; }
+  .zoom .level { min-width: 4.5ch; text-align: center; color: var(--ink); }
+  .speed { display: inline-flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; }
+  .speed input { accent-color: var(--accent); width: 140px; }
+  .speed .value { width: 4.5ch; text-align: right; color: var(--ink); }
+
+  .stage {
+    position: relative;
+    height: clamp(420px, 65vh, 820px);
+    background: var(--stage);
+    box-shadow: inset 0 0 0 1px var(--ring);
+    overflow: hidden;
+  }
+  .clock {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 2px;
+    background: var(--accent);
+    z-index: 2;
+    transition: width 120ms linear;
+  }
+  canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+  .overlay { position: absolute; inset: 0; z-index: 1; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; padding: 14px 4px 0; font-size: 14px; color: var(--stone); }
+  .legend :global(.item) { display: inline-flex; align-items: center; gap: 8px; }
+  .legend :global(.swatch) { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+
+  .story { max-width: 68ch; margin-top: 44px; }
+  .story :global(h2) { font-size: 20px; margin: 0 0 10px; }
+  .story :global(h3) { font-size: 16px; margin: 28px 0 8px; }
+  .story :global(p), .story :global(li) { margin: 0 0 10px; }
+  .story :global(ol), .story :global(ul) { margin: 0 0 10px; padding-left: 22px; }
+  .story :global(.tip) {
+    border-left: 2px solid var(--accent);
+    background: var(--tint);
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    color: var(--stone);
+    margin: 18px 0;
+  }
+  .story :global(em) { font-style: normal; font-weight: 500; color: var(--ink); }
+  .story :global(strong) { color: var(--ink); }
+
   @media (max-width: 768px) {
-    /* Controls bar + canvas fill the viewport. Info panel becomes a
-       slide-in drawer triggered by the info-toggle button. */
-    .layout {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr;
-      grid-template-areas:
-        "bar"
-        "canvas";
-    }
-    .info {
-      position: fixed;
-      top: var(--nav-h);                       /* sit under the app nav */
-      left: 0;
-      width: min(320px, 88vw);
-      height: calc(100dvh - var(--nav-h));
-      transform: translateX(-100%);
-      transition: transform 0.22s ease;
-      z-index: 30;
-      box-shadow: 0 0 24px rgba(0, 0, 0, 0.55);
-    }
-    .info.open {
-      transform: translateX(0);
-    }
-    .info-toggle {
-      display: inline-flex;
-      position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      z-index: 31;
-      align-items: center;
-      justify-content: center;
-      background: rgba(28, 28, 31, 0.85);
-      backdrop-filter: blur(4px);
-      color: #eee;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      width: 2.25rem;
-      height: 2.25rem;
-      font-size: 1.05rem;
-      cursor: pointer;
-      padding: 0;
-    }
-    .info-backdrop {
-      display: block;
-      position: fixed;
-      inset: 0;
-      top: var(--nav-h);
-      background: rgba(0, 0, 0, 0.45);
-      border: none;
-      cursor: pointer;
-      z-index: 29;
-    }
-    /* Let the playback bar wrap to multiple rows; align center so it
-       balances vertically when items wrap. */
-    .playback-bar {
-      justify-content: center;
-    }
-    .speed {
-      margin-left: 0;          /* no more push-to-right with wrapping */
-      flex-basis: 100%;        /* speed slider takes its own row */
-      justify-content: center;
-    }
-    .speed input {
-      flex: 1;                 /* stretch the slider on narrow screens */
-      max-width: 18rem;
-    }
-    .iteration {
-      min-width: 0;            /* allow shrinking */
-    }
-    /* Slightly smaller zoom panel on tight screens. */
-    .zoom-controls button {
-      width: 1.75rem;
-      height: 1.75rem;
-      font-size: 0.95rem;
-    }
+    .lab { padding: 20px 16px 48px; }
+    .bezel { justify-content: center; }
+    .stage { height: clamp(300px, 55vh, 520px); }
+    .zoom { margin-left: 0; }
+    .speed input { width: 120px; }
   }
 </style>
