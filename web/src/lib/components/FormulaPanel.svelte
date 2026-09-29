@@ -76,13 +76,13 @@
 {/if}
 
 <style>
-  /* A wide `aligned` block scrolls inside the 320px panel instead of
-     overflowing it. KaTeX sets no color of its own, so the strong text
-     token is inherited by the rendered math. */
+  /* A wide `aligned` block scrolls inside the story column instead of
+     overflowing it. KaTeX sets no color of its own, so the ink token is
+     inherited by the rendered math. */
   .tex {
     overflow-x: auto;
     font-size: 0.85em;
-    color: var(--text-strong);
+    color: var(--ink);
   }
   .tex :global(.katex-display) {
     margin: 0.5em 0;
@@ -97,13 +97,13 @@
     opacity: 0.7;
   }
   .tail {
-    color: #a0a0aa;
-    font-size: 0.8rem;
+    color: var(--stone);
+    font-size: 14px;
     font-variant-numeric: tabular-nums;
   }
   .hint {
-    color: #a0a0aa;
-    font-size: 0.8rem;
+    color: var(--stone);
+    font-size: 14px;
   }
   sub {
     font-size: 0.75em;
