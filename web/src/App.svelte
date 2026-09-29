@@ -65,11 +65,26 @@
   main { flex: 1; }
 
   @media (max-width: 768px) {
-    .bar { padding: 0 16px; gap: 12px; }
-    .tabs { gap: 12px; }
+    /* The tabs take their own row under the wordmark so nothing is clipped;
+       the row scrolls sideways if it still overflows. */
+    .bar { flex-wrap: wrap; height: auto; min-height: var(--nav-h); padding: 0 16px; gap: 0 12px; }
+    .wordmark { line-height: var(--nav-h); }
+    .source, .bar :global(.theme) { line-height: var(--nav-h); }
+    .tabs {
+      order: 10;
+      flex-basis: 100%;
+      gap: 16px;
+      padding: 0 0 10px;
+      margin: 0 -16px;
+      padding-left: 16px;
+      padding-right: 16px;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
     .tabs a { font-size: 14px; }
   }
   @media (max-width: 480px) {
     .source .text { display: none; }
+    .bar :global(.theme .word) { display: none; }
   }
 </style>

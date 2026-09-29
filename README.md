@@ -4,8 +4,11 @@
 
 Math Visualizer is an interactive collection of mathematical visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI. It provides explorable examples of iterative rules and their geometric attractors.
 
-> **Status:** three labs, switchable from the top nav.
+> **Status:** a gallery home page and three labs.
 >
+> - **Home** (`#/`) — a card per lab, each running its real engine live on a
+>   small stage with one ticking readout. Warm paper by default; dark mode
+>   follows the OS, with a System / Light / Dark toggle in the bar.
 > - **Sierpinski Pyramid** (`#/sierpinski`) — a rotating 3D Sierpinski tetrahedron built
 >   by the chaos game: pick one of four corners, move halfway, drop a dot tinted by that
 >   corner. Auto-spins; click-drag to orbit.
@@ -20,12 +23,15 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   (Random, Nearly sorted, Reversed, Few unique). Every panel is its own independent
 >   lane on one shared engine clock — each tick applies one compare or write to every
 >   running lane, so you see how each algorithm's op count scales with the input. Click
->   a cell to run/pause/restart it, or use the ▶ on a row/column header to run a whole
->   group; the toolbar runs or pauses everything, generates new data, and adjusts speed
->   and array size (10–300, default 50). Share a size with `#/sorting?n=<size>`.
->   Click 🔊 for sound: every running panel hums the value it just touched (pitch
->   rises with the value, writes ring brighter than compares) and chimes when it
->   finishes; the slider beside it sets the volume.
+>   a cell to run/pause/restart it, or use the play control on a row/column header to run
+>   a whole group; the bezel runs or pauses everything, generates new data, and adjusts
+>   speed and array size (10–300, default 50). Share a size with `#/sorting?n=<size>`.
+>   Turn on **Sound** for a tone per operation (pitch rises with the value, writes ring
+>   brighter than compares) and a chime when a lane finishes.
+>
+> Every lab page has the same shape: a labelled control bezel, the canvas mounted as a
+> framed dark stage (a thin terracotta clock line along its top edge fills with the
+> engine's progress), a legend, and the explanation as an article below.
 >
 > The midpoint-on-circle and ColorCycle rules remain in the codebase as alternative
 > examples. See [`docs/superpowers/specs/`](docs/superpowers/specs/) for designs and
@@ -159,7 +165,10 @@ math-visualizer/
     │   └── lib/
     │       ├── router.ts / router.svelte.ts   # parseHash + reactive `route`, no dependency
     │       ├── components/
-    │       │   ├── LabShell.svelte   # Engine bootstrap, rAF loop, canvas, zoom, playback bar
+    │       │   ├── LabShell.svelte   # Lab page: bezel, framed stage + clock line, legend, story
+    │       │   ├── useEngine.svelte.ts # Engine boot, rAF loop, resize, teardown (shell + tiles)
+    │       │   ├── Home.svelte / LabTile.svelte # Gallery home; a live engine per card
+    │       │   ├── Icon.svelte / ThemeToggle.svelte # Outline icons; System/Light/Dark
     │       │   ├── labApi.svelte.ts  # Handle labs use: dispatch / patch|setRuleConfig
     │       │   └── labs/             # SierpinskiLab, FourierLab, SortingLab (info + controls)
     │       ├── fourier/              # textToPath: opentype.js glyphs → closed, pen-tagged path
