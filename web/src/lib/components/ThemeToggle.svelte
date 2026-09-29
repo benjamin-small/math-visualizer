@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Cycles System → Light → Dark. The click is what changes the page; the
+  // Cycles System, Light, Dark. The click is what changes the page; the
   // pre-paint script in index.html applies the saved value on load.
   import Icon from './Icon.svelte';
   import { readTheme, applyTheme, nextTheme, type Theme } from '../theme';
