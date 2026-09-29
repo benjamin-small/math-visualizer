@@ -71,7 +71,7 @@
       },
       readout: (api: LabApi) =>
         api.snapshot.max_iterations > 1
-          ? `${fmt(FOURIER_EPICYCLES)} circles, ${fmt(api.snapshot.iteration)} / ${fmt(api.snapshot.max_iterations)}`
+          ? `${fmt(api.snapshot.iteration)} / ${fmt(api.snapshot.max_iterations)} steps`
           : 'Loading the font',
     },
     {
