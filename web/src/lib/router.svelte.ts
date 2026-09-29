@@ -1,22 +1,23 @@
 // Reactive hash router. `route` is an exported $state object (a reassigned
 // `let` export is not allowed for runes) — mutate its fields, never reassign it.
-//   route.id    — which lab ('#/fourier' → 'fourier')
+//   route.id    — which page ('#/fourier' → 'fourier', '#/' → 'home')
 //   route.query — the query part of the hash ('#/fourier?text=HI' → 'text=HI')
-import { parseHash, parseHashQuery, type LabId } from './router';
+import { parseHash, parseHashQuery, type RouteId } from './router';
 
 const initialHash = typeof location !== 'undefined' ? location.hash : '';
 
-export const route = $state<{ id: LabId; query: string }>({
+export const route = $state<{ id: RouteId; query: string }>({
   id: parseHash(initialHash),
   query: parseHashQuery(initialHash),
 });
 
-function hashFor(id: LabId, query: string): string {
-  return query ? `#/${id}?${query}` : `#/${id}`;
+function hashFor(id: RouteId, query: string): string {
+  const path = id === 'home' ? '#/' : `#/${id}`;
+  return query ? `${path}?${query}` : path;
 }
 
 /** Navigate programmatically (adds a history entry). Updates the hash and the reactive route. */
-export function navigate(id: LabId, query = '') {
+export function navigate(id: RouteId, query = '') {
   if (typeof location !== 'undefined') location.hash = hashFor(id, query);
   route.id = id;
   route.query = query;

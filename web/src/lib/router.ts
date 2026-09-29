@@ -2,14 +2,15 @@
 // the reactive `route` object lives in router.svelte.ts.
 
 export type LabId = 'sierpinski' | 'fourier' | 'sorting';
+/** Every page: the gallery home, or one lab. */
+export type RouteId = 'home' | LabId;
 
 export const LAB_IDS: readonly LabId[] = ['sierpinski', 'fourier', 'sorting'];
-export const DEFAULT_LAB: LabId = 'sierpinski';
 
-/** `#/fourier` → 'fourier'; anything else (empty, unknown, `#/`) → 'sierpinski'. */
-export function parseHash(hash: string): LabId {
+/** `#/fourier` → 'fourier'; anything else (empty, `#`, `#/`, unknown) → 'home'. */
+export function parseHash(hash: string): RouteId {
   const id = hash.replace(/^#\/?/, '').split(/[/?#]/)[0];
-  return (LAB_IDS as readonly string[]).includes(id) ? (id as LabId) : DEFAULT_LAB;
+  return (LAB_IDS as readonly string[]).includes(id) ? (id as LabId) : 'home';
 }
 
 /** The query part of a hash route: `#/fourier?text=HI&n=5` → 'text=HI&n=5' ('' when absent). */
