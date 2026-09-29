@@ -1,3 +1,11 @@
+<script lang="ts" module>
+  import type { PlaybackSnapshot } from '../playback/commands';
+  /** The default "done" test: the clock has reached the end of a real run. */
+  export function isFinished(snap: PlaybackSnapshot): boolean {
+    return snap.max_iterations > 1 && snap.iteration >= snap.max_iterations;
+  }
+</script>
+
 <script lang="ts">
   // One home-page card: a lab running live on a small stage, with the
   // title, a one-line thesis and a single mono readout. The whole card is a
@@ -8,6 +16,7 @@
   import { cmd } from '../playback/commands';
   import type { LabApi } from './labApi.svelte';
   import { useEngine } from './useEngine.svelte';
+  import Icon from './Icon.svelte';
 
   interface Props {
     lab: LabId;
@@ -20,9 +29,11 @@
      * labs that need its size; may return a cleanup run on destroy.
      */
     setup: (api: LabApi, canvas: HTMLCanvasElement) => void | (() => void);
+    /** When the demo has finished (default: the playback clock reached its end). */
+    done?: (api: LabApi) => boolean;
   }
 
-  let { lab, title, thesis, readout, setup }: Props = $props();
+  let { lab, title, thesis, readout, setup, done = (a) => isFinished(a.snapshot) }: Props = $props();
 
   let canvas: HTMLCanvasElement;
   let paused = $state(false);
@@ -32,6 +43,11 @@
   const line = $derived.by(() => {
     void api.snapshot;
     return paused ? 'Paused' : readout(api);
+  });
+  /** Finished demos say so, beside the readout — the sorting stage turning green needs no reading, the others do. */
+  const isDone = $derived.by(() => {
+    void api.snapshot;
+    return !paused && done(api);
   });
 
   function onVis() {
@@ -85,7 +101,10 @@
     <h2>{title}</h2>
     <p>{thesis}</p>
     <div class="foot">
-      <span class="readout mono">{line}</span>
+      <span class="status">
+        {#if isDone}<span class="done"><Icon name="check" size={13} />Done</span>{/if}
+        <span class="readout mono">{line}</span>
+      </span>
       <span class="open">Open</span>
     </div>
   </div>
@@ -140,6 +159,8 @@
     padding-top: 14px;
     font-size: 13px;
   }
+  .status { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
   .readout { color: var(--stone); }
+  .done { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-deep); font-weight: 500; }
   .open { color: var(--accent-deep); font-weight: 500; }
 </style>

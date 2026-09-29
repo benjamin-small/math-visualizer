@@ -18,6 +18,7 @@ vi.mock('../../fourier/textPath', async (importOriginal) => ({
 }));
 
 import Home from '../Home.svelte';
+import { isFinished } from '../LabTile.svelte';
 
 describe('Home', () => {
   beforeEach(() => {
@@ -60,6 +61,32 @@ describe('Home', () => {
     } finally {
       sortingSummaryFixture.lanes = original;
     }
+  });
+
+  it('marks a tile Done once its demo finishes (sorting: every lane sorted)', async () => {
+    const original = { lanes: sortingSummaryFixture.lanes, all_done: sortingSummaryFixture.all_done };
+    try {
+      const { container } = render(Home);
+      await vi.waitFor(() => expect(container.textContent).toMatch(/0 of 28 lanes running/));
+      expect(container.querySelector('.done')).toBeNull();
+      sortingSummaryFixture.lanes = original.lanes.map((l) => ({ ...l, running: false, done: true }));
+      sortingSummaryFixture.all_done = true;
+      await vi.waitFor(() => expect(container.textContent).toMatch(/28 of 28 lanes sorted/));
+      const done = container.querySelector('.done')!;
+      expect(done.textContent).toContain('Done');
+      expect(done.querySelector('svg')).toBeTruthy();
+    } finally {
+      sortingSummaryFixture.lanes = original.lanes;
+      sortingSummaryFixture.all_done = original.all_done;
+    }
+  });
+
+  it('isFinished: the clock reached the end of a real run', () => {
+    const snap = { iteration: 0, sub_progress: 0, playing: false, speed: 1, seed: 0, max_iterations: 360 };
+    expect(isFinished(snap)).toBe(false);
+    expect(isFinished({ ...snap, iteration: 360 })).toBe(true);
+    expect(isFinished({ ...snap, iteration: 400 })).toBe(true);
+    expect(isFinished({ ...snap, iteration: 1, max_iterations: 1 })).toBe(false); // the empty pre-path Fourier state
   });
 
   it('runs the tile cleanup (the sorting resize listener) on unmount', async () => {

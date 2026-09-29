@@ -91,9 +91,11 @@
       },
       readout: (api: LabApi) => {
         const s = readSummary(api.readSummary());
+        if (s?.all_done) return `${s.lanes.length} of ${s.lanes.length} lanes sorted`;
         const n = s?.lanes.filter((l) => l.running).length ?? 0;
         return `${n} of 28 lanes running`;
       },
+      done: (api: LabApi) => readSummary(api.readSummary())?.all_done ?? false,
     },
   ];
 </script>
@@ -106,7 +108,7 @@
   </p>
   <div class="cards">
     {#each tiles as t (t.lab)}
-      <LabTile lab={t.lab} title={t.title} thesis={t.thesis} setup={t.setup} readout={t.readout} />
+      <LabTile lab={t.lab} title={t.title} thesis={t.thesis} setup={t.setup} readout={t.readout} done={t.done} />
     {/each}
   </div>
   <footer class="foot">
