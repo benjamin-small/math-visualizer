@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allLanes, rowLanes, colLanes, laneState, shouldRun, LANE_GLYPH } from '../lanes';
+import { allLanes, rowLanes, colLanes, laneState, shouldRun, LANE_ICON } from '../lanes';
 import type { LaneSummary, SortingSummary } from '../summary';
 
 function lane(patch: Partial<LaneSummary> = {}): LaneSummary {
@@ -56,10 +56,10 @@ describe('laneState', () => {
     expect(laneState(undefined)).toBe('idle');
   });
 
-  it('has a glyph per state', () => {
-    expect(LANE_GLYPH[laneState(lane())]).toBe('▶');
-    expect(LANE_GLYPH[laneState(lane({ running: true }))]).toBe('⏸');
-    expect(LANE_GLYPH[laneState(lane({ done: true }))]).toBe('✓');
+  it('has an icon name per state', () => {
+    expect(LANE_ICON[laneState(lane())]).toBe('play');
+    expect(LANE_ICON[laneState(lane({ running: true }))]).toBe('pause');
+    expect(LANE_ICON[laneState(lane({ done: true }))]).toBe('check');
   });
 });
 

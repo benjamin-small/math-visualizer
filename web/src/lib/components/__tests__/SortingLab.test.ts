@@ -51,9 +51,10 @@ describe('SortingLab.svelte', () => {
     expect(getByTitle('Run row: Heap sort')).toBeTruthy();
     expect(getByTitle('Run column: Random')).toBeTruthy();
     expect(getByTitle('Run column: Few unique')).toBeTruthy();
-    // The lab replaces the shell's playback bar with its own toolbar.
-    expect(container.querySelector('.iteration')).toBeNull();
-    expect(container.querySelector('.zoom-controls')).toBeNull();
+    // The lab opts out of the shell's playback controls, clock line and zoom cluster.
+    expect(container.querySelector('.readout')).toBeNull();
+    expect(container.querySelector('.clock')).toBeNull();
+    expect(container.querySelector('.zoom')).toBeNull();
   });
 
   it('labels every cell with its algorithm, dataset and state', async () => {
@@ -193,17 +194,29 @@ describe('SortingLab.svelte', () => {
     const { getByLabelText } = await renderLab();
     const mute = getByLabelText('Sound') as HTMLButtonElement;
     expect(mute.getAttribute('aria-pressed')).toBe('false');
-    expect(mute.textContent).toBe('🔇');
+    expect(mute.querySelector('svg')).toBeTruthy();
+    expect(mute.textContent).toBe('Sound');
     expect(mute.title).toBe('Turn sound on');
     expect((getByLabelText('Volume') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('shows running and done counts, a legend, and an svg speaker icon', async () => {
+    const { container, getByLabelText } = await renderLab();
+    expect(container.textContent).toMatch(/Running\s*0 \/ 28/);
+    expect(container.textContent).toMatch(/Done\s*0 \/ 28/);
+    expect(container.querySelectorAll('.legend .swatch')).toHaveLength(4);
+    expect(getByLabelText('Sound').querySelector('svg')).toBeTruthy();
   });
 
   it('the speaker button toggles sound on and off and enables the volume slider', async () => {
     const { getByLabelText } = await renderLab();
     const mute = getByLabelText('Sound') as HTMLButtonElement;
+    const iconMarkup = () => mute.querySelector('svg')?.innerHTML ?? '';
+    const offIcon = iconMarkup();
     await fireEvent.click(mute);
     expect(mute.getAttribute('aria-pressed')).toBe('true');
-    expect(mute.textContent).toBe('🔊');
+    expect(mute.querySelector('svg')).toBeTruthy();
+    expect(iconMarkup()).not.toBe(offIcon); // volume icon swaps in for volume-off
     expect(mute.title).toBe('Turn sound off');
     const volume = getByLabelText('Volume') as HTMLInputElement;
     expect(volume.disabled).toBe(false);
@@ -214,7 +227,7 @@ describe('SortingLab.svelte', () => {
 
     await fireEvent.click(mute);
     expect(mute.getAttribute('aria-pressed')).toBe('false');
-    expect(mute.textContent).toBe('🔇');
+    expect(iconMarkup()).toBe(offIcon);
     expect(volume.disabled).toBe(true);
   });
 
