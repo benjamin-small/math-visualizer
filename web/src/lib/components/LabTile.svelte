@@ -31,9 +31,19 @@
     setup: (api: LabApi, canvas: HTMLCanvasElement) => void | (() => void);
     /** When the demo has finished (default: the playback clock reached its end). */
     done?: (api: LabApi) => boolean;
+    /** Clock-line fill in [0, 1] (default: iteration / max_iterations). */
+    progress?: (api: LabApi) => number;
   }
 
-  let { lab, title, thesis, readout, setup, done = (a) => isFinished(a.snapshot) }: Props = $props();
+  let {
+    lab,
+    title,
+    thesis,
+    readout,
+    setup,
+    done = (a) => isFinished(a.snapshot),
+    progress = (a) => (a.snapshot.max_iterations > 0 ? a.snapshot.iteration / a.snapshot.max_iterations : 0),
+  }: Props = $props();
 
   let canvas: HTMLCanvasElement;
   let paused = $state(false);
@@ -87,9 +97,10 @@
     engine.destroy();
   });
 
-  const progressPct = $derived(
-    api.snapshot.max_iterations > 0 ? Math.min(100, (100 * api.snapshot.iteration) / api.snapshot.max_iterations) : 0,
-  );
+  const progressPct = $derived.by(() => {
+    void api.snapshot;
+    return Math.min(100, Math.max(0, 100 * progress(api)));
+  });
 </script>
 
 <a class="tile" href="#/{lab}" aria-label={title}>

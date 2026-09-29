@@ -72,6 +72,9 @@ describe('Home', () => {
       sortingSummaryFixture.lanes = original.lanes.map((l) => ({ ...l, running: false, done: true }));
       sortingSummaryFixture.all_done = true;
       await vi.waitFor(() => expect(container.textContent).toMatch(/28 of 28 lanes sorted/));
+      // The sorting tile's clock line fills with lanes finished, not engine ticks.
+      const clocks = [...container.querySelectorAll('.tile .clock')] as HTMLElement[];
+      expect(clocks[2].style.width).toBe('100%');
       const done = container.querySelector('.done')!;
       expect(done.textContent).toContain('Done');
       expect(done.querySelector('svg')).toBeTruthy();
