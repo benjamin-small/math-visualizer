@@ -3,10 +3,36 @@
   import { cmd } from '../playback/commands';
   import { readSummary } from '../sorting/summary';
   import { allLanes } from '../sorting/lanes';
+  import { cellRects } from '../sorting/layout';
+  import { textToPath, samplesFor, packPath } from '../fourier/textPath';
   import type { LabApi } from './labApi.svelte';
   import LabTile from './LabTile.svelte';
 
   const fmt = (n: number) => n.toLocaleString('en-US');
+
+  /** The Fourier demo: the lab's default message with a modest circle count. */
+  const FOURIER_TEXT = 'POIETIC TECH';
+  const FOURIER_EPICYCLES = 300;
+  const FOURIER_TRACE_STEPS = 2000;
+
+  /** The sorting engine only draws inside cells it is given; lay a 7 x 4 grid over the tile. */
+  const SORT_ROWS = 7;
+  const SORT_COLS = 4;
+  function sortingCells(canvas: HTMLCanvasElement) {
+    const dpr = window.devicePixelRatio || 1;
+    const box = canvas.getBoundingClientRect();
+    const pad = 6;
+    const gap = 3;
+    const w = (box.width - 2 * pad - (SORT_COLS - 1) * gap) / SORT_COLS;
+    const h = (box.height - 2 * pad - (SORT_ROWS - 1) * gap) / SORT_ROWS;
+    const cells = [];
+    for (let r = 0; r < SORT_ROWS; r++) {
+      for (let c = 0; c < SORT_COLS; c++) {
+        cells.push({ left: box.left + pad + c * (w + gap), top: box.top + pad + r * (h + gap), width: w, height: h });
+      }
+    }
+    return cellRects(cells, box, dpr);
+  }
 
   const tiles = [
     {
@@ -23,17 +49,40 @@
       lab: 'fourier' as const,
       title: 'Fourier Epicycles',
       thesis: 'Type anything; a chain of spinning circles draws it back.',
-      setup: (api: LabApi) => api.dispatch(cmd.play()),
-      readout: (api: LabApi) => `${fmt(api.snapshot.iteration)} / ${fmt(api.snapshot.max_iterations)}`,
+      setup: (api: LabApi) => {
+        // The engine has no path until one is pushed; trace the default message.
+        void (async () => {
+          try {
+            const path = await textToPath(FOURIER_TEXT, { samples: samplesFor(FOURIER_EPICYCLES) });
+            if (!api.engine || path.length === 0) return; // tile torn down while the font loaded
+            const { xy, pen } = packPath(path);
+            api.setRuleConfigWithPath(
+              { epicycles: FOURIER_EPICYCLES, max_iterations: Math.min(path.length, FOURIER_TRACE_STEPS) },
+              xy,
+              pen,
+            );
+            api.dispatch(cmd.play());
+          } catch (err) {
+            console.warn('home tile: textToPath failed:', err);
+          }
+        })();
+        api.dispatch(cmd.play());
+      },
+      readout: (api: LabApi) =>
+        `${fmt(FOURIER_EPICYCLES)} circles, ${fmt(api.snapshot.iteration)} / ${fmt(api.snapshot.max_iterations)}`,
     },
     {
       lab: 'sorting' as const,
       title: 'Sorting Algorithms',
       thesis: 'Seven algorithms race four datasets on one clock, so you see the work each one does.',
-      setup: (api: LabApi) => {
+      setup: (api: LabApi, canvas: HTMLCanvasElement) => {
+        const pushCells = () => api.patchVizConfig({ cells: sortingCells(canvas) });
+        pushCells();
+        window.addEventListener('resize', pushCells);
         api.dispatch(cmd.setSpeed(60));
         api.dispatch(cmd.play());
-        api.ruleAction({ kind: 'set_running', lanes: allLanes(7, 4), running: true });
+        api.ruleAction({ kind: 'set_running', lanes: allLanes(SORT_ROWS, SORT_COLS), running: true });
+        return () => window.removeEventListener('resize', pushCells);
       },
       readout: (api: LabApi) => {
         const s = readSummary(api.readSummary());
