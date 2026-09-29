@@ -7,11 +7,12 @@
   // viz, which draws the bars underneath.
   import { onDestroy, untrack } from 'svelte';
   import LabShell from '../LabShell.svelte';
+  import Icon from '../Icon.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
   import { cellRects } from '../../sorting/layout';
   import { readSummary, laneIndex, ALGORITHMS, DATASETS, type SortingSummary } from '../../sorting/summary';
-  import { allLanes, rowLanes, colLanes, laneState, shouldRun, LANE_GLYPH } from '../../sorting/lanes';
+  import { allLanes, rowLanes, colLanes, laneState, shouldRun, LANE_ICON } from '../../sorting/lanes';
   import { SortingAudio } from '../../sorting/audio';
   import { route, replaceQuery } from '../../router.svelte';
   import { buildQuery } from '../../router';
@@ -40,6 +41,10 @@
   let volume = $state(audio.volume);
   /** The engine's lane grid, re-read every frame (null until the engine is up). */
   let summary = $state<SortingSummary | null>(null);
+  /** Bezel readouts: how many of the 28 lanes are running / finished. */
+  const laneCount = rows * cols;
+  const running = $derived(summary?.lanes.filter((l) => l.running).length ?? 0);
+  const done = $derived(summary?.lanes.filter((l) => l.done).length ?? 0);
   /** Query we last wrote (or consumed), so our own replaceQuery() doesn't re-trigger a push. */
   let appliedQuery = route.query;
 
@@ -138,7 +143,7 @@
     api?.ruleAction({ kind: 'toggle', lane: i });
   }
 
-  /** Header ▶: run the group unless every lane in it is already running (then pause it). */
+  /** Header play control: run the group unless every lane in it is already running (then pause it). */
   function runGroup(lanes: number[]) {
     api?.ruleAction({ kind: 'set_running', lanes, running: shouldRun(summary, lanes) });
   }
@@ -207,10 +212,10 @@
     >
       <div></div><!-- empty top-left corner -->
       {#each DATASETS as ds, c (ds.id)}
-        <button class="hdr col" onclick={() => runGroup(colLanes(c, rows, cols))} title="Run column: {ds.label}">{ds.label} ▶</button>
+        <button class="hdr col" onclick={() => runGroup(colLanes(c, rows, cols))} title="Run column: {ds.label}">{ds.label} <Icon name="play" size={11} /></button>
       {/each}
       {#each ALGORITHMS as alg, r (alg.id)}
-        <button class="hdr row" onclick={() => runGroup(rowLanes(r, cols))} title="Run row: {alg.label}">{alg.label} <small>{alg.complexity}</small> ▶</button>
+        <button class="hdr row" onclick={() => runGroup(rowLanes(r, cols))} title="Run row: {alg.label}">{alg.label} <small>{alg.complexity}</small> <Icon name="play" size={11} /></button>
         {#each DATASETS as ds, c (ds.id)}
           {@const i = laneIndex(r, c, cols)}
           <button
@@ -221,8 +226,8 @@
             onclick={() => toggleLane(i)}
             aria-label="{alg.label} on {ds.label}: {stateOf(i)}"
           >
-            <span class="glyph">{LANE_GLYPH[stateOf(i)]}</span>
-            <span class="badge">{laneAt(i)?.compares ?? 0} cmp · {laneAt(i)?.writes ?? 0} wr</span>
+            <span class="glyph"><Icon name={LANE_ICON[stateOf(i)]} size={12} /></span>
+            <span class="badge mono">{laneAt(i)?.compares ?? 0} cmp · {laneAt(i)?.writes ?? 0} wr</span>
           </button>
         {/each}
       {/each}
@@ -230,45 +235,47 @@
   {/snippet}
 
   {#snippet controls()}
-    <button onclick={runAll} title="Start every lane">Run all</button>
-    <button onclick={pauseAll} title="Pause every lane">Pause all</button>
-    <button onclick={resetAll} title="Send every lane back to its unsorted array">Reset</button>
-    <button onclick={newData} title="Reshuffle every dataset">New data</button>
-    <label class="size">
+    <button class="btn" onclick={runAll} title="Start every lane">Run all</button>
+    <button class="btn" onclick={pauseAll} title="Pause every lane">Pause all</button>
+    <button class="btn" onclick={resetAll} title="Send every lane back to its unsorted array">Reset</button>
+    <button class="btn" onclick={newData} title="Reshuffle every dataset">New data</button>
+    <label class="field">
       Size
       <input type="number" min={MIN_SIZE} max={MAX_SIZE} step="1" value={size} onchange={onSize} aria-label="Array size" />
     </label>
+    <span class="stat">Running <span class="mono">{running} / {laneCount}</span></span>
+    <span class="stat">Done <span class="mono">{done} / {laneCount}</span></span>
     <label class="speed">
       Speed
       <input type="range" min="1" max={MAX_SPEED} step="1" value={speed} oninput={onSpeed} aria-label="Speed" />
-      <span class="value">{speed} ops/s</span>
+      <span class="value mono">{speed} ops/s</span>
     </label>
     <div class="sound">
       <button
-        class="mute"
+        class="btn mute"
         onclick={toggleMute}
         aria-pressed={!muted}
         aria-label="Sound"
         title={muted ? 'Turn sound on' : 'Turn sound off'}
-      >{muted ? '🔇' : '🔊'}</button>
+      ><Icon name={muted ? 'volume-off' : 'volume'} />Sound</button>
       <input type="range" min="0" max="1" step="0.01" value={volume} oninput={onVolume} disabled={muted} aria-label="Volume" />
     </div>
   {/snippet}
 
+  {#snippet legend()}
+    <span class="item"><i class="swatch bar"></i>Bars, one per array slot, height is the value</span>
+    <span class="item"><i class="swatch compare"></i>The two slots being compared</span>
+    <span class="item"><i class="swatch write"></i>The slot just written</span>
+    <span class="item"><i class="swatch sorted"></i>A finished lane</span>
+  {/snippet}
+
   {#snippet story()}
-    <h2>Sorting Algorithms</h2>
+    <h2>How it works</h2>
     <p>
       Twenty-eight sorters race at once: every row is an algorithm, every column the array it starts from. All of them share
       <strong>one clock</strong> — each tick, every running panel performs exactly one <em>compare</em> or one <em>write</em>,
       so the bars you watch are a live count of the work each algorithm actually does.
     </p>
-    <h3>What you're seeing</h3>
-    <ul>
-      <li><span class="swatch bar"></span> Bars — one per array slot, height ∝ value</li>
-      <li><span class="swatch compare"></span> The two slots being compared</li>
-      <li><span class="swatch write"></span> The slot just written</li>
-      <li><span class="swatch sorted"></span> A finished lane</li>
-    </ul>
     <h3>The four datasets</h3>
     <p>
       <em>Random</em> is the textbook case. <em>Nearly sorted</em> flatters insertion sort (and bubble sort's early exit): a
@@ -289,7 +296,7 @@
     </ul>
     <p class="tip">
       <em>Click a panel</em> to start it, pause it, or (once finished) run it
-      again. The <em>▶</em> on a row or column header runs that whole group,
+      again. The play control on a row or column header runs that whole group,
       and <em>Run all</em> starts the full race.
     </p>
     <p class="tip">
@@ -299,7 +306,7 @@
       lands in the link as <em>?n=</em>.
     </p>
     <p class="tip">
-      <em>🔊</em> turns on sound: every running panel hums the value it just
+      <em>Sound</em> turns on sound: every running panel hums the value it just
       touched — low for small, high for large, brighter on a write than on a
       compare — and rings a chime when it finishes. The slider sets the volume.
     </p>
@@ -320,11 +327,11 @@
   }
   .grid :global(button) { pointer-events: auto; }
   .hdr {
-    background: rgba(28, 28, 31, 0.72);
+    background: rgba(38, 34, 29, 0.85);
     backdrop-filter: blur(2px);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 4px;
+    color: #EDE6DC;
+    border: 1px solid var(--line);
+    border-radius: 6px;
     font-size: 0.75rem;
     padding: 0.25rem 0.45rem;
     cursor: pointer;
@@ -333,23 +340,24 @@
     text-overflow: ellipsis;
     min-width: 0;
   }
-  .hdr:hover { color: var(--text-strong); background: rgba(42, 42, 47, 0.85); }
+  .hdr:hover { background: rgba(58, 52, 44, 0.95); }
   .hdr.row { text-align: left; }
-  .hdr small { color: #7f7f8a; margin-left: 0.3rem; font-size: 0.68rem; }
+  .hdr small { color: #A79C8E; margin-left: 0.3rem; font-size: 0.68rem; }
+  .hdr :global(.icon) { color: #A79C8E; vertical-align: -1px; }
   .cell {
     position: relative;
     background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid rgba(58, 52, 44, 0.9);
     border-radius: 3px;
     padding: 0;
     cursor: pointer;
     min-height: 0;
     min-width: 0;
   }
-  .cell:hover { border-color: #4a4a55; }
+  .cell:hover { border-color: #A79C8E; }
   .cell.running { background: rgba(250, 153, 89, 0.07); }
   .cell.done { background: rgba(166, 217, 242, 0.07); }
-  .glyph { position: absolute; top: 2px; right: 4px; font-size: 0.7rem; line-height: 1; color: #8f8f9a; }
+  .glyph { position: absolute; top: 3px; right: 4px; line-height: 0; color: #A79C8E; }
   .cell.done .glyph { color: #a6d9f2; }
   .badge {
     position: absolute;
@@ -357,40 +365,32 @@
     left: 4px;
     font-size: 0.62rem;
     line-height: 1;
-    color: #7f7f8a;
+    color: #A79C8E;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
-  /* Toolbar bits, rendered into LabShell's .playback-bar via `controls`. */
-  .size input {
-    background: #2a2a2f;
-    color: #eee;
-    border: 1px solid #3a3a40;
-    border-radius: 4px;
-    padding: 0.25rem 0.4rem;
-    width: 5rem;
-    font-variant-numeric: tabular-nums;
-  }
-  .size, .speed, .sound { display: flex; align-items: center; gap: 0.5rem; color: #bbb; }
-  .speed { margin-left: auto; }
-  .speed .value { font-variant-numeric: tabular-nums; width: 5rem; text-align: right; }
-  .sound input { width: 6rem; }
+  /* Bezel bits, rendered into LabShell's bezel via `controls`. The shell
+     styles .btn / .field / .stat; the speed and sound groups are ours. */
+  .speed, .sound { display: flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; white-space: nowrap; }
+  .speed input { width: 140px; accent-color: var(--accent); }
+  .speed .value { width: 8ch; text-align: right; color: var(--ink); }
+  .sound input { width: 6rem; accent-color: var(--accent); }
   .sound input:disabled { opacity: 0.4; }
-  .mute[aria-pressed="true"] { border-color: #6f8fc9; }
+  .mute[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-deep); }
 
-  /* Legend swatches — the shell supplies the base dot; `span` outranks it. */
-  span.swatch.bar { background: #8c99bf; }
-  span.swatch.compare { background: #fad94d; }
-  span.swatch.write { background: #fa9959; }
-  span.swatch.sorted { background: #a6d9f2; }
+  /* Legend swatches — the shell supplies the base dot; the element selector outranks it. */
+  i.swatch.bar { background: #8c99bf; }
+  i.swatch.compare { background: #fad94d; }
+  i.swatch.write { background: #fa9959; }
+  i.swatch.sorted { background: #a6d9f2; }
 
   @media (max-width: 768px) {
     .grid { gap: 1px; padding: 0.25rem; --rowhdr: 5.5rem; }
     .hdr { font-size: 0.7rem; padding: 0.2rem 0.3rem; }
     .hdr.row { font-size: 0.62rem; }
     .hdr small, .badge { display: none; }
-    .speed { margin-left: 0; }
+    .speed input { width: 120px; }
     .sound input { width: 5rem; }
   }
 </style>
