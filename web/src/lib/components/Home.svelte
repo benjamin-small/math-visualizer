@@ -41,7 +41,7 @@
       title: 'Sierpinski Pyramid',
       thesis: 'A random walk toward four corners paints a 3D fractal, one dot at a time.',
       setup: (api: LabApi) => {
-        api.dispatch(cmd.setSpeed(120));
+        api.dispatch(cmd.setSpeed(240));
         api.dispatch(cmd.play());
       },
       readout: (api: LabApi) => `${fmt(api.snapshot.iteration)} / ${fmt(api.snapshot.max_iterations)} iterations`,
@@ -62,6 +62,7 @@
               xy,
               pen,
             );
+            api.dispatch(cmd.setSpeed(120)); // the lab's pace: a full trace in about 17 s
             api.dispatch(cmd.play());
           } catch (err) {
             console.warn('home tile: textToPath failed:', err);
@@ -96,6 +97,11 @@
         return `${n} of 28 lanes running`;
       },
       done: (api: LabApi) => readSummary(api.readSummary())?.all_done ?? false,
+      // The sorting clock runs to a billion ticks; lanes finished is the honest fill.
+      progress: (api: LabApi) => {
+        const s = readSummary(api.readSummary());
+        return s ? s.lanes.filter((l) => l.done).length / s.lanes.length : 0;
+      },
     },
   ];
 </script>
@@ -108,7 +114,7 @@
   </p>
   <div class="cards">
     {#each tiles as t (t.lab)}
-      <LabTile lab={t.lab} title={t.title} thesis={t.thesis} setup={t.setup} readout={t.readout} done={t.done} />
+      <LabTile lab={t.lab} title={t.title} thesis={t.thesis} setup={t.setup} readout={t.readout} done={t.done} progress={t.progress} />
     {/each}
   </div>
   <footer class="foot">
