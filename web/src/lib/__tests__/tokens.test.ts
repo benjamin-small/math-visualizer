@@ -16,7 +16,9 @@ describe('design tokens', () => {
     expect(css).toMatch(/prefers-color-scheme:\s*dark/);
     expect(css).toMatch(/:root:not\(\[data-theme="light"\]\)/);
     expect(css).toMatch(/:root\[data-theme="dark"\]/);
-    expect(css).toMatch(/--paper:\s*#1E1B17/i);
+    expect(css).toMatch(/--paper:\s*#14171C/i);
+    expect(css).toMatch(/--card:\s*#1C2027/i);
+    expect(css).not.toMatch(/#1E1B17/i); // the warm charcoal is gone
     expect(css).toMatch(/--accent:\s*#D08A62/i);
   });
   it('keeps primary-button text on the paper token so it passes contrast in both themes', () => {
