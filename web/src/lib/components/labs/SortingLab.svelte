@@ -331,9 +331,9 @@
   }
   .grid :global(button) { pointer-events: auto; }
   .hdr {
-    background: rgba(38, 34, 29, 0.85);
+    background: rgba(28, 32, 39, 0.85);
     backdrop-filter: blur(2px);
-    color: #EDE6DC;
+    color: #E6E9EE;
     border: 1px solid var(--line);
     border-radius: 8px;
     font-size: 0.75rem;
@@ -344,24 +344,24 @@
     text-overflow: ellipsis;
     min-width: 0;
   }
-  .hdr:hover { background: rgba(58, 52, 44, 0.95); }
+  .hdr:hover { background: rgba(44, 50, 59, 0.95); }
   .hdr.row { text-align: left; }
-  .hdr small { color: #A79C8E; margin-left: 0.3rem; font-size: 0.75rem; }
-  .hdr :global(.icon) { color: #A79C8E; vertical-align: -1px; }
+  .hdr small { color: #9AA3AF; margin-left: 0.3rem; font-size: 0.75rem; }
+  .hdr :global(.icon) { color: #9AA3AF; vertical-align: -1px; }
   .cell {
     position: relative;
     background: transparent;
-    border: 1px solid rgba(58, 52, 44, 0.9);
+    border: 1px solid rgba(44, 50, 59, 0.9);
     border-radius: 6px;
     padding: 0;
     cursor: pointer;
     min-height: 0;
     min-width: 0;
   }
-  .cell:hover { border-color: #A79C8E; }
+  .cell:hover { border-color: #9AA3AF; }
   .cell.running { background: rgba(250, 153, 89, 0.07); }
   .cell.done { background: rgba(166, 217, 242, 0.07); }
-  .glyph { position: absolute; top: 3px; right: 4px; line-height: 0; color: #A79C8E; }
+  .glyph { position: absolute; top: 3px; right: 4px; line-height: 0; color: #9AA3AF; }
   .cell.done .glyph { color: #a6d9f2; }
   .badge {
     position: absolute;

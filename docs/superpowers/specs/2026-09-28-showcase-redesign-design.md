@@ -40,22 +40,22 @@ device is true to the content and doubles as the playback progress bar.
 
 ## Tokens
 
-Defined on `:root` in `web/src/app.css`; the dark set applies under
+Defined on `:root` in `web/src/app.css`. Dark is a cool blue-slate (revised 2026-09-30 from the original warm charcoal at the user's request); the dark set applies under
 `prefers-color-scheme: dark` unless `data-theme="light"`, and always under
 `data-theme="dark"`.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--paper` | `#FAF7F2` | `#1E1B17` | page background |
-| `--card` | `#FFFFFF` | `#26221D` | bezel, cards, inputs |
-| `--line` | `#E7E0D5` | `#3A342C` | hairlines |
-| `--stone` | `#6E655A` | `#A79C8E` | secondary text (passes 4.5:1 on paper) |
-| `--ink` | `#2B2620` | `#EDE6DC` | text |
+| `--paper` | `#FAF7F2` | `#14171C` | page background |
+| `--card` | `#FFFFFF` | `#1C2027` | bezel, cards, inputs |
+| `--line` | `#E7E0D5` | `#2C323B` | hairlines |
+| `--stone` | `#6E655A` | `#9AA3AF` | secondary text (passes 4.5:1 on paper) |
+| `--ink` | `#2B2620` | `#E6E9EE` | text |
 | `--accent` | `#A65A31` | `#D08A62` | clock line, active tab, links, primary button, focus ring |
 | `--accent-deep` | `#8A4722` | `#E8A27A` | hover |
-| `--tint` | `#F4E6DC` | `#33291F` | callout background |
+| `--tint` | `#F4E6DC` | `#232A33` | callout background |
 | `--stage` | `#111111` | `#111111` | canvas surround (matches GL clear) |
-| `--ring` | `#2B2620` | `#3A342C` | 1px inset ring around the stage |
+| `--ring` | `#2B2620` | `#2C323B` | 1px inset ring around the stage |
 
 Type: `IBM Plex Sans` 400/500/600 (body, UI, headings), `IBM Plex Mono`
 400/500 (every live number: readouts, card foots, inputs holding numbers).

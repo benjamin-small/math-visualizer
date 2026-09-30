@@ -1,5 +1,6 @@
 /* Design tokens — see docs/superpowers/specs/2026-09-28-showcase-redesign-design.md.
-   Light is the default; dark follows the OS unless <html data-theme="light">,
+   Light is warm paper; dark is a cool blue-slate (the user's preference over a warm
+   charcoal, 2026-09-30). Light is the default; dark follows the OS unless <html data-theme="light">,
    and is forced by <html data-theme="dark">. */
 :root {
   --paper: #FAF7F2;
@@ -33,30 +34,30 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #1E1B17;
-    --card: #26221D;
-    --line: #3A342C;
-    --stone: #A79C8E;
-    --ink: #EDE6DC;
+    --paper: #14171C;
+    --card: #1C2027;
+    --line: #2C323B;
+    --stone: #9AA3AF;
+    --ink: #E6E9EE;
     --accent: #D08A62;
     --accent-deep: #E8A27A;
-    --tint: #33291F;
-    --ring: #3A342C;
+    --tint: #232A33;
+    --ring: #2C323B;
     --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --paper: #1E1B17;
-  --card: #26221D;
-  --line: #3A342C;
-  --stone: #A79C8E;
-  --ink: #EDE6DC;
+  --paper: #14171C;
+  --card: #1C2027;
+  --line: #2C323B;
+  --stone: #9AA3AF;
+  --ink: #E6E9EE;
   --accent: #D08A62;
   --accent-deep: #E8A27A;
-  --tint: #33291F;
-  --ring: #3A342C;
+  --tint: #232A33;
+  --ring: #2C323B;
   --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4);
   color-scheme: dark;
