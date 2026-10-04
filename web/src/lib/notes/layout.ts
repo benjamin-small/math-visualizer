@@ -34,17 +34,22 @@ export const BAR_INSET = 0.12;
 /** The most of the free length along the stage's long axis (what the margins leave) the figure may take; the strip gets the rest. */
 const FIGURE_SHARE = 0.6;
 
+/** The strip is a slim band, no taller than this share of the figure's side, so the sines read as an oscilloscope trace and not a second main graph. */
+const STRIP_SHARE = 0.45;
+
 function empty(): { figure: Rect; strip: Rect } {
   return { figure: { x: 0, y: 0, w: 0, h: 0 }, strip: { x: 0, y: 0, w: 0, h: 0 } };
 }
 
 /**
- * Lay the stage out as a square figure plus a strip. A landscape stage
+ * Lay the stage out as a square figure plus a slim strip. A landscape stage
  * (`cssW >= cssH`) puts the square at the left, vertically centred, with the
- * strip filling the height to its right; a portrait stage puts the square on
- * top, horizontally centred, with the strip filling the width below it. The
- * square is as large as the margins allow but takes at most 60% of the free
- * length along the long axis, so the strip always keeps room. A stage too
+ * strip filling the width to its right as a band centred on the square; a
+ * portrait stage puts the square on top, horizontally centred, with the strip
+ * filling the width directly below it. The square is as large as the margins
+ * allow but takes at most 60% of the free length along the long axis, so the
+ * strip always keeps room; the strip is never taller than 45% of the square's
+ * side (rounded to a whole pixel), nor than the room there is. A stage too
  * small for a square gives two all-zero rects, which tells the viz to fit the
  * canvas itself.
  */
@@ -53,16 +58,18 @@ export function notesLayout(cssW: number, cssH: number): { figure: Rect; strip: 
   if (cssW >= cssH) {
     const side = Math.min(cssH - 2 * m, FIGURE_SHARE * (cssW - 3 * m));
     if (!(side > 0)) return empty();
+    const h = Math.min(cssH - 2 * m, Math.round(STRIP_SHARE * side));
     return {
       figure: { x: m, y: (cssH - side) / 2, w: side, h: side },
-      strip: { x: 2 * m + side, y: m, w: cssW - side - 3 * m, h: cssH - 2 * m },
+      strip: { x: 2 * m + side, y: m + (cssH - 2 * m - h) / 2, w: cssW - side - 3 * m, h },
     };
   }
   const side = Math.min(cssW - 2 * m, FIGURE_SHARE * (cssH - 3 * m));
   if (!(side > 0)) return empty();
+  const h = Math.min(cssH - side - 3 * m, Math.round(STRIP_SHARE * side));
   return {
     figure: { x: (cssW - side) / 2, y: m, w: side, h: side },
-    strip: { x: m, y: 2 * m + side, w: cssW - 2 * m, h: cssH - side - 3 * m },
+    strip: { x: m, y: 2 * m + side, w: cssW - 2 * m, h },
   };
 }
 

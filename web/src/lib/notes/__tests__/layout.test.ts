@@ -16,14 +16,16 @@ describe('constants', () => {
 });
 
 describe('notesLayout, landscape', () => {
-  it('puts a square at the left and the strip to its right, a margin apart', () => {
+  it('puts a square at the left and a slim band to its right, a margin apart and centred on the square', () => {
     const { figure, strip } = notesLayout(1168, 650);
     expect(figure).toEqual({ x: 16, y: 16, w: 618, h: 618 });
     expect(figure.w).toBe(figure.h);
     expect(strip.x).toBe(figure.x + figure.w + 16);
     expect(strip.x + strip.w).toBe(1168 - 16);
-    expect(strip.y).toBe(16);
-    expect(strip.h).toBe(650 - 2 * 16);
+    expect(strip.h).toBe(Math.round(0.45 * figure.w)); // 278: the binding term, not the stage height
+    expect(strip.h).toBe(278);
+    expect(strip.y).toBe(186);
+    expect(strip.y + strip.h / 2).toBe(figure.y + figure.h / 2); // vertically centred on the square
     expect(figure.x + figure.w).toBeLessThanOrEqual(strip.x);
   });
 
@@ -36,26 +38,30 @@ describe('notesLayout, landscape', () => {
     expect(figure.y + figure.h / 2).toBeCloseTo(700 / 2, 10); // centred vertically
     expect(strip.x).toBeCloseTo(figure.x + figure.w + 16, 10);
     expect(strip.x + strip.w).toBeCloseTo(800 - 16, 10);
-    expect(strip.y).toBe(16);
-    expect(strip.h).toBe(700 - 2 * 16);
+    expect(strip.h).toBe(Math.round(0.45 * figure.w)); // 203, far short of the 668 px the stage would allow
+    expect(strip.y).toBeCloseTo(248.5, 10);
+    expect(strip.y + strip.h / 2).toBeCloseTo(700 / 2, 10); // centred on the stage, so on the square
+    expect(strip.y + strip.h / 2).toBeCloseTo(figure.y + figure.h / 2, 10);
   });
 
   it('is limited by the height on a wide, short stage', () => {
     const { figure, strip } = notesLayout(1200, 300);
     expect(figure).toEqual({ x: 16, y: 16, w: 268, h: 268 });
-    expect(strip).toEqual({ x: 300, y: 16, w: 884, h: 268 });
+    expect(strip).toEqual({ x: 300, y: 89.5, w: 884, h: 121 }); // 0.45 * 268 = 120.6, rounded
   });
 
   it('treats a square stage as landscape', () => {
     const { figure, strip } = notesLayout(700, 700);
     expect(figure.x).toBe(16);
     expect(strip.x).toBeGreaterThan(figure.x + figure.w);
-    expect(strip.y).toBe(16);
+    expect(strip.h).toBe(176);
+    expect(strip.y).toBe(262);
+    expect(strip.y + strip.h / 2).toBeCloseTo(figure.y + figure.h / 2, 10);
   });
 });
 
 describe('notesLayout, portrait', () => {
-  it('puts a centred square on top and the strip below it, a margin apart', () => {
+  it('puts a centred square on top and a slim band directly below it, a margin apart', () => {
     const { figure, strip } = notesLayout(343, 420);
     expect(figure.w).toBeCloseTo(0.6 * (420 - 3 * 16), 10); // 223.2: height-capped
     expect(figure.h).toBe(figure.w);
@@ -63,14 +69,25 @@ describe('notesLayout, portrait', () => {
     expect(figure.x + figure.w / 2).toBeCloseTo(343 / 2, 10); // centred horizontally
     expect(strip.x).toBe(16);
     expect(strip.w).toBe(343 - 2 * 16);
-    expect(strip.y).toBeCloseTo(figure.y + figure.h + 16, 10);
-    expect(strip.y + strip.h).toBeCloseTo(420 - 16, 10); // bottom margin 16
+    expect(strip.y).toBeCloseTo(figure.y + figure.h + 16, 10); // directly below, a margin down
+    expect(strip.h).toBe(Math.round(0.45 * figure.w)); // 100 of the 148.8 px left: the binding term
+    expect(strip.h).toBe(100);
+    expect(strip.y + strip.h).toBeLessThan(420 - 16); // room to spare above the bottom margin
   });
 
   it('is limited by the width on a narrow, tall stage', () => {
     const { figure, strip } = notesLayout(300, 900);
     expect(figure).toEqual({ x: 16, y: 16, w: 268, h: 268 });
-    expect(strip).toEqual({ x: 16, y: 300, w: 268, h: 584 });
+    expect(strip).toEqual({ x: 16, y: 300, w: 268, h: 121 }); // 0.45 * 268 = 120.6, rounded; 584 px were free
+  });
+
+  it('never lets the band run into the bottom margin, even where rounding would overshoot the room left', () => {
+    // 40 x 50: the square is 1.2 px, 0.45 * 1.2 rounds up to 1, but only 0.8 px remain above the margin.
+    const { figure, strip } = notesLayout(40, 50);
+    expect(figure.w).toBeCloseTo(1.2, 10);
+    expect(Math.round(0.45 * figure.w)).toBe(1);
+    expect(strip.h).toBeCloseTo(0.8, 10);
+    expect(strip.y + strip.h).toBeCloseTo(50 - 16, 10);
   });
 });
 
@@ -113,6 +130,26 @@ describe('notesLayout, at any usable size', () => {
     const apartX = figure.x + figure.w + MARGIN - 1e-9 <= strip.x;
     const apartY = figure.y + figure.h + MARGIN - 1e-9 <= strip.y;
     expect(apartX || apartY).toBe(true);
+  });
+
+  it.each([
+    [1168, 650],
+    [1920, 1080],
+    [800, 700],
+    [1200, 300],
+    [700, 700],
+    [375, 812],
+    [343, 420],
+    [300, 900],
+  ])('%i x %i makes the strip a slim band, centred beside a landscape square and just below a portrait one', (w, h) => {
+    const { figure, strip } = notesLayout(w, h);
+    expect(strip.h).toBe(Math.round(0.45 * figure.w));
+    expect(strip.h).toBeLessThan(figure.h);
+    if (w >= h) {
+      expect(strip.y + strip.h / 2).toBeCloseTo(figure.y + figure.h / 2, 10);
+    } else {
+      expect(strip.y).toBeCloseTo(figure.y + figure.h + MARGIN, 10);
+    }
   });
 });
 

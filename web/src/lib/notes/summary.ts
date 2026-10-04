@@ -76,9 +76,14 @@ function countText(note: NoteSummary, s: NotesSummary): string {
   return exact !== null ? String(exact) : (s.period * note.ratio).toFixed(2);
 }
 
-/** The label at a bar's end: pure ratios `'C ×2'`, piano tuning `'G ×3.00'`. The sign is U+00D7. */
+/**
+ * The label at a bar's end: pure ratios `'C ×2'`, piano tuning `'G ×3.00'` (the sign
+ * is U+00D7). A lone note has no ratio to count against, so its label is just
+ * the name.
+ */
 export function swingLabel(note: NoteSummary, s: NotesSummary): string {
-  return `${noteName(note.midi)} ×${countText(note, s)}`;
+  const name = noteName(note.midi);
+  return s.notes.length === 1 ? name : `${name} ×${countText(note, s)}`;
 }
 
 /**
