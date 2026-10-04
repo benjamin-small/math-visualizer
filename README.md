@@ -4,7 +4,7 @@
 
 Math Visualizer is an interactive collection of mathematical visualizations built with Rust → WebAssembly → WebGL2, with a Svelte UI. It provides explorable examples of iterative rules and their geometric attractors.
 
-> **Status:** a gallery home page and three labs.
+> **Status:** a gallery home page and four labs.
 >
 > - **Home** (`#/`) — a card per lab, each running its real engine live on a
 >   small stage with one ticking readout. Warm paper by default; dark mode
@@ -28,6 +28,13 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   speed and array size (10–300, default 50). Share a size with `#/sorting?n=<size>`.
 >   Turn on **Sound** for a tone per operation (pitch rises with the value, writes ring
 >   brighter than compares) and a chime when a lane finishes.
+> - **Notes & Chords** (`#/notes`) — pick one to three notes from C4 to C5; each swings a
+>   dot on its own bar. Two notes draw the Lissajous loop of their interval (a 3:2 closes
+>   after two swings of the first note) and three draw a 3D curve in a turning cube. The
+>   speed slider is the first note's swings per second (0.25–1000 Hz); **Real pitch**
+>   ramps it to that note's true frequency and **Sound** voices the notes once past about
+>   20 swings per second. **Pure ratios** closes the loop; **Piano** tuning never quite
+>   does. Share a pick with `#/notes?n=60,67` (`&t=equal` for piano tuning).
 >
 > Every lab page has the same shape: a labelled control bezel, the canvas mounted as a
 > framed dark stage (a thin terracotta clock line along its top edge fills with the
@@ -147,6 +154,7 @@ math-visualizer/
 │   │   │   │   ├── mod.rs            # SortingRace rule: Lane state, tick, apply_action
 │   │   │   │   ├── algorithms.rs     # 7 algorithms recorded as compare/write/swap traces
 │   │   │   │   └── datasets.rs       # 4 seeded initial-array generators
+│   │   │   ├── notes.rs              # Notes lab rule: oscillators in just or equal temperament
 │   │   │   ├── rng.rs                # Shared deterministic SplitMix64 RNG helpers
 │   │   │   ├── midpoint_on_circle.rs # Alternative rule (still works)
 │   │   │   └── color_cycle.rs        # Phase 2 demo rule
@@ -154,6 +162,7 @@ math-visualizer/
 │   │       ├── sierpinski_pyramid.rs # Default viz (rotating 3D tetrahedron)
 │   │       ├── fourier_epicycles.rs  # Fourier lab viz: rings + arms + pen-lifted trail
 │   │       ├── sorting.rs            # Sorting lab viz: bars drawn via InstancedQuads
+│   │       ├── notes.rs              # Notes lab viz: bars, Lissajous trail, wave strip, 3D cube
 │   │       ├── dots_on_circle.rs     # Alternative viz (paired with midpoint)
 │   │       └── color_cycle.rs        # Phase 2 demo viz
 │   └── tests/wasm.rs                 # Browser smoke tests (Engine + dispatch round-trip)
@@ -170,12 +179,15 @@ math-visualizer/
     │       │   ├── Home.svelte / LabTile.svelte # Gallery home; a live engine per card
     │       │   ├── Icon.svelte / ThemeToggle.svelte # Outline icons; System/Light/Dark
     │       │   ├── labApi.svelte.ts  # Handle labs use: dispatch / patch|setRuleConfig
-    │       │   └── labs/             # SierpinskiLab, FourierLab, SortingLab (info + controls)
+    │       │   └── labs/             # SierpinskiLab, FourierLab, SortingLab, NotesLab (info + controls)
     │       ├── fourier/              # textToPath: opentype.js glyphs → closed, pen-tagged path
     │       ├── sorting/              # lanes/layout/summary: pure helpers for the sorting grid
+    │       ├── notes/                # theory/picker/speed/layout/summary/audio: notes lab helpers
+    │       ├── audio/context.ts      # AudioContext factory shared by the sorting and notes labs
     │       ├── playback/commands.ts  # Typed Command builders for engine.dispatch
     │       ├── wasm/loader.ts        # Single-flight WASM module loader
-    │       └── test/fakeViz.ts       # Shared FakeEngine for component tests
+    │       ├── test/fakeViz.ts       # Shared FakeEngine for component tests
+    │       └── test/stubAudio.ts     # Stub AudioContext for the sorting and notes audio tests
     ├── package.json
     └── vite.config.ts
 ```

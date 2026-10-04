@@ -29,6 +29,7 @@ describe('App.svelte', () => {
     expect(getByRole('link', { name: /Sierpinski Pyramid/ }).getAttribute('href')).toBe('#/sierpinski');
     expect(getByRole('link', { name: /Fourier Epicycles/ }).getAttribute('href')).toBe('#/fourier');
     expect(getByRole('link', { name: /Sorting Algorithms/ }).getAttribute('href')).toBe('#/sorting');
+    expect(getByRole('link', { name: /Notes & Chords/ }).getAttribute('href')).toBe('#/notes');
     expect(getByRole('link', { name: 'Source' }).getAttribute('href')).toContain('github.com/benjamin-small/math-visualizer');
     expect(getByRole('button', { name: /^Theme:/ })).toBeTruthy();
     expect(getByRole('link', { name: 'Math Visualizer' }).getAttribute('href')).toBe('#/');
