@@ -37,7 +37,9 @@ export interface NotesFrame {
  * The voices for a frame, one per ratio. Each sounds at `speedHz * ratio`; the
  * gain is the shared level split evenly, faded in by `audibility`, and 0 while
  * paused or muted. The pitch is always reported, so a voice that is silent
- * (slow, paused, muted) is already at the right pitch when it comes in.
+ * (slow, paused, muted) is already at the right pitch when it comes in. It is a
+ * plain product: a speed or ratio that is not a finite number gives a pitch
+ * that is not one either, which `NotesAudio` refuses to pass on.
  */
 export function voicePlan(speedHz: number, ratios: readonly number[], playing: boolean, muted: boolean): VoiceTarget[] {
   if (ratios.length === 0) return [];
@@ -48,11 +50,16 @@ export function voicePlan(speedHz: number, ratios: readonly number[], playing: b
 /** AudioParam time constants, in seconds: a pitch settles in a few tens of ms, a gain a little slower. */
 const FREQ_TAU = 0.01;
 const GAIN_TAU = 0.02;
+/** How long a replaced voice rings out while its gain eases to silence, before it is stopped: four gain time constants, with under 2% of its level left. */
+const RETIRE_S = 4 * GAIN_TAU;
 
 interface Voice {
   osc: OscillatorNode;
   gain: GainNode;
-  /** What was last sent to this voice's pitch and gain (null before the first send), so `update` only touches a param whose target moved. */
+  /**
+   * What this voice's pitch and gain were last set to (null while unset), so `update` only touches a param whose target moved. The
+   * pitch starts as the one the oscillator was started at; the gain starts unset.
+   */
   freq: number | null;
   level: number | null;
 }
@@ -110,23 +117,24 @@ export class NotesAudio {
    * Voice one frame. Does nothing until the context exists (so a muted page
    * never touches the browser's audio). Rebuilds the voices when the number of
    * notes changes, then sends each voice's pitch and gain only if it differs
-   * from what that voice was last sent.
+   * from what that voice was last set to. A pitch that is not a finite number
+   * is skipped, leaving the voice at its last pitch: a real AudioParam throws a
+   * TypeError for one, which would take the page's frame loop down.
    */
   update(frame: NotesFrame): void {
     if (!this.ctx || !this.master) return;
-    if (this.voices.length !== frame.ratios.length) this.buildVoices(frame.ratios.length);
+    const plan = voicePlan(frame.speedHz, frame.ratios, frame.playing, this._muted);
     const now = this.ctx.currentTime;
-    voicePlan(frame.speedHz, frame.ratios, frame.playing, this._muted).forEach((target, i) => {
+    if (this.voices.length !== plan.length) this.buildVoices(plan, now);
+    plan.forEach((target, i) => {
       const v = this.voices[i];
-      if (target.freq !== v.freq) {
-        v.osc.frequency.setTargetAtTime(target.freq, now, FREQ_TAU);
-        v.freq = target.freq;
-      }
+      this.setPitch(v, target.freq, now);
       this.setLevel(v, target.gain, now);
     });
   }
 
   destroy(): void {
+    // Closing the context cuts the sound at once anyway, so the live voices are stopped outright.
     for (const v of this.voices) v.osc.stop();
     this.voices = [];
     void this.ctx?.close();
@@ -147,21 +155,39 @@ export class NotesAudio {
     this.master = master;
   }
 
-  /** Replace every voice with `n` fresh ones: silent sines, with nothing sent to them yet. */
-  private buildVoices(n: number): void {
-    if (!this.ctx || !this.master) return;
-    for (const v of this.voices) v.osc.stop();
-    this.voices = [];
-    for (let i = 0; i < n; i++) {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
+  /**
+   * Replace every voice with one per planned note. The old voices ease out and
+   * are stopped a moment later; the new ones are silent sines that start at
+   * their planned pitch, so none glides in from the oscillator's 440 Hz default.
+   */
+  private buildVoices(plan: readonly VoiceTarget[], now: number): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    for (const v of this.voices) this.retire(v, now);
+    this.voices = plan.map(({ freq }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const pitch = Number.isFinite(freq) ? freq : null; // a real AudioParam throws on anything else
       gain.gain.value = 0;
       osc.type = 'sine';
+      if (pitch !== null) osc.frequency.value = pitch;
       osc.connect(gain);
-      gain.connect(this.master);
+      gain.connect(master);
       osc.start();
-      this.voices.push({ osc, gain, freq: null, level: null });
-    }
+      return { osc, gain, freq: pitch, level: null };
+    });
+  }
+
+  /** Ease a voice out and stop it a moment later: stopping a sounding sine outright clicks. */
+  private retire(v: Voice, now: number): void {
+    this.setLevel(v, 0, now);
+    v.osc.stop(now + RETIRE_S);
+  }
+
+  private setPitch(v: Voice, freq: number, now: number): void {
+    if (!Number.isFinite(freq) || freq === v.freq) return;
+    v.osc.frequency.setTargetAtTime(freq, now, FREQ_TAU);
+    v.freq = freq;
   }
 
   private setLevel(v: Voice, level: number, now: number): void {

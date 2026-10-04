@@ -102,8 +102,9 @@ function sent(stub: Stub) {
   }));
 }
 
+/** Audible, and not the 440 Hz an oscillator starts at, so a pitch that was never set cannot pass for the right one: [262, 393] for two notes. */
 function frame(patch: Partial<NotesFrame> = {}): NotesFrame {
-  return { playing: true, speedHz: 440, ratios: [1, 1.5], ...patch };
+  return { playing: true, speedHz: 262, ratios: [1, 1.5], ...patch };
 }
 
 /** An unmuted NotesAudio over a fresh stub, as it is once the user has clicked Sound. */
@@ -112,6 +113,34 @@ function unmuted(volume?: number) {
   const audio = new NotesAudio(() => stub.ctx, volume);
   audio.setMuted(false);
   return { stub, audio };
+}
+
+/**
+ * Make every oscillator the stub hands out log, in order, each assignment to its `frequency.value` and its
+ * `start()`: one event list per oscillator, in creation order. Call it before the first `update`.
+ */
+function recordOscillatorSetup(stub: Stub): string[][] {
+  const log: string[][] = [];
+  const create = stub.raw.createOscillator.getMockImplementation()!;
+  stub.raw.createOscillator.mockImplementation(() => {
+    const osc = create();
+    const events: string[] = [];
+    log.push(events);
+    let hz = osc.frequency.value;
+    Object.defineProperty(osc.frequency, 'value', {
+      configurable: true,
+      get: () => hz,
+      set: (v: number) => {
+        hz = v;
+        events.push(`frequency.value = ${v}`);
+      },
+    });
+    osc.start.mockImplementation(() => {
+      events.push('start');
+    });
+    return osc;
+  });
+  return log;
 }
 
 describe('NotesAudio', () => {
@@ -165,17 +194,32 @@ describe('NotesAudio', () => {
     });
   });
 
-  it('sends each voice its planned pitch and gain, gliding on a short time constant', () => {
+  it('fades each voice in to its planned gain, and glides it to later pitches', () => {
     const { stub, audio } = unmuted();
     audio.update(frame());
-    const [low, high] = stub.oscillators;
     const [, lowGain, highGain] = gainNodes(stub);
-    expect(low.frequency.setTargetAtTime).toHaveBeenCalledTimes(1);
-    expect(low.frequency.setTargetAtTime).toHaveBeenCalledWith(440, 1, 0.01);
-    expect(high.frequency.setTargetAtTime).toHaveBeenCalledWith(660, 1, 0.01);
     expect(lowGain.gain.setTargetAtTime).toHaveBeenCalledTimes(1);
     expect(lowGain.gain.setTargetAtTime).toHaveBeenCalledWith(VOICE_LEVEL / 2, 1, 0.02);
     expect(highGain.gain.setTargetAtTime).toHaveBeenCalledWith(VOICE_LEVEL / 2, 1, 0.02);
+
+    // The first pitch is set outright (next test); every later change glides on a short time constant.
+    audio.update(frame({ speedHz: 300 }));
+    const [low, high] = stub.oscillators;
+    expect(low.frequency.setTargetAtTime).toHaveBeenCalledTimes(1);
+    expect(low.frequency.setTargetAtTime).toHaveBeenCalledWith(300, 1, 0.01);
+    expect(high.frequency.setTargetAtTime).toHaveBeenCalledWith(450, 1, 0.01);
+  });
+
+  it('starts each new voice at its planned pitch, so nothing glides in from the 440 Hz default', () => {
+    const { stub, audio } = unmuted();
+    const log = recordOscillatorSetup(stub);
+    audio.update(frame());
+    // The pitch is assigned before start(), and no glide is sent for it afterwards.
+    expect(log).toEqual([
+      ['frequency.value = 262', 'start'],
+      ['frequency.value = 393', 'start'],
+    ]);
+    for (const o of stub.oscillators) expect(o.frequency.setTargetAtTime).not.toHaveBeenCalled();
   });
 
   it('adds no calls for a frame that changes nothing', () => {
@@ -192,15 +236,15 @@ describe('NotesAudio', () => {
     const { stub, audio } = unmuted();
     audio.update(frame());
     // A speed change moves the pitches but not the (already full) audibility.
-    audio.update(frame({ speedHz: 441 }));
+    audio.update(frame({ speedHz: 263 }));
     let calls = sent(stub);
-    expect(calls.map((c) => c.freq.length)).toEqual([2, 2]);
+    expect(calls.map((c) => c.freq.length)).toEqual([1, 1]); // the first pitch was assigned at build, not sent
     expect(calls.map((c) => c.gain.length)).toEqual([1, 1]);
-    expect(stub.oscillators[1].frequency.setTargetAtTime).toHaveBeenLastCalledWith(441 * 1.5, 1, 0.01);
+    expect(stub.oscillators[1].frequency.setTargetAtTime).toHaveBeenLastCalledWith(263 * 1.5, 1, 0.01);
     // Pausing silences the gains but leaves the pitches alone.
-    audio.update(frame({ speedHz: 441, playing: false }));
+    audio.update(frame({ speedHz: 263, playing: false }));
     calls = sent(stub);
-    expect(calls.map((c) => c.freq.length)).toEqual([2, 2]);
+    expect(calls.map((c) => c.freq.length)).toEqual([1, 1]);
     expect(calls.map((c) => c.gain.length)).toEqual([2, 2]);
     expect(gainNodes(stub)[1].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 1, 0.02);
   });
@@ -208,31 +252,38 @@ describe('NotesAudio', () => {
   it('follows the speed below the audible rate without making a sound', () => {
     const { stub, audio } = unmuted();
     audio.update(frame({ speedHz: 15 }));
-    expect(stub.oscillators[0].frequency.setTargetAtTime).toHaveBeenLastCalledWith(15, 1, 0.01);
-    expect(stub.oscillators[1].frequency.setTargetAtTime).toHaveBeenLastCalledWith(22.5, 1, 0.01);
+    expect(stub.oscillators.map((o) => o.frequency.value)).toEqual([15, 22.5]);
+    for (const c of sent(stub)) expect(c.gain.every((args) => args[0] === 0)).toBe(true);
+    // A change of speed below the threshold glides the pitch, still silently.
+    audio.update(frame({ speedHz: 16 }));
+    expect(stub.oscillators[0].frequency.setTargetAtTime).toHaveBeenLastCalledWith(16, 1, 0.01);
     for (const c of sent(stub)) expect(c.gain.every((args) => args[0] === 0)).toBe(true);
     // Speeding up past the threshold brings the voices in.
-    audio.update(frame({ speedHz: 440 }));
+    audio.update(frame());
     expect(gainNodes(stub)[1].gain.setTargetAtTime).toHaveBeenLastCalledWith(VOICE_LEVEL / 2, 1, 0.02);
   });
 
-  it('rebuilds the voices when the number of notes changes, stopping the old ones', () => {
+  it('rebuilds the voices when the number of notes changes, replacing the old ones', () => {
     const { stub, audio } = unmuted();
+    const log = recordOscillatorSetup(stub);
     audio.update(frame());
     audio.update(frame({ ratios: [1, 1.25, 1.5] }));
     expect(stub.oscillators).toHaveLength(5);
     const [old0, old1, ...fresh] = stub.oscillators;
-    expect(old0.stop).toHaveBeenCalledTimes(1);
+    expect(old0.stop).toHaveBeenCalledTimes(1); // retired: when, and how, is the next test
     expect(old1.stop).toHaveBeenCalledTimes(1);
     for (const o of fresh) {
       expect(o.type).toBe('sine');
       expect(o.start).toHaveBeenCalledTimes(1);
       expect(o.stop).not.toHaveBeenCalled();
+      expect(o.frequency.setTargetAtTime).not.toHaveBeenCalled(); // already at pitch when it starts
     }
-    // New voices are sent their targets even where they equal the old voices' last values.
-    expect(fresh[0].frequency.setTargetAtTime).toHaveBeenCalledWith(440, 1, 0.01);
-    expect(fresh[1].frequency.setTargetAtTime).toHaveBeenCalledWith(550, 1, 0.01);
-    expect(fresh[2].frequency.setTargetAtTime).toHaveBeenCalledWith(660, 1, 0.01);
+    // Each new voice starts at its own planned pitch, even where that equals an old voice's.
+    expect(log.slice(2)).toEqual([
+      ['frequency.value = 262', 'start'],
+      ['frequency.value = 327.5', 'start'],
+      ['frequency.value = 393', 'start'],
+    ]);
     expect(gainNodes(stub)[3].gain.setTargetAtTime).toHaveBeenCalledWith(VOICE_LEVEL / 3, 1, 0.02);
 
     // And back down to two, then to none.
@@ -242,6 +293,26 @@ describe('NotesAudio', () => {
     audio.update(frame({ ratios: [] }));
     expect(stub.oscillators).toHaveLength(7);
     expect(stub.oscillators.slice(5).every((o) => o.stop.mock.calls.length === 1)).toBe(true);
+  });
+
+  it('fades an outgoing voice out and stops it a moment later, rather than cutting it off mid-sound', () => {
+    const { stub, audio } = unmuted();
+    audio.update(frame()); // two voices sounding at VOICE_LEVEL / 2 each
+    const [, ...oldGains] = gainNodes(stub);
+    audio.update(frame({ ratios: [1, 1.25, 1.5] })); // three notes: both old voices are replaced
+    stub.oscillators.slice(0, 2).forEach((o, i) => {
+      expect(oldGains[i].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 1, 0.02); // the gain eases to silence
+      expect(o.stop).toHaveBeenCalledTimes(1);
+      expect(o.stop.mock.calls[0][0]).toBeCloseTo(1 + 0.08, 10); // and the oscillator stops 0.08 s on, not now
+    });
+
+    // Dropping to no notes retires the voices the same way.
+    const freshGains = gainNodes(stub).slice(3);
+    audio.update(frame({ ratios: [] }));
+    stub.oscillators.slice(2).forEach((o, i) => {
+      expect(freshGains[i].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 1, 0.02);
+      expect(o.stop.mock.calls[0][0]).toBeCloseTo(1 + 0.08, 10);
+    });
   });
 
   it('muting drives every voice to silence at once, and the frames that follow stay quiet', () => {
@@ -317,5 +388,62 @@ describe('NotesAudio', () => {
   it('destroy is harmless before the context was ever created', () => {
     const audio = new NotesAudio(() => makeStubContext().ctx);
     expect(() => audio.destroy()).not.toThrow();
+  });
+});
+
+// A real AudioParam throws a TypeError for NaN or an infinity, which would take the page's frame loop down with it.
+describe('NotesAudio, given a pitch that is not a finite number', () => {
+  const bad: [string, Partial<NotesFrame>][] = [
+    ['a NaN speed', { speedHz: NaN }],
+    ['an infinite speed', { speedHz: Infinity }],
+    ['a negative infinite speed', { speedHz: -Infinity }],
+    ['a NaN ratio', { ratios: [NaN, 1.5] }],
+    ['an infinite ratio', { ratios: [1, Infinity] }],
+  ];
+
+  /** Every number that reached an AudioParam, whether through setTargetAtTime or by assigning a pitch value. */
+  function everythingSent(stub: Stub, log: string[][]): number[] {
+    const params = [...stub.oscillators.map((o) => o.frequency), ...gainNodes(stub).map((n) => n.gain)];
+    const viaCalls = params.flatMap((p) => p.setTargetAtTime.mock.calls.flat() as number[]);
+    const prefix = 'frequency.value = ';
+    const viaAssignment = log.flat().flatMap((e) => (e.startsWith(prefix) ? [Number(e.slice(prefix.length))] : []));
+    return [...viaCalls, ...viaAssignment];
+  }
+
+  it.each(bad)('never lets it reach an AudioParam: %s', (_name, patch) => {
+    const { stub, audio } = unmuted();
+    const log = recordOscillatorSetup(stub);
+    expect(() => audio.update(frame(patch))).not.toThrow();
+    const sent = everythingSent(stub, log);
+    expect(sent.length).toBeGreaterThan(0); // the gains and any finite pitch still went through, so this is not vacuous
+    expect(sent.every((n) => Number.isFinite(n))).toBe(true);
+  });
+
+  it('holds the last good pitch through a bad frame and takes the next good one', () => {
+    const { stub, audio } = unmuted();
+    const pitchCalls = () => stub.oscillators.map((o) => o.frequency.setTargetAtTime.mock.calls.length);
+    audio.update(frame());
+    audio.update(frame({ speedHz: NaN }));
+    expect(pitchCalls()).toEqual([0, 0]); // no glide to NaN
+    expect(stub.oscillators.map((o) => o.frequency.value)).toEqual([262, 393]); // pitch held
+    expect(gainNodes(stub)[1].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 1, 0.02); // a speed that is no number is silent
+    audio.update(frame()); // back to the pitch it never left: nothing to send for it
+    expect(pitchCalls()).toEqual([0, 0]);
+    expect(gainNodes(stub)[1].gain.setTargetAtTime).toHaveBeenLastCalledWith(VOICE_LEVEL / 2, 1, 0.02);
+    audio.update(frame({ speedHz: 300 }));
+    expect(stub.oscillators[0].frequency.setTargetAtTime).toHaveBeenLastCalledWith(300, 1, 0.01);
+    expect(stub.oscillators[1].frequency.setTargetAtTime).toHaveBeenLastCalledWith(450, 1, 0.01);
+    expect(gainNodes(stub)[1].gain.setTargetAtTime).toHaveBeenLastCalledWith(VOICE_LEVEL / 2, 1, 0.02);
+  });
+
+  it('lets a voice built from a bad frame take its pitch from the first good one', () => {
+    const { stub, audio } = unmuted();
+    const log = recordOscillatorSetup(stub);
+    audio.update(frame({ speedHz: NaN }));
+    expect(log).toEqual([['start'], ['start']]); // built and running, but no pitch assigned
+    for (const o of stub.oscillators) expect(o.frequency.setTargetAtTime).not.toHaveBeenCalled(); // and none sent
+    audio.update(frame());
+    expect(stub.oscillators[0].frequency.setTargetAtTime).toHaveBeenCalledWith(262, 1, 0.01);
+    expect(stub.oscillators[1].frequency.setTargetAtTime).toHaveBeenCalledWith(393, 1, 0.01);
   });
 });
