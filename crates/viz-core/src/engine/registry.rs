@@ -6,9 +6,11 @@ use serde_json::Value;
 use super::erased::{ErasedRule, ErasedVisualization, TypedRule, TypedViz};
 use crate::config::ConfigSchema;
 use crate::rules::fourier_epicycles::{FourierConfig, FourierEpicycles};
+use crate::rules::notes::{Notes, NotesConfig};
 use crate::rules::sierpinski_chaos::{ChaosGameConfig, SierpinskiChaos};
 use crate::rules::sorting::{SortingConfig, SortingRace};
 use crate::visualizations::fourier_epicycles::{FourierEpicyclesViz, FourierEpicyclesVizConfig};
+use crate::visualizations::notes::{NotesViz, NotesVizConfig};
 use crate::visualizations::sierpinski_pyramid::{SierpinskiPyramid, SierpinskiPyramidVizConfig};
 use crate::visualizations::sorting::{SortingViz, SortingVizConfig};
 
@@ -30,7 +32,7 @@ pub struct LabParts {
 pub const DEFAULT_LAB: &str = "sierpinski";
 
 /// Every id `build_lab` accepts.
-pub const LAB_IDS: &[&str] = &["sierpinski", "fourier", "sorting"];
+pub const LAB_IDS: &[&str] = &["sierpinski", "fourier", "sorting", "notes"];
 
 /// Build the rule/viz pair for `id`, or `None` if the id is unknown.
 ///
@@ -56,6 +58,12 @@ pub fn build_lab(id: &str) -> Option<LabParts> {
             viz: Box::new(TypedViz::new(SortingViz::new())),
             rule_cfg: SortingConfig::defaults(),
             viz_cfg: SortingVizConfig::defaults(),
+        }),
+        "notes" => Some(LabParts {
+            rule: Box::new(TypedRule::new(Notes)),
+            viz: Box::new(TypedViz::new(NotesViz::new())),
+            rule_cfg: NotesConfig::defaults(),
+            viz_cfg: NotesVizConfig::defaults(),
         }),
         _ => None,
     }
@@ -149,5 +157,17 @@ mod tests {
     fn sierpinski_defaults_carry_max_iterations() {
         let parts = build_lab("sierpinski").unwrap();
         assert_eq!(max_iterations_of(&parts.rule_cfg, 1), 50_000);
+    }
+
+    #[test]
+    fn notes_lab_pairs_rule_and_viz() {
+        let parts = build_lab("notes").expect("notes lab should build");
+        assert_eq!(parts.rule.id(), "notes");
+        assert_eq!(parts.viz.id(), "notes");
+        // One iteration is one swing: playback must never auto-pause.
+        assert_eq!(max_iterations_of(&parts.rule_cfg, 1), u32::MAX);
+        assert_eq!(parts.rule_cfg["notes"], json!([60]));
+        // The layout rects come from the DOM; zero means "fit the canvas".
+        assert_eq!(parts.viz_cfg["figure"], json!([0.0, 0.0, 0.0, 0.0]));
     }
 }
