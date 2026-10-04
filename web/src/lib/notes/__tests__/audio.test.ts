@@ -11,10 +11,10 @@ import {
 import { param, makeStubContext } from '../../test/stubAudio';
 
 describe('constants', () => {
-  it('fade the sound in between 20 and 30 swings per second, at a combined level of 0.18', () => {
+  it('fade the sound in between 20 and 30 swings per second, at a combined level of 0.8', () => {
     expect(AUDIBLE_FROM_HZ).toBe(20);
     expect(AUDIBLE_FULL_HZ).toBe(30);
-    expect(VOICE_LEVEL).toBe(0.18);
+    expect(VOICE_LEVEL).toBe(0.8);
   });
 });
 

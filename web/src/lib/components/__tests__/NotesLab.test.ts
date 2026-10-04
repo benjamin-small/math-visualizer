@@ -314,6 +314,20 @@ describe('NotesLab.svelte', () => {
       expect(volume.disabled).toBe(true);
     });
 
+    it('says the notes are still too slow to hear until the speed passes about 30 swings a second', async () => {
+      const { container, getByLabelText, getByRole } = await renderLab();
+      expect(container.querySelector('.sound .hint')).toBeNull(); // nothing to say while sound is off
+      await fireEvent.click(getByLabelText('Sound'));
+      expect(container.querySelector('.sound .hint')?.textContent).toContain('Too slow to hear yet');
+      const now = vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(10_000);
+      try {
+        await fireEvent.click(getByRole('button', { name: 'Real pitch' }));
+        await vi.waitFor(() => expect(container.querySelector('.sound .hint')).toBeNull());
+      } finally {
+        now.mockRestore();
+      }
+    });
+
     it('silences the voices when the tab is hidden, without pausing playback', async () => {
       // A hidden tab runs no frames, so the voices would hold their last chord.
       const update = vi.spyOn(NotesAudio.prototype, 'update');
