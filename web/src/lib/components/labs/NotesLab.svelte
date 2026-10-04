@@ -59,7 +59,9 @@
   let rampHandle = 0;
 
   const rootMidi = $derived(notes[0]);
-  const rootHz = $derived(midiToHz(rootMidi));
+  const rootHz = $derived(notes.length > 0 ? midiToHz(rootMidi) : NaN);
+  /** Nothing picked: the stage is empty and there is no pitch to aim for. */
+  const empty = $derived(notes.length === 0);
   const full = $derived(notes.length >= MAX_NOTES);
   const playing = $derived(api?.snapshot.playing ?? false);
   /** The overlay's label positions, from the same layout the viz was given. */
@@ -130,15 +132,20 @@
    * push rewinds playback paused at 0, so Play follows it.
    */
   function applyConfig() {
-    api?.patchRuleConfig({ notes: $state.snapshot(notes), just_intonation: just });
-    api?.dispatch(cmd.play());
+    if (api) {
+      api.patchRuleConfig({ notes: $state.snapshot(notes), just_intonation: just });
+      // Read the new model now rather than on the next frame, so the overlay
+      // never shows the old pick's labels (a hidden tab runs no frames at all).
+      summary = readSummary(api.readSummary());
+      api.dispatch(cmd.play());
+    }
     syncUrl();
   }
 
   function onChip(midi: number) {
     const current = $state.snapshot(notes);
     const next = toggleNote(current, midi);
-    if (next === current) return; // refused: a fourth note, or the only one
+    if (next === current) return; // refused: a fourth note, or a midi the picker does not offer
     if (next[0] !== current[0]) cancelRamp(); // a new root: "Real pitch" was heading for the old one's frequency
     notes = [...next];
     applyConfig();
@@ -155,10 +162,13 @@
     api?.dispatch(cmd.togglePlay());
   }
 
-  function onRestart() {
+  /** Back to the defaults (one note, pure ratios, half a swing a second), from the first swing, playing. */
+  function onReset() {
     cancelRamp();
-    api?.dispatch(cmd.reset());
-    api?.dispatch(cmd.play());
+    notes = [DEFAULT_NOTE];
+    just = true;
+    setSpeed(DEFAULT_SPEED_HZ);
+    applyConfig(); // the push rewinds the engine; applyConfig then plays and rewrites the link
   }
 
   function setSpeed(hz: number) {
@@ -185,6 +195,7 @@
    * each tick, and the last tick lands exactly on the target.
    */
   function startRealPitch() {
+    if (empty) return; // nothing to aim for
     cancelRamp();
     const from = speedHz;
     const to = rootHz;
@@ -271,6 +282,9 @@
     <!-- Text over the canvas, placed from the layout the viz was given: each
          note's swing count at its bar's end, and the ratio under the figure. -->
     <div class="marks" bind:this={overlayEl}>
+      {#if empty}
+        <span class="prompt" style:left="{layout.figure.x + layout.figure.w / 2}px" style:top="{layout.figure.y + layout.figure.h / 2}px">Pick a note to start.</span>
+      {/if}
       {#if summary}
         {#each summary.notes as note, i}
           <span
@@ -293,14 +307,14 @@
       <button class="btn primary" onclick={onTogglePlay}>
         <Icon name={playing ? 'pause' : 'play'} />{playing ? 'Pause' : 'Play'}
       </button>
-      <button class="btn" onclick={onRestart} title="Back to the first swing, and play"><Icon name="rotate-ccw" />Restart</button>
+      <button class="btn" onclick={onReset} title="Back to one note, pure ratios and half a swing a second, playing"><Icon name="rotate-ccw" />Reset</button>
     </div>
     <label class="speed">
       <span class="name">Swings per second</span>
       <input type="range" min="0" max="1" step="0.001" value={hzToSlider(speedHz)} oninput={onSpeedInput} aria-label="Swings per second" />
       <span class="value mono">{formatHz(speedHz)}</span>
     </label>
-    <button class="btn" onclick={startRealPitch} title="Speed up to {formatHz(rootHz)}, the real pitch of {noteLabel(rootMidi)}">Real pitch</button>
+    <button class="btn" onclick={startRealPitch} disabled={empty} title={empty ? 'Pick a note first' : `Speed up to ${formatHz(rootHz)}, the real pitch of ${noteLabel(rootMidi)}`}>Real pitch</button>
     <div class="group tuning" role="group" aria-label="Tuning">
       <button class="btn" aria-pressed={just} onclick={() => setTuning(true)} title="Whole-number ratios: the loop closes">Pure ratios</button>
       <button class="btn" aria-pressed={!just} onclick={() => setTuning(false)} title="Equal steps, as a piano is tuned: every ratio is rounded a little, so the shape drifts">Piano</button>
@@ -328,7 +342,7 @@
         title={muted ? 'Turn sound on' : 'Turn sound off'}
       ><Icon name={muted ? 'volume-off' : 'volume'} />Sound</button>
       <input type="range" min="0" max="1" step="0.01" value={volume} oninput={onVolume} disabled={muted} aria-label="Volume" />
-      {#if !muted && audible < 1}<span class="hint">Too slow to hear yet; try Real pitch.</span>{/if}
+      {#if !muted && !empty && audible < 1}<span class="hint">Too slow to hear yet; try Real pitch.</span>{/if}
     </div>
   {/snippet}
 
@@ -369,7 +383,7 @@
     <p class="tip">
       <em>Swings per second</em> runs from one swing every four seconds to a thousand a second. <em>Real pitch</em> glides
       to the root's true frequency (262 a second for C4) over a couple of seconds; moving the slider or pressing
-      <em>Play</em> or <em>Restart</em> stops the glide where it is.
+      <em>Play</em> or <em>Reset</em> stops the glide where it is.
     </p>
     <p class="tip">
       <em>Pure ratios</em> tunes the notes to whole-number ratios, so the loop closes. <em>Piano</em> tunes them the way a
@@ -415,6 +429,8 @@
   .note-label.beside { transform: translate(6px, -50%); }
   /* The ratio sits centred in the figure's bottom gutter, which has no bar. */
   .ratio { font-size: 13px; transform: translate(-50%, -50%); }
+  /* The empty stage's invitation, centred on the figure square. */
+  .prompt { position: absolute; transform: translate(-50%, -50%); color: var(--stone); font-size: 14px; white-space: nowrap; }
 
   /* Bezel bits, rendered into LabShell's bezel via `controls`. The shell's
      base `.bezel :global(.btn)` compiles three classes deep, so every button

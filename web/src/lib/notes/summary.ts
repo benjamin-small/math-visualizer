@@ -1,7 +1,7 @@
 // The Notes lab's view of the engine: the summary `rule_summary()` reports every
 // frame, and the text the overlay and the home tile print from it. Pure and
 // dependency-light (same style as lib/sorting/summary.ts).
-import { MAX_NOTES, MIN_NOTES } from './picker';
+import { MAX_NOTES } from './picker';
 import { noteName } from './theory';
 
 /** One note, as the engine reports it. */
@@ -54,7 +54,7 @@ export function readSummary(raw: unknown): NotesSummary | null {
   const { phase, period, closed, just_intonation, notes } = raw as Record<string, unknown>;
   if (!isFiniteNumber(phase) || !isFiniteNumber(period)) return null;
   if (typeof closed !== 'boolean' || typeof just_intonation !== 'boolean') return null;
-  if (!Array.isArray(notes) || notes.length < MIN_NOTES || notes.length > MAX_NOTES) return null;
+  if (!Array.isArray(notes) || notes.length > MAX_NOTES) return null;
   const out: NoteSummary[] = [];
   for (const n of notes) {
     const note = readNote(n);

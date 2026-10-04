@@ -582,6 +582,18 @@ fn notes_renders_one_two_and_three_notes() {
     let mut engine =
         Engine::new("test-canvas-notes-counts", Some("notes".into())).expect("engine constructs");
 
+    // Nothing picked: the stage is only cleared, and the model has no notes.
+    engine
+        .update_rule_config(cmd(r#"{"notes":[]}"#))
+        .expect("no notes");
+    engine.frame(0.0);
+    engine.frame(16.0);
+    assert_eq!(summary_field(&engine, "period").as_f64(), Some(1.0));
+    assert_eq!(
+        js_sys::Array::from(&summary_field(&engine, "notes")).length(),
+        0
+    );
+
     engine
         .update_rule_config(cmd(r#"{"notes":[60]}"#))
         .expect("one note");
