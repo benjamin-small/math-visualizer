@@ -3,6 +3,7 @@
 // mounts without a WebGL context.
 import { vi } from 'vitest';
 import type { FourierSummary } from '../fourier/summary';
+import type { NotesSummary } from '../notes/summary';
 import type { LaneSummary, SortingSummary } from '../sorting/summary';
 
 /** jsdom has no rAF; drive frame loops off setTimeout(0) so one frame runs per macrotask. */
@@ -68,6 +69,22 @@ export const sortingSummaryFixture: SortingSummary = {
   ),
 };
 
+/**
+ * What the fake's `rule_summary()` returns on the notes lab: C4 + G4 in just intonation, a 3:2 that
+ * closes after two swings of C, not yet started. Mutable so a test can move `phase`, flip `closed`
+ * or drop a note before a read (and restore it in `finally`).
+ */
+export const notesSummaryFixture: NotesSummary = {
+  phase: 0,
+  period: 2,
+  closed: false,
+  just_intonation: true,
+  notes: [
+    { midi: 60, ratio: 1, num: 1, den: 1, displacement: 0 },
+    { midi: 67, ratio: 1.5, num: 3, den: 2, displacement: 0 },
+  ],
+};
+
 export class FakeEngine {
   private readonly _lab: string | null | undefined;
 
@@ -94,6 +111,7 @@ export class FakeEngine {
   rule_summary() {
     if (this._lab === 'fourier') return ruleSummaryFixture;
     if (this._lab === 'sorting') return sortingSummaryFixture;
+    if (this._lab === 'notes') return notesSummaryFixture;
     return null;
   }
   viz_config() { return {}; }
