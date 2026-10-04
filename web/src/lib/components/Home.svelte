@@ -1,10 +1,11 @@
 <script lang="ts">
-  // The gallery: thesis, lede, three live lab tiles, and a footer line.
+  // The gallery: thesis, lede, four live lab tiles, and a footer line.
   import { cmd } from '../playback/commands';
   import { readSummary } from '../sorting/summary';
   import { allLanes } from '../sorting/lanes';
   import { cellRects } from '../sorting/layout';
   import { textToPath, samplesFor, packPath } from '../fourier/textPath';
+  import { readSummary as readNotesSummary, tileReadout, tileProgress } from '../notes/summary';
   import type { LabApi } from './labApi.svelte';
   import LabTile from './LabTile.svelte';
 
@@ -103,11 +104,25 @@
         return s ? s.lanes.filter((l) => l.done).length / s.lanes.length : 0;
       },
     },
+    {
+      lab: 'notes' as const,
+      title: 'Notes & Chords',
+      thesis: 'Two notes swing a dot left-right and up-down; the loop it draws is their interval.',
+      setup: (api: LabApi) => {
+        api.patchRuleConfig({ notes: [60, 67] }); // C4 + G4, a 3:2 that closes in two swings
+        api.dispatch(cmd.setSpeed(0.5));
+        api.dispatch(cmd.play());
+      },
+      readout: (api: LabApi) => tileReadout(readNotesSummary(api.readSummary())),
+      done: (api: LabApi) => readNotesSummary(api.readSummary())?.closed ?? false,
+      // The notes clock never ends (the lab runs unbounded); the share of the period swung is the honest fill.
+      progress: (api: LabApi) => tileProgress(readNotesSummary(api.readSummary())),
+    },
   ];
 </script>
 
 <section class="home">
-  <p class="thesis">Three small machines for looking at math.</p>
+  <p class="thesis">Four small machines for looking at math.</p>
   <p class="lede">
     Each one runs in Rust, compiled to WebAssembly and drawn with WebGL, live in this tab. Press play, then read how
     it works.
@@ -136,7 +151,7 @@
   }
   .thesis { font-size: 22px; font-weight: 500; max-width: 34ch; line-height: 1.3; }
   .lede { color: var(--stone); max-width: 56ch; margin: 10px 0 36px; }
-  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
   .foot { display: flex; flex-wrap: wrap; gap: 6px 24px; margin-top: 44px; color: var(--stone); font-size: 14px; }
   .foot span { white-space: nowrap; }
 
