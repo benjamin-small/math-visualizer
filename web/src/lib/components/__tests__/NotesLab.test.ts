@@ -108,7 +108,7 @@ describe('NotesLab.svelte', () => {
       expect(badge(chipFor(getByRole, 64))).toBe('2');
     });
 
-    it('stops at three notes: every other chip is disabled with a hint, and a click on one pushes nothing', async () => {
+    it('stops at three notes: every other chip is marked unavailable with a hint but stays focusable, and a click on one pushes nothing', async () => {
       const { container, getByRole } = await renderLab();
       await fireEvent.click(chipFor(getByRole, 64));
       await fireEvent.click(chipFor(getByRole, 67));
@@ -117,16 +117,18 @@ describe('NotesLab.svelte', () => {
       const unpicked = [...container.querySelectorAll<HTMLButtonElement>('.chip[aria-pressed="false"]')];
       expect(unpicked).toHaveLength(10);
       for (const chip of unpicked) {
-        expect(chip.disabled).toBe(true);
+        expect(chip.getAttribute('aria-disabled')).toBe('true');
+        expect(chip.disabled).toBe(false); // still in the tab order, so the hint can be reached
         expect(chip.title).toBe('Pick up to three notes');
       }
-      for (const midi of [60, 64, 67]) expect(chipFor(getByRole, midi).disabled).toBe(false);
+      for (const midi of [60, 64, 67]) expect(chipFor(getByRole, midi).getAttribute('aria-disabled')).not.toBe('true');
 
       updateRuleConfigSpy.mockClear();
       dispatchSpy.mockClear();
       await fireEvent.click(chipFor(getByRole, 62));
       expect(updateRuleConfigSpy).not.toHaveBeenCalled();
       expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(chipFor(getByRole, 62).getAttribute('aria-pressed')).toBe('false');
     });
 
     it('deselecting the first note makes the next one the root', async () => {
@@ -332,6 +334,31 @@ describe('NotesLab.svelte', () => {
         // The fake engine runs at speed 1; the fixture is C4 + G4.
         expect(update).toHaveBeenLastCalledWith({ playing: false, speedHz: 1, ratios: [1, 1.5] });
         expect(dispatchSpy).not.toHaveBeenCalled(); // the figure keeps its phase
+      } finally {
+        Reflect.deleteProperty(document, 'hidden');
+        update.mockRestore();
+      }
+    });
+
+    it('stops listening for the tab hiding once the lab is gone', async () => {
+      const update = vi.spyOn(NotesAudio.prototype, 'update');
+      let hidden = false;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+      try {
+        const { container } = await renderLab();
+        // While the lab is up, hiding the tab reaches the voices (the call is synchronous, so it is the handler's).
+        hidden = true;
+        update.mockClear();
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(update).toHaveBeenCalledTimes(1);
+        hidden = false;
+
+        navigate('home'); // leaving the lab unmounts it
+        await vi.waitFor(() => expect(container.querySelector('.picker')).toBeNull());
+        update.mockClear();
+        hidden = true;
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(update).not.toHaveBeenCalled();
       } finally {
         Reflect.deleteProperty(document, 'hidden');
         update.mockRestore();

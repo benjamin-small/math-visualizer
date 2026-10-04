@@ -310,7 +310,7 @@
         <button
           class="btn chip"
           aria-pressed={selected}
-          disabled={!selected && full}
+          aria-disabled={!selected && full}
           title={!selected && full ? 'Pick up to three notes' : undefined}
           style:--note-color={selected ? NOTE_COLORS.bars[order] : undefined}
           onclick={() => onChip(midi)}
@@ -345,9 +345,10 @@
     </p>
     <p>
       Two notes drive one pen: the first moves it up and down, the second left and right, and the pen draws the path they
-      make together. C and G swing in the ratio <strong>3 : 2</strong>, so after two swings of C (and three of G) the pen
-      is back where it started and the loop closes. The strip next to the figure draws the same swings over time: one wave
-      per note, and the brighter line is their sum, the wave your ear actually receives.
+      make together. C and G swing in the ratio <strong>2 : 3</strong> — two swings of C for every three of G (musicians
+      name that interval the other way round, a 3:2 fifth) — so after two swings of C the pen is back where it started and
+      the loop closes. The strip next to the figure draws the same swings over time: one wave per note, and the brighter
+      line is their sum, the wave your ear actually receives.
     </p>
     <p>
       Speed the swings up past about twenty a second and your eyes lose track of them, but your ears pick them up: the
@@ -384,10 +385,9 @@
 </LabShell>
 
 <style>
-  /* The marks are text only. The shell's overlay wrapper covers the canvas,
-     so let pointer events through it too: a drag has to reach the canvas
-     (with three notes it turns the cube). */
-  :global(.overlay):has(> .marks) { pointer-events: none; }
+  /* The marks are text only, so like the shell's overlay wrapper they let
+     pointer events through: a drag has to reach the canvas (with three
+     notes it turns the cube). */
   .marks {
     /* The stage is dark in both themes, so the labels keep one light-on-dark
        look (like the sorting lab's cell badges) instead of the paper tokens. */
@@ -428,7 +428,10 @@
      on its order badge, a dark pill, so the colour is never text on paper. */
   .picker .btn.chip { position: relative; min-width: 3.25rem; justify-content: center; padding: 0 10px; }
   .btn.chip[aria-pressed="true"] { border-color: var(--note-color); box-shadow: inset 0 0 0 1px var(--note-color); }
-  .btn.chip:disabled { opacity: 0.45; cursor: not-allowed; }
+  /* A full picker marks the other chips unavailable rather than disabling
+     them, so they stay focusable and their hint reachable; onChip refuses a
+     fourth note. */
+  .btn.chip[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
   .chip .badge {
     position: absolute;
     top: -7px;
