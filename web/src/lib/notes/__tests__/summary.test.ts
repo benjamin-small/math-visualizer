@@ -152,6 +152,27 @@ describe('swingLabel', () => {
     const noFraction = note({ midi: 67, ratio: 1.5, num: null, den: null });
     expect(swingLabel(noFraction, summary({ notes: [C, noFraction] }))).toBe('G ×3.00');
   });
+
+  it('is just the note name for a lone note, in either tuning, since "C ×1" says nothing', () => {
+    for (const just_intonation of [true, false]) {
+      expect(swingLabel(C, summary({ just_intonation, period: 1, notes: [C] }))).toBe('C');
+      expect(swingLabel(note({ midi: 67 }), summary({ just_intonation, period: 1, notes: [note({ midi: 67 })] }))).toBe('G');
+    }
+    const dFlat = note({ midi: 61 });
+    expect(swingLabel(dFlat, summary({ period: 1, notes: [dFlat] }))).toBe('D♭');
+    expect(swingLabel(C, summary({ period: 1, notes: [C] }))).not.toContain(TIMES);
+  });
+
+  it('keeps the swing count for every note once there are two or more', () => {
+    const triad = summary({ period: 4, notes: [C, E, G] });
+    expect([C, E, G].map((n) => swingLabel(n, triad))).toEqual(['C ×4', 'E ×5', 'G ×6']);
+    const piano = summary({
+      just_intonation: false,
+      period: 4,
+      notes: [C, note({ midi: 64, ratio: 1.2599 }), note({ midi: 67, ratio: 1.4983 })],
+    });
+    expect(piano.notes.map((n) => swingLabel(n, piano))).toEqual(['C ×4.00', 'E ×5.04', 'G ×5.99']);
+  });
 });
 
 describe('ratioLabel', () => {
