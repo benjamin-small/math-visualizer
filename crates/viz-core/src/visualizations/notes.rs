@@ -1059,13 +1059,16 @@ impl Visualization for NotesViz {
         gl.clear_color(r, g, b, a);
         gl.clear(Gl::COLOR_BUFFER_BIT);
 
-        if frame.n_notes == 3 {
-            self.draw_figure_3d(gl, state, cfg, &frame);
-        } else {
-            self.draw_figure_2d(gl, state, cfg, &frame);
+        // Nothing picked leaves the cleared stage (the page shows a prompt).
+        if frame.n_notes > 0 {
+            if frame.n_notes == 3 {
+                self.draw_figure_3d(gl, state, cfg, &frame);
+            } else {
+                self.draw_figure_2d(gl, state, cfg, &frame);
+            }
+            self.draw_bars(gl, state, cfg, &frame);
+            self.draw_strip(gl, state, cfg, &frame);
         }
-        self.draw_bars(gl, state, cfg, &frame);
-        self.draw_strip(gl, state, cfg, &frame);
 
         // Leave a clean slate for whatever draws next.
         gl.disable(Gl::BLEND);

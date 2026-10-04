@@ -113,7 +113,8 @@ fn default_max_iter() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotesConfig {
     /// MIDI notes in bar order: `[0]` is the root (left bar, drives y), `[1]`
-    /// the top bar (x), `[2]` the right bar (depth). Use `effective_notes`
+    /// the top bar (x), `[2]` the right bar (depth). May be empty (nothing
+    /// picked). Use `effective_notes`
     /// for the normalised list the model actually runs on.
     #[serde(default = "default_notes")]
     pub notes: Vec<u8>,
@@ -136,13 +137,10 @@ impl Default for NotesConfig {
 }
 
 impl NotesConfig {
-    /// The notes the model runs on: an empty list becomes the default note,
-    /// at most `MAX_NOTES` are kept (in order), and each is clamped to the
-    /// MIDI range.
+    /// The notes the model runs on: at most `MAX_NOTES` are kept (in order)
+    /// and each is clamped to the MIDI range. An empty list stays empty: the
+    /// lab with nothing picked.
     pub fn effective_notes(&self) -> Vec<u8> {
-        if self.notes.is_empty() {
-            return default_notes();
-        }
         self.notes
             .iter()
             .take(MAX_NOTES)
@@ -160,7 +158,7 @@ impl ConfigSchema for NotesConfig {
                     "type": "array",
                     "title": "Notes (MIDI)",
                     "items": { "type": "integer", "minimum": 0, "maximum": MAX_MIDI },
-                    "minItems": 1,
+                    "minItems": 0,
                     "maxItems": MAX_NOTES,
                     "default": [DEFAULT_NOTE],
                     "x-widget": "notes",
@@ -259,7 +257,8 @@ pub fn displacement_at(note: &NoteState, just_intonation: bool, phase: f64) -> f
 /// `substep` pure.
 fn recompute(cfg: &NotesConfig, n: u32, sub: f32) -> NotesState {
     let midis = cfg.effective_notes();
-    let root = i32::from(midis[0]);
+    // The root only matters once there is a note; an empty pick has none.
+    let root = midis.first().map_or(0, |&midi| i32::from(midi));
     let mut notes: Vec<NoteState> = midis
         .iter()
         .map(|&midi| {
@@ -533,7 +532,7 @@ mod tests {
             );
         }
         let notes = &schema["properties"]["notes"];
-        assert_eq!(notes["minItems"], 1);
+        assert_eq!(notes["minItems"], 0);
         assert_eq!(notes["maxItems"], 3);
         assert_eq!(notes["items"]["maximum"], 127);
         assert_eq!(
@@ -573,7 +572,7 @@ mod tests {
     #[test]
     fn effective_notes_normalizes() {
         let eff = |notes: &[u8]| cfg(notes, true).effective_notes();
-        assert_eq!(eff(&[]), vec![60]);
+        assert_eq!(eff(&[]), Vec::<u8>::new());
         assert_eq!(eff(&[60, 62, 64, 65, 67]), vec![60, 62, 64]);
         assert_eq!(eff(&[200]), vec![127]);
         // Order is bar order, so it must survive; every kept note is clamped.
@@ -635,8 +634,9 @@ mod tests {
     #[test]
     fn init_runs_on_the_normalized_notes() {
         let empty = Notes.init(&cfg(&[], true), 0);
-        assert_eq!(empty.notes.len(), 1);
-        assert_eq!(empty.notes[0].midi, 60);
+        assert!(empty.notes.is_empty(), "nothing picked means no notes");
+        assert_eq!(empty.period, 1);
+        assert!(!empty.closed);
 
         let crowded = Notes.init(&cfg(&[60, 64, 67, 72], true), 0);
         assert_eq!(crowded.notes.len(), 3);

@@ -73,7 +73,7 @@ describe('NotesLab.svelte', () => {
       expect(container.querySelector('.readout')).toBeNull();
       expect(container.querySelector('.clock')).toBeNull();
       expect(container.querySelector('.zoom')).toBeNull();
-      for (const name of ['Play', 'Restart']) expect(getByRole('button', { name }).querySelector('svg')).toBeTruthy();
+      for (const name of ['Play', 'Reset']) expect(getByRole('button', { name }).querySelector('svg')).toBeTruthy();
 
       // One chip per note, C4 to C5 in order, each named by its note.
       const chips = [...container.querySelectorAll<HTMLButtonElement>('.chip')];
@@ -143,24 +143,45 @@ describe('NotesLab.svelte', () => {
       expect(badge(chipFor(getByRole, 67))).toBe('2');
     });
 
-    it('clicking the only picked note keeps it and pushes nothing', async () => {
-      const { getByRole } = await renderLab();
+    it('deselecting the only note leaves an empty pick: nothing to play, Real pitch disabled, a prompt on the stage', async () => {
+      const { container, getByRole } = await renderLab();
       await fireEvent.click(chipFor(getByRole, 60));
-      expect(chipFor(getByRole, 60).getAttribute('aria-pressed')).toBe('true');
-      expect(updateRuleConfigSpy).toHaveBeenCalledTimes(1); // the on-ready push only
+      expect(chipFor(getByRole, 60).getAttribute('aria-pressed')).toBe('false');
+      expect(updateRuleConfigSpy).toHaveBeenLastCalledWith(expect.objectContaining({ notes: [] }));
+      const realPitch = getByRole('button', { name: 'Real pitch' }) as HTMLButtonElement;
+      expect(realPitch.disabled).toBe(true);
+      expect(realPitch.title).toBe('Pick a note first');
+      expect(container.querySelector('.marks .prompt')?.textContent).toBe('Pick a note to start.');
+      expect(location.hash).toBe('#/notes?n=none');
+
+      await fireEvent.click(chipFor(getByRole, 64)); // picking again starts over with that note as the root
+      expect(updateRuleConfigSpy).toHaveBeenLastCalledWith(expect.objectContaining({ notes: [64] }));
+      expect(container.querySelector('.marks .prompt')).toBeNull();
+      expect(realPitch.disabled).toBe(false);
     });
   });
 
   describe('transport', () => {
-    it('Play toggles playback; Restart rewinds, then plays', async () => {
-      const { getByRole } = await renderLab();
+    it('Play toggles playback; Reset puts the settings back to one note, pure ratios and a slow swing, then plays', async () => {
+      const { container, getByRole, getByLabelText } = await renderLab();
       dispatchSpy.mockClear();
       await fireEvent.click(getByRole('button', { name: 'Play' }));
       expect(kinds()).toEqual(['TogglePlay']);
 
+      await fireEvent.click(chipFor(getByRole, 67));
+      await fireEvent.click(getByRole('button', { name: 'Piano' }));
+      await fireEvent.input(getByLabelText('Swings per second'), { target: { value: '0.9' } });
       dispatchSpy.mockClear();
-      await fireEvent.click(getByRole('button', { name: 'Restart' }));
-      expect(kinds()).toEqual(['Reset', 'Play']);
+      updateRuleConfigSpy.mockClear();
+      await fireEvent.click(getByRole('button', { name: 'Reset' }));
+      expect(updateRuleConfigSpy).toHaveBeenCalledWith(expect.objectContaining({ notes: [60], just_intonation: true }));
+      expect(kinds()).toEqual(['SetSpeed', 'Play']);
+      expect(speeds().at(-1)).toBe(0.5);
+      expect(chipFor(getByRole, 60).getAttribute('aria-pressed')).toBe('true');
+      expect(chipFor(getByRole, 67).getAttribute('aria-pressed')).toBe('false');
+      expect(getByRole('button', { name: 'Piano' }).getAttribute('aria-pressed')).toBe('false');
+      expect(readout(container)).toBe(formatHz(0.5));
+      expect(location.hash).toBe('#/notes');
     });
   });
 
@@ -256,7 +277,7 @@ describe('NotesLab.svelte', () => {
       }
     });
 
-    it.each(['Play', 'Restart'])('stops on %s', async (name) => {
+    it.each(['Play', 'Reset'])('stops on %s', async (name) => {
       const { getByRole } = await renderLab();
       const now = await startStuckRamp(getByRole);
       try {
@@ -456,6 +477,7 @@ describe('NotesLab.svelte', () => {
 
     it.each([
       ['n=abc', '#/notes', [60]],
+      ['n=none', '#/notes?n=none', []],
       ['n=60,61,62,63', '#/notes?n=60,61,62', [60, 61, 62]],
       ['n=69,76,81', '#/notes?n=69', [69]],
     ])('rewrites ?%s to the pick that loaded (%s)', async (query, hash, notes) => {

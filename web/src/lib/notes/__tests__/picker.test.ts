@@ -9,8 +9,8 @@ import {
 } from '../picker';
 
 describe('limits', () => {
-  it('allows one to three notes', () => {
-    expect(MIN_NOTES).toBe(1);
+  it('allows up to three notes, an empty pick included', () => {
+    expect(MIN_NOTES).toBe(0);
     expect(MAX_NOTES).toBe(3);
   });
 });
@@ -32,9 +32,9 @@ describe('toggleNote', () => {
     expect(toggleNote(three, 69)).toBe(three);
   });
 
-  it('refuses to remove the only note, handing back the very same array', () => {
-    const one = [60];
-    expect(toggleNote(one, 60)).toBe(one);
+  it('removes the only note too, leaving an empty pick', () => {
+    expect(toggleNote([60], 60)).toEqual([]);
+    expect(toggleNote([], 60)).toEqual([60]);
   });
 
   it('refuses a midi number outside the picker, handing back the very same array', () => {
@@ -113,5 +113,18 @@ describe('formatNotesParam', () => {
 
   it('round-trips through parseNotesParam', () => {
     expect(parseNotesParam(formatNotesParam([67, 60, 64]))).toEqual([67, 60, 64]);
+  });
+});
+
+describe('an empty pick in the link', () => {
+  it("reads 'none' as an empty pick, which is not the same as nothing valid", () => {
+    expect(parseNotesParam('none')).toEqual([]);
+    expect(parseNotesParam(' none ')).toEqual([]);
+    expect(parseNotesParam('')).toBeUndefined();
+  });
+
+  it("writes an empty pick as 'none'", () => {
+    expect(formatNotesParam([])).toBe('none');
+    expect(parseNotesParam(formatNotesParam([]))).toEqual([]);
   });
 });

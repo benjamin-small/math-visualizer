@@ -28,7 +28,7 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   speed and array size (10–300, default 50). Share a size with `#/sorting?n=<size>`.
 >   Turn on **Sound** for a tone per operation (pitch rises with the value, writes ring
 >   brighter than compares) and a chime when a lane finishes.
-> - **Notes & Chords** (`#/notes`) — pick one to three notes from C4 to C5; each swings a
+> - **Notes & Chords** (`#/notes`) — pick up to three notes from C4 to C5; each swings a
 >   dot on its own bar. Two notes draw the Lissajous loop of their interval (a 3:2 closes
 >   after two swings of the first note) and three draw a 3D curve in a turning cube. The
 >   speed slider is the first note's swings per second (0.25–1000 Hz); **Real pitch**
