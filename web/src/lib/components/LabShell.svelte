@@ -369,7 +369,10 @@
     transition: width 120ms linear;
   }
   canvas { width: 100%; height: 100%; display: block; touch-action: none; }
-  .overlay { position: absolute; inset: 0; z-index: 1; }
+  /* Overlay content sits over the canvas but lets pointer events through, so
+     a drag still reaches the engine; a lab's clickable overlay elements opt
+     back in with pointer-events: auto (the sorting grid's buttons do). */
+  .overlay { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 
   .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; padding: 14px 4px 0; font-size: 14px; color: var(--stone); }
   .legend :global(.item) { display: inline-flex; align-items: center; gap: 8px; }

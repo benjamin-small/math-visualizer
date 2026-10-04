@@ -17,7 +17,8 @@
 //! between frames is the phase itself and the smear it drives: once a dot
 //! crosses its bar several times a frame, the dots, pen, guides and playhead
 //! fade out and each bar lights up as a solid strip instead, which is what a
-//! sounding string looks like.
+//! sounding string looks like (and the strip holds its block still, see
+//! `held_strip_origin`).
 //!
 //! The viz owns the GL state for its frame: blending on and no depth test
 //! (it is all alpha-blended lines and discs, drawn in order), the viewport
@@ -58,7 +59,8 @@ pub struct NotesVizConfig {
     pub auto_rotate_speed: f32,
     /// Trail samples per cycle of the fastest note.
     pub samples_per_cycle: u32,
-    /// Cap on the trail's samples per frame.
+    /// Cap on the trail's samples per frame, and on the segments of each of
+    /// the strip's waves.
     pub max_samples: u32,
     /// `[x, y, w, h]` of the figure square in device pixels, canvas origin
     /// top-left, measured and pushed by the lab like the sorting lab's
@@ -368,6 +370,58 @@ pub fn strip_origin(phase: f64, window: f64) -> f64 {
     (phase / window).floor() * window
 }
 
+/// Segments for each of the strip's waves over a `window`-swing block:
+/// `samples_per_cycle` per swing of the fastest note (`max_ratio` swings per
+/// root swing), clamped to `[1, max_segments]` so a far-apart pair (a ratio
+/// in the hundreds, which the schema allows) cannot upload millions of
+/// vertices a frame. One segment is the floor even when `max_segments` is 0.
+pub fn strip_segment_count(
+    window: f64,
+    max_ratio: f64,
+    samples_per_cycle: f64,
+    max_segments: u32,
+) -> usize {
+    let wanted = (window * max_ratio * samples_per_cycle).ceil();
+    // `as` saturates and maps NaN to 0, so the clamp always sees a number.
+    (wanted as usize).clamp(1, (max_segments as usize).max(1))
+}
+
+/// The strip's block for this frame, kept in `hold` as `(origin, window)`
+/// while the swings smear. At audio rates the phase crosses whole blocks
+/// every frame, and a wave that does not repeat within one block (a period
+/// over eight swings, or piano tuning) would re-phase every frame; so from
+/// `SMEAR_HI` up the held block is reused as long as its window still
+/// matches, and is pinned afresh from the phase when there is none or the
+/// window changed. Below the threshold the block follows the phase
+/// (`strip_origin`) and the hold is let go.
+pub fn held_strip_origin(
+    hold: &mut Option<(f64, f64)>,
+    smear: f32,
+    phase: f64,
+    window: f64,
+) -> f64 {
+    if smear < SMEAR_HI {
+        *hold = None;
+        return strip_origin(phase, window);
+    }
+    match *hold {
+        Some((origin, held_window)) if held_window == window => origin,
+        _ => {
+            let origin = strip_origin(phase, window);
+            *hold = Some((origin, window));
+            origin
+        }
+    }
+}
+
+/// Where the playhead sits on the strip's block at `origin`, as a time in
+/// that block: the phase itself while it is in the block, and once the
+/// phase has run on past a held block, its place in its own block, so the
+/// playhead stays on the strip while it fades out.
+pub fn strip_playhead(phase: f64, origin: f64, window: f64) -> f64 {
+    origin + (phase - origin).rem_euclid(window)
+}
+
 /// Samples for a trail spanning `span` root swings: `samples_per_cycle` per
 /// swing of the fastest note (`max_ratio` swings per root swing), clamped to
 /// `[2, max_samples]`. Two, one segment, is the floor even when `max_samples`
@@ -583,8 +637,9 @@ struct FrameCtx {
 }
 
 /// The Notes & Chords visualization. Between frames it keeps only the orbit
-/// camera's angles and the smear tracker (plus GL resources and scratch);
-/// everything it draws is rebuilt from the state each frame.
+/// camera's angles, the smear tracker and the strip's held block (plus GL
+/// resources and scratch); everything it draws is rebuilt from the state
+/// each frame.
 pub struct NotesViz {
     camera: Camera3D,
     /// Accumulated by `tick`: the cube's slow spin.
@@ -601,6 +656,10 @@ pub struct NotesViz {
     /// This frame's smear, 0 crisp dots … 1 lit bars: quick to rise, a few
     /// frames to fall (see `update_smear`).
     smear: f32,
+    /// The strip's block `(origin, window)` while the swings smear, so the
+    /// waves hold still at audio rates (see `held_strip_origin`); `None`
+    /// otherwise. A backward jump lets it go.
+    strip_hold: Option<(f64, f64)>,
     lines: Option<LineBatch>,
     points: Option<InstancedPoints>,
     quads: Option<InstancedQuads>,
@@ -629,6 +688,7 @@ impl NotesViz {
             cached_auto_speed: DEFAULT_AUTO_ROTATE_SPEED,
             last_phase: None,
             smear: 0.0,
+            strip_hold: None,
             lines: None,
             points: None,
             quads: None,
@@ -642,6 +702,8 @@ impl NotesViz {
         }
     }
 
+    /// The 2D batches every frame draws with. The cube's are made by
+    /// `ensure_3d_resources` once three notes render.
     fn ensure_resources(&mut self, gl: &Gl) -> Result<(), String> {
         if self.lines.is_none() {
             self.lines = Some(LineBatch::new(gl)?);
@@ -652,6 +714,13 @@ impl NotesViz {
         if self.quads.is_none() {
             self.quads = Some(InstancedQuads::new(gl)?);
         }
+        Ok(())
+    }
+
+    /// The cube's line batch and pen, made the first time three notes
+    /// render rather than up front: most notes engines (the home tile's
+    /// two-note one among them) never draw the cube.
+    fn ensure_3d_resources(&mut self, gl: &Gl) -> Result<(), String> {
         if self.lines_3d.is_none() {
             self.lines_3d = Some(LineBatch3D::new(gl)?);
         }
@@ -666,12 +735,14 @@ impl NotesViz {
     /// `SMEAR_DECAY` a frame (to 0 below `SMEAR_FLOOR`), so a frame where the
     /// phase stands still keeps the glow while a real slowdown or a pause
     /// fades it out within about a third of a second. A backward jump (a
-    /// reset or a scrub) still drops it to 0 at once; the first frame starts
-    /// at 0. Either way the tracker restarts from `phase`.
+    /// reset or a scrub) still drops it to 0 at once and lets go of the
+    /// strip's held block; the first frame starts at 0. Either way the
+    /// tracker restarts from `phase`.
     fn update_smear(&mut self, phase: f64) -> f32 {
         let delta = self.last_phase.map_or(0.0, |last| phase - last);
         self.last_phase = Some(phase);
         self.smear = if delta < 0.0 {
+            self.strip_hold = None;
             0.0
         } else {
             let tail = self.smear * SMEAR_DECAY;
@@ -739,7 +810,9 @@ impl NotesViz {
 
     /// Three notes: the curve inside the wireframe cube, drawn through the
     /// orbit camera into the plot's own viewport. Puts the full-canvas
-    /// viewport back before returning, and never clears.
+    /// viewport back before returning, and never clears. The first such
+    /// frame makes the cube's GL resources; a failure skips the figure and
+    /// is retried by the next frame.
     fn draw_figure_3d(
         &mut self,
         gl: &Gl,
@@ -747,6 +820,9 @@ impl NotesViz {
         cfg: &NotesVizConfig,
         frame: &FrameCtx,
     ) {
+        if self.ensure_3d_resources(gl).is_err() {
+            return;
+        }
         let [n0, n1, n2] = [&state.notes[0], &state.notes[1], &state.notes[2]];
         let just = state.just_intonation;
         // x = note 1 (top bar), y = note 0 (left bar), z = note 2 (right
@@ -786,7 +862,7 @@ impl NotesViz {
                 color: cfg.trail_color,
             }),
         );
-        let lines_3d = self.lines_3d.as_mut().expect("ensure_resources ran");
+        let lines_3d = self.lines_3d.as_mut().expect("ensure_3d_resources ran");
         lines_3d.upload(gl, &self.line_3d_scratch);
         lines_3d.draw(gl, &view_proj);
 
@@ -795,7 +871,7 @@ impl NotesViz {
             color: with_alpha(PEN_COLOR, 1.0 - frame.smear),
             radius_px: cfg.pen_size_px * 0.5,
         };
-        let points_3d = self.points_3d.as_mut().expect("ensure_resources ran");
+        let points_3d = self.points_3d.as_mut().expect("ensure_3d_resources ran");
         points_3d.upload(gl, &[pen]);
         points_3d.draw(gl, &view_proj, plot_px);
 
@@ -850,7 +926,10 @@ impl NotesViz {
     /// wave over the current block, their sum divided by the note count, and
     /// the playhead, which fades with the smear like the guides (at audio
     /// rates it would jump across the block every frame). Under the playhead
-    /// each wave shows its dot's place on its bar, in either tuning.
+    /// each wave shows its dot's place on its bar, in either tuning. Once the
+    /// swings smear, the block holds still (`held_strip_origin`) so the waves
+    /// stop re-phasing every frame, and the fading playhead keeps to the
+    /// strip (`strip_playhead`).
     fn draw_strip(&mut self, gl: &Gl, state: &NotesState, cfg: &NotesVizConfig, frame: &FrameCtx) {
         let Some(strip) = frame.layout.strip else {
             return;
@@ -858,9 +937,13 @@ impl NotesViz {
         let notes = &state.notes[..frame.n_notes];
         let just = state.just_intonation;
         let window = strip_window(state.period);
-        let t0 = strip_origin(state.phase, window);
-        let segments =
-            ((window * max_ratio(notes) * STRIP_SAMPLES_PER_CYCLE).ceil() as usize).max(1);
+        let t0 = held_strip_origin(&mut self.strip_hold, frame.smear, state.phase, window);
+        let segments = strip_segment_count(
+            window,
+            max_ratio(notes),
+            STRIP_SAMPLES_PER_CYCLE,
+            cfg.max_samples,
+        );
         let times = move || (0..=segments).map(move |k| t0 + window * k as f64 / segments as f64);
         let [_, cy] = strip.center();
         let x_at = |t: f64| strip.x + strip.w * ((t - t0) / window) as f32;
@@ -896,7 +979,7 @@ impl NotesViz {
                 }),
             );
         }
-        let head = x_at(state.phase);
+        let head = x_at(strip_playhead(state.phase, t0, window));
         let playhead = with_alpha(cfg.guide_color, 1.0 - frame.smear);
         out.extend(segment(
             [head, strip.y],
@@ -937,8 +1020,9 @@ impl Visualization for NotesViz {
 
     /// Runs at construction and again on every `update_viz_config`, which
     /// the lab sends whenever its layout changes. So it only refreshes the
-    /// spin speed `tick` uses and makes sure the GL resources exist; the
-    /// camera and the smear tracker carry over.
+    /// spin speed `tick` uses and makes sure the 2D GL resources exist (the
+    /// cube's wait for its first frame); the camera, the smear tracker and
+    /// the strip's hold carry over.
     fn init(&mut self, gl: &Gl, cfg: &Self::Config) {
         self.cached_auto_speed = cfg.auto_rotate_speed;
         // A failure is retried by the next render, like the other vizzes.
@@ -1320,6 +1404,74 @@ mod tests {
     }
 
     #[test]
+    fn strip_segment_count_scales_and_caps() {
+        assert_eq!(strip_segment_count(2.0, 1.0, 96.0, 8192), 192);
+        // A ratio near 1536 (the pick [0, 127], which the rule's schema
+        // allows) would want about 295k segments a wave.
+        assert_eq!(strip_segment_count(2.0, 1536.0, 96.0, 8192), 8192, "capped");
+        assert_eq!(
+            strip_segment_count(2.0, 1.0, 96.0, 0),
+            1,
+            "one segment at least"
+        );
+    }
+
+    #[test]
+    fn held_strip_origin_holds_the_block_while_smeared() {
+        let mut hold = None;
+        // At audio rates the phase crosses whole blocks every frame: the
+        // first smeared frame pins its block…
+        assert_eq!(held_strip_origin(&mut hold, 1.0, 9.3, 4.0), 8.0);
+        assert_eq!(hold, Some((8.0, 4.0)));
+        // …and later frames keep it, however far the phase runs on.
+        assert_eq!(held_strip_origin(&mut hold, 1.0, 13.7, 4.0), 8.0);
+        assert_eq!(held_strip_origin(&mut hold, 1.0, 1_000.1, 4.0), 8.0);
+        assert_eq!(
+            held_strip_origin(&mut hold, SMEAR_HI, 1_001.9, 4.0),
+            8.0,
+            "still held at the threshold"
+        );
+        assert_eq!(hold, Some((8.0, 4.0)));
+    }
+
+    #[test]
+    fn held_strip_origin_releases_below_the_threshold() {
+        let mut hold = Some((8.0, 4.0));
+        assert_eq!(
+            held_strip_origin(&mut hold, 0.0, 21.5, 4.0),
+            20.0,
+            "recomputed"
+        );
+        assert_eq!(hold, None, "released");
+        // Just under the threshold the block follows the phase too.
+        let mut hold = Some((8.0, 4.0));
+        assert_eq!(held_strip_origin(&mut hold, 0.49, 21.5, 4.0), 20.0);
+        assert_eq!(hold, None);
+    }
+
+    #[test]
+    fn held_strip_origin_resets_when_the_window_changes() {
+        // The held block was laid out for another window, so it no longer
+        // lines up: the block is pinned afresh from the phase.
+        let mut hold = Some((8.0, 4.0));
+        assert_eq!(held_strip_origin(&mut hold, 1.0, 21.5, 8.0), 16.0);
+        assert_eq!(hold, Some((16.0, 8.0)));
+    }
+
+    #[test]
+    fn strip_playhead_stays_on_a_held_block() {
+        assert_eq!(
+            strip_playhead(9.5, 8.0, 4.0),
+            9.5,
+            "in the block: the phase"
+        );
+        // The phase has run on past a held block: the playhead shows its
+        // place in its own block instead of leaving the strip.
+        assert_eq!(strip_playhead(21.5, 8.0, 4.0), 9.5);
+        assert_eq!(strip_playhead(1_000.0, 8.0, 4.0), 8.0, "a block edge");
+    }
+
+    #[test]
     fn trail_sample_count_scales_and_clamps() {
         // Two root swings of C + G: G swings 1.5 times per root swing.
         assert_eq!(trail_sample_count(2.0, 1.5, 40, 8192), 120);
@@ -1638,6 +1790,17 @@ mod tests {
         assert_eq!(viz.update_smear(3.0), 0.0, "a reset jumps back");
         // The tracker restarts from where the jump landed.
         assert!(viz.update_smear(3.02) < 1e-6);
+    }
+
+    #[test]
+    fn a_backward_jump_releases_the_strip_hold() {
+        let mut viz = NotesViz::new();
+        viz.update_smear(100.0);
+        viz.strip_hold = Some((104.0, 4.0));
+        viz.update_smear(107.0); // audio rate: a forward frame keeps it
+        assert_eq!(viz.strip_hold, Some((104.0, 4.0)));
+        viz.update_smear(0.0); // a reset rewinds to the start
+        assert_eq!(viz.strip_hold, None);
     }
 
     #[test]

@@ -179,7 +179,7 @@ math-visualizer/
     │       │   ├── Home.svelte / LabTile.svelte # Gallery home; a live engine per card
     │       │   ├── Icon.svelte / ThemeToggle.svelte # Outline icons; System/Light/Dark
     │       │   ├── labApi.svelte.ts  # Handle labs use: dispatch / patch|setRuleConfig
-    │       │   └── labs/             # SierpinskiLab, FourierLab, SortingLab, NotesLab (info + controls)
+    │       │   └── labs/             # SierpinskiLab, FourierLab, SortingLab, NotesLab
     │       ├── fourier/              # textToPath: opentype.js glyphs → closed, pen-tagged path
     │       ├── sorting/              # lanes/layout/summary: pure helpers for the sorting grid
     │       ├── notes/                # theory/picker/speed/layout/summary/audio: notes lab helpers

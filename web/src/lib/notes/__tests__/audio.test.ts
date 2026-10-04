@@ -54,14 +54,27 @@ describe('voicePlan', () => {
   });
 
   it('is silent below the audible rate but still reports the pitch each voice would have', () => {
-    expect(voicePlan(15, [1, 1.5], true, false)).toEqual([
-      { freq: 15, gain: 0 },
-      { freq: 22.5, gain: 0 },
+    expect(voicePlan(12, [1, 1.5], true, false)).toEqual([
+      { freq: 12, gain: 0 },
+      { freq: 18, gain: 0 },
     ]);
   });
 
   it('fades in across the audible threshold', () => {
     expect(voicePlan(25, [1], true, false)[0].gain).toBeCloseTo(VOICE_LEVEL * 0.5, 12);
+  });
+
+  it("fades each voice in by its own pitch, not the root's", () => {
+    // A note under the root can still be too low to hear when the root is not...
+    expect(voicePlan(25, [1, 0.5], true, false)).toEqual([
+      { freq: 25, gain: (VOICE_LEVEL / 2) * 0.5 },
+      { freq: 12.5, gain: 0 },
+    ]);
+    // ...and a note over it can be heard while the root cannot.
+    expect(voicePlan(15, [1, 1.5], true, false)).toEqual([
+      { freq: 15, gain: 0 },
+      { freq: 22.5, gain: (VOICE_LEVEL / 2) * 0.25 },
+    ]);
   });
 
   it('is silent while paused, keeping the pitches', () => {
@@ -251,12 +264,12 @@ describe('NotesAudio', () => {
 
   it('follows the speed below the audible rate without making a sound', () => {
     const { stub, audio } = unmuted();
-    audio.update(frame({ speedHz: 15 }));
-    expect(stub.oscillators.map((o) => o.frequency.value)).toEqual([15, 22.5]);
+    audio.update(frame({ speedHz: 12 }));
+    expect(stub.oscillators.map((o) => o.frequency.value)).toEqual([12, 18]);
     for (const c of sent(stub)) expect(c.gain.every((args) => args[0] === 0)).toBe(true);
     // A change of speed below the threshold glides the pitch, still silently.
-    audio.update(frame({ speedHz: 16 }));
-    expect(stub.oscillators[0].frequency.setTargetAtTime).toHaveBeenLastCalledWith(16, 1, 0.01);
+    audio.update(frame({ speedHz: 13 }));
+    expect(stub.oscillators[0].frequency.setTargetAtTime).toHaveBeenLastCalledWith(13, 1, 0.01);
     for (const c of sent(stub)) expect(c.gain.every((args) => args[0] === 0)).toBe(true);
     // Speeding up past the threshold brings the voices in.
     audio.update(frame());
