@@ -5,7 +5,7 @@ use viz_core::Engine;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
-use web_sys::HtmlCanvasElement;
+use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -482,4 +482,313 @@ fn frame_dt_is_clamped_so_a_huge_gap_cannot_fast_forward_a_lane() {
         cursor <= 15.0,
         "cursor {cursor} exceeds the clamped dt budget"
     );
+}
+
+// ---- "notes" lab ----
+
+/// The WebGL2 context the engine made on `canvas`: a canvas hands the same
+/// context back to every `getContext("webgl2")`.
+fn gl_of(canvas: &HtmlCanvasElement) -> WebGl2RenderingContext {
+    canvas
+        .get_context("webgl2")
+        .expect("getContext")
+        .expect("the engine made a webgl2 context")
+        .dyn_into::<WebGl2RenderingContext>()
+        .expect("a WebGL2 context")
+}
+
+/// Every viewport, buffer and draw call the frames made was valid.
+fn assert_no_gl_error(gl: &WebGl2RenderingContext) {
+    assert_eq!(
+        gl.get_error(),
+        WebGl2RenderingContext::NO_ERROR,
+        "GL error while rendering"
+    );
+}
+
+/// The canvas pixel at (x, y), with y measured down from the top like the
+/// viz's layout.
+fn pixel_at(gl: &WebGl2RenderingContext, x: i32, y: i32) -> [u8; 4] {
+    let mut px = [0u8; 4];
+    gl.read_pixels_with_opt_u8_array(
+        x,
+        gl.drawing_buffer_height() - 1 - y,
+        1,
+        1,
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(&mut px),
+    )
+    .expect("readPixels");
+    px
+}
+
+fn assert_rgb_near(px: [u8; 4], rgb: [u8; 3], what: &str) {
+    let close = px
+        .iter()
+        .zip(rgb)
+        .all(|(&got, want)| got.abs_diff(want) <= 4);
+    assert!(close, "{what}: pixel {px:?}, expected about {rgb:?}");
+}
+
+fn summary_field(engine: &Engine, name: &str) -> JsValue {
+    js_sys::Reflect::get(&engine.rule_summary(), &JsValue::from_str(name))
+        .unwrap_or_else(|_| panic!("summary field {name}"))
+}
+
+fn snapshot_field(engine: &Engine, name: &str) -> JsValue {
+    js_sys::Reflect::get(&engine.snapshot(), &JsValue::from_str(name))
+        .unwrap_or_else(|_| panic!("snapshot field {name}"))
+}
+
+#[wasm_bindgen_test]
+fn notes_lab_constructs_and_renders() {
+    let canvas = make_canvas("test-canvas-notes");
+    let mut engine =
+        Engine::new("test-canvas-notes", Some("notes".into())).expect("engine constructs");
+    // No rects yet: the viz fits its own square and draws note 0's time plot.
+    engine.frame(0.0);
+    engine.frame(16.0);
+    assert_eq!(engine.lab_id(), "notes");
+    assert_no_gl_error(&gl_of(&canvas));
+}
+
+#[wasm_bindgen_test]
+fn notes_schemas_expose_notes_and_layout_rects() {
+    make_canvas("test-canvas-notes-schemas");
+    let engine =
+        Engine::new("test-canvas-notes-schemas", Some("notes".into())).expect("engine constructs");
+
+    let rule_props = js_sys::Reflect::get(&engine.rule_schema(), &JsValue::from_str("properties"))
+        .expect("rule properties");
+    let notes = js_sys::Reflect::get(&rule_props, &JsValue::from_str("notes")).expect("notes");
+    assert!(
+        !notes.is_undefined() && !notes.is_null(),
+        "rule schema has notes"
+    );
+
+    let viz_props = js_sys::Reflect::get(&engine.viz_schema(), &JsValue::from_str("properties"))
+        .expect("viz properties");
+    for name in ["figure", "strip", "note_colors"] {
+        let p = js_sys::Reflect::get(&viz_props, &JsValue::from_str(name))
+            .unwrap_or_else(|_| panic!("missing property {name}"));
+        assert!(!p.is_undefined() && !p.is_null(), "viz schema has {name}");
+    }
+}
+
+#[wasm_bindgen_test]
+fn notes_renders_one_two_and_three_notes() {
+    let canvas = make_canvas("test-canvas-notes-counts");
+    let mut engine =
+        Engine::new("test-canvas-notes-counts", Some("notes".into())).expect("engine constructs");
+
+    engine
+        .update_rule_config(cmd(r#"{"notes":[60]}"#))
+        .expect("one note");
+    engine.frame(0.0);
+    assert_eq!(summary_field(&engine, "period").as_f64(), Some(1.0));
+
+    // C and G (3:2) close after two swings of C.
+    engine
+        .update_rule_config(cmd(r#"{"notes":[60,67]}"#))
+        .expect("two notes");
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+        .expect("dispatch");
+    engine.frame(16.0);
+    assert_eq!(summary_field(&engine, "period").as_f64(), Some(2.0));
+    assert_eq!(summary_field(&engine, "closed").as_bool(), Some(true));
+
+    // C, E and G (4:5:6) draw the 3D curve.
+    engine
+        .update_rule_config(cmd(r#"{"notes":[60,64,67]}"#))
+        .expect("three notes");
+    engine.frame(32.0);
+    assert_eq!(summary_field(&engine, "period").as_f64(), Some(4.0));
+    let notes = summary_field(&engine, "notes");
+    assert_eq!(js_sys::Array::from(&notes).length(), 3);
+    assert_no_gl_error(&gl_of(&canvas));
+}
+
+#[wasm_bindgen_test]
+fn notes_et_toggle_keeps_the_period() {
+    let canvas = make_canvas("test-canvas-notes-et");
+    let mut engine =
+        Engine::new("test-canvas-notes-et", Some("notes".into())).expect("engine constructs");
+    engine
+        .update_rule_config(cmd(r#"{"notes":[60,67],"just_intonation":false}"#))
+        .expect("piano tuning");
+    // The window still comes from the just fraction, so the piano figure
+    // is drawn over the same two swings and visibly fails to close.
+    assert_eq!(summary_field(&engine, "period").as_f64(), Some(2.0));
+    assert_eq!(
+        summary_field(&engine, "just_intonation").as_bool(),
+        Some(false)
+    );
+    engine.frame(0.0);
+    assert_no_gl_error(&gl_of(&canvas));
+}
+
+#[wasm_bindgen_test]
+fn notes_accepts_figure_and_strip_rects() {
+    let canvas = make_canvas("test-canvas-notes-rects");
+    let mut engine =
+        Engine::new("test-canvas-notes-rects", Some("notes".into())).expect("engine constructs");
+    engine.resize(64, 64);
+
+    // Patch the two rects into the installed config, as the lab does.
+    let cfg = engine.viz_config();
+    js_sys::Reflect::set(&cfg, &JsValue::from_str("figure"), &cmd("[8,8,48,48]")).unwrap();
+    js_sys::Reflect::set(&cfg, &JsValue::from_str("strip"), &cmd("[8,58,48,6]")).unwrap();
+    engine.update_viz_config(cfg).expect("rects accepted");
+
+    let figure = js_sys::Reflect::get(&engine.viz_config(), &JsValue::from_str("figure"))
+        .expect("figure echoed back");
+    let figure: Vec<f64> = js_sys::Array::from(&figure)
+        .iter()
+        .map(|v| v.as_f64().expect("number"))
+        .collect();
+    assert_eq!(figure, vec![8.0, 8.0, 48.0, 48.0]);
+
+    // The strip draws every wave and their sum; three notes add the cube.
+    for notes in [r#"{"notes":[60,67]}"#, r#"{"notes":[60,64,67]}"#] {
+        engine
+            .update_rule_config(cmd(notes))
+            .expect("notes accepted");
+        engine
+            .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+            .expect("dispatch");
+        engine.frame(0.0);
+        engine.frame(16.0);
+    }
+    assert_no_gl_error(&gl_of(&canvas));
+}
+
+#[wasm_bindgen_test]
+fn notes_3d_drag_forwards_and_renders() {
+    let canvas = make_canvas("test-canvas-notes-3d");
+    let mut engine =
+        Engine::new("test-canvas-notes-3d", Some("notes".into())).expect("engine constructs");
+    engine
+        .update_rule_config(cmd(r#"{"notes":[60,64,67]}"#))
+        .expect("three notes");
+    // Three swings in, so the curve has some length.
+    for _ in 0..3 {
+        engine
+            .dispatch(cmd(r#"{"kind":"StepForward"}"#))
+            .expect("dispatch");
+    }
+
+    engine
+        .forward_input(cmd(
+            r#"{"kind":"PointerDown","x":10.0,"y":10.0,"button":0}"#,
+        ))
+        .expect("PointerDown forwards");
+    engine
+        .forward_input(cmd(
+            r#"{"kind":"PointerMove","x":30.0,"y":20.0,"dx":20.0,"dy":10.0,"buttons":1}"#,
+        ))
+        .expect("PointerMove forwards");
+    engine
+        .forward_input(cmd(r#"{"kind":"PointerUp","x":30.0,"y":20.0,"button":0}"#))
+        .expect("PointerUp forwards");
+
+    engine.frame(0.0);
+    engine.frame(16.0);
+    assert_no_gl_error(&gl_of(&canvas));
+}
+
+#[wasm_bindgen_test]
+fn notes_playback_is_effectively_unbounded() {
+    make_canvas("test-canvas-notes-unbounded");
+    let mut engine = Engine::new("test-canvas-notes-unbounded", Some("notes".into()))
+        .expect("engine constructs");
+    engine
+        .dispatch(cmd(r#"{"kind":"SetSpeed","value":8.0}"#))
+        .expect("dispatch");
+    engine
+        .dispatch(cmd(r#"{"kind":"Play"}"#))
+        .expect("dispatch");
+    // frame() clamps dt to 0.25 s, so one second of play takes four steps.
+    for t in [0.0, 250.0, 500.0, 750.0, 1000.0] {
+        engine.frame(t);
+    }
+
+    let iteration = snapshot_field(&engine, "iteration")
+        .as_f64()
+        .expect("iteration");
+    assert!(
+        iteration >= 7.0,
+        "8 swings a second for a second: {iteration}"
+    );
+    assert_eq!(snapshot_field(&engine, "playing").as_bool(), Some(true));
+    assert_eq!(
+        snapshot_field(&engine, "max_iterations").as_f64(),
+        Some(4_294_967_295.0)
+    );
+}
+
+#[wasm_bindgen_test]
+fn notes_set_zoom_is_harmless() {
+    let canvas = make_canvas("test-canvas-notes-zoom");
+    let mut engine =
+        Engine::new("test-canvas-notes-zoom", Some("notes".into())).expect("engine constructs");
+    engine
+        .update_rule_config(cmd(r#"{"notes":[60,64,67]}"#))
+        .expect("three notes");
+    engine.set_zoom(4.0);
+    engine.frame(0.0);
+    engine.set_zoom(0.25);
+    engine.frame(16.0);
+    assert_no_gl_error(&gl_of(&canvas));
+}
+
+#[wasm_bindgen_test]
+fn notes_bar_dots_sit_where_the_layout_puts_them() {
+    // A 64 px canvas and no rects: the fallback square is 53.76 px at
+    // (5.12, 5.12), its 6.45 px gutters put the bars on x = 8.35 (left),
+    // y = 8.35 (top) and x = 55.65 (right), and each bar spans the plot,
+    // 11.57 … 52.43, centred on 32.
+    for (id, notes) in [
+        ("test-canvas-notes-dots-2d", r#"{"notes":[60]}"#),
+        ("test-canvas-notes-dots-3d", r#"{"notes":[60,64,67]}"#),
+    ] {
+        let canvas = make_canvas(id);
+        let mut engine = Engine::new(id, Some("notes".into())).expect("engine constructs");
+        engine
+            .update_rule_config(cmd(notes))
+            .expect("notes accepted");
+        // A quarter swing at the slowest speed: 1/16 of a swing a frame is
+        // well under the smear, so the dots are drawn crisp and opaque.
+        engine
+            .dispatch(cmd(r#"{"kind":"SetSpeed","value":0.25}"#))
+            .expect("dispatch");
+        engine
+            .dispatch(cmd(r#"{"kind":"Play"}"#))
+            .expect("dispatch");
+        for t in [0.0, 250.0, 500.0, 750.0, 1000.0] {
+            engine.frame(t);
+        }
+        assert_eq!(summary_field(&engine, "phase").as_f64(), Some(0.25));
+
+        let gl = gl_of(&canvas);
+        // A quarter swing in, C is at +1: the top of the left bar, which is
+        // the smaller y, never the bottom.
+        assert_rgb_near(pixel_at(&gl, 8, 11), [242, 178, 60], "C atop the left bar");
+        let bottom = pixel_at(&gl, 8, 52);
+        assert!(bottom[0] < 128, "no dot at the left bar's foot: {bottom:?}");
+        if notes.contains("67") {
+            // E (5/4) at sin(2π · 1.25 · 0.25) = 0.924: x = 32 + 0.924 · 20.43.
+            assert_rgb_near(pixel_at(&gl, 50, 8), [240, 102, 92], "E on the top bar");
+            // G (3/2) at sin(2π · 1.5 · 0.25) = 0.707: y = 32 − 0.707 · 20.43.
+            assert_rgb_near(pixel_at(&gl, 55, 17), [108, 198, 142], "G on the right bar");
+        } else {
+            // One note, one bar: the top gutter stays background.
+            assert_rgb_near(pixel_at(&gl, 32, 8), [18, 18, 23], "no top bar");
+        }
+        assert_no_gl_error(&gl);
+    }
 }
