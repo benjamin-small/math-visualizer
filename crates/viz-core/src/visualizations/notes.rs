@@ -14,10 +14,10 @@
 //! Everything is sampled from `displacement_at` every frame, never
 //! accumulated, so resets and scrubs need no bookkeeping: the trail is the
 //! last `trail_window` root swings up to the current phase. The only memory
-//! between frames is the phase itself, for the smear: once a dot crosses its
-//! bar several times a frame, the dots, pen and guides fade out and each bar
-//! lights up as a solid strip instead, which is what a sounding string
-//! looks like.
+//! between frames is the phase itself and the smear it drives: once a dot
+//! crosses its bar several times a frame, the dots, pen, guides and playhead
+//! fade out and each bar lights up as a solid strip instead, which is what a
+//! sounding string looks like.
 //!
 //! The viz owns the GL state for its frame: blending on and no depth test
 //! (it is all alpha-blended lines and discs, drawn in order), the viewport
@@ -426,6 +426,13 @@ fn max_ratio(notes: &[NoteState]) -> f64 {
 pub const SMEAR_LO: f32 = 0.1;
 /// …and where they are gone and the bars glow solid.
 pub const SMEAR_HI: f32 = 0.5;
+/// When the swings slow or stop, the smear falls by this factor a frame
+/// rather than at once, so a single frame where the phase stands still (the
+/// engine zeroes dt after every viz-config push) cannot flash the dots back.
+const SMEAR_DECAY: f32 = 0.85;
+/// A fading smear below this snaps to 0, which ends the tail: from fully lit
+/// that is 19 frames (0.85^19 ≈ 0.046), about a third of a second at 60 fps.
+const SMEAR_FLOOR: f32 = 0.05;
 /// Half the cube's side, in world units. From `CAMERA_DISTANCE` with the
 /// camera's 45° field of view every corner stays on screen at any angle;
 /// 0.55 already pokes out at steep elevations.
@@ -591,7 +598,8 @@ pub struct NotesViz {
     cached_auto_speed: f32,
     /// The phase at the last frame, for the smear; `None` before the first.
     last_phase: Option<f64>,
-    /// This frame's smear: 0 crisp dots … 1 lit bars.
+    /// This frame's smear, 0 crisp dots … 1 lit bars: quick to rise, a few
+    /// frames to fall (see `update_smear`).
     smear: f32,
     lines: Option<LineBatch>,
     points: Option<InstancedPoints>,
@@ -653,13 +661,23 @@ impl NotesViz {
         Ok(())
     }
 
-    /// Tracks the phase from frame to frame and returns this frame's smear
-    /// (see `smear_amount`). The first frame and any backward jump read as
-    /// 0; either way the tracker restarts from `phase`.
+    /// Tracks the phase from frame to frame and returns this frame's smear.
+    /// It rises to `smear_amount` of the phase step at once but falls by
+    /// `SMEAR_DECAY` a frame (to 0 below `SMEAR_FLOOR`), so a frame where the
+    /// phase stands still keeps the glow while a real slowdown or a pause
+    /// fades it out within about a third of a second. A backward jump (a
+    /// reset or a scrub) still drops it to 0 at once; the first frame starts
+    /// at 0. Either way the tracker restarts from `phase`.
     fn update_smear(&mut self, phase: f64) -> f32 {
         let delta = self.last_phase.map_or(0.0, |last| phase - last);
         self.last_phase = Some(phase);
-        self.smear = smear_amount(delta as f32);
+        self.smear = if delta < 0.0 {
+            0.0
+        } else {
+            let tail = self.smear * SMEAR_DECAY;
+            let tail = if tail < SMEAR_FLOOR { 0.0 } else { tail };
+            smear_amount(delta as f32).max(tail)
+        };
         self.smear
     }
 
@@ -830,8 +848,9 @@ impl NotesViz {
 
     /// The waveform strip, when the lab gave one: a centre line, each note's
     /// wave over the current block, their sum divided by the note count, and
-    /// the playhead. Under the playhead each wave shows its dot's place on
-    /// its bar, in either tuning.
+    /// the playhead, which fades with the smear like the guides (at audio
+    /// rates it would jump across the block every frame). Under the playhead
+    /// each wave shows its dot's place on its bar, in either tuning.
     fn draw_strip(&mut self, gl: &Gl, state: &NotesState, cfg: &NotesVizConfig, frame: &FrameCtx) {
         let Some(strip) = frame.layout.strip else {
             return;
@@ -878,10 +897,11 @@ impl NotesViz {
             );
         }
         let head = x_at(state.phase);
+        let playhead = with_alpha(cfg.guide_color, 1.0 - frame.smear);
         out.extend(segment(
             [head, strip.y],
             [head, strip.y + strip.h],
-            cfg.guide_color,
+            playhead,
         ));
         self.flush_lines(gl, &frame.proj);
     }
@@ -1618,5 +1638,29 @@ mod tests {
         assert_eq!(viz.update_smear(3.0), 0.0, "a reset jumps back");
         // The tracker restarts from where the jump landed.
         assert!(viz.update_smear(3.02) < 1e-6);
+    }
+
+    #[test]
+    fn smear_rises_at_once_and_fades_over_frames() {
+        let mut viz = NotesViz::new();
+        let mut phase = 100.0;
+        viz.update_smear(phase);
+        // 440 swings a second: fully smeared from the first fast frame.
+        for _ in 0..10 {
+            phase += 440.0 / 60.0;
+            assert_eq!(viz.update_smear(phase), 1.0);
+        }
+        // After a viz-config push the engine zeroes dt, so the phase stands
+        // still for a frame. That must not flash the dots back.
+        let still = viz.update_smear(phase);
+        assert!(still > 0.5, "one still frame: {still}");
+        // A real stop fades out frame by frame, gone within twenty frames.
+        let mut prev = still;
+        for frame in 2..=20 {
+            let smear = viz.update_smear(phase);
+            assert!(smear <= prev, "still frame {frame}: {smear} after {prev}");
+            prev = smear;
+        }
+        assert_eq!(prev, 0.0);
     }
 }
