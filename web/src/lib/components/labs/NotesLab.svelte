@@ -17,7 +17,7 @@
   import { DEFAULT_SPEED_HZ, RAMP_MS, sliderToHz, hzToSlider, formatHz, rampSpeedAt } from '../../notes/speed';
   import { notesLayout, toDevice, labelAnchors } from '../../notes/layout';
   import { readSummary, swingLabel, ratioLabel, type NotesSummary } from '../../notes/summary';
-  import { NotesAudio } from '../../notes/audio';
+  import { NotesAudio, audibility } from '../../notes/audio';
   import { route, replaceQuery } from '../../router.svelte';
   import { buildQuery } from '../../router';
 
@@ -99,6 +99,8 @@
 
   /** One frequency ratio per note, in bar order (none before the engine reports). */
   const ratiosOf = (s: NotesSummary | null) => s?.notes.map((n) => n.ratio) ?? [];
+  /** How much of the loudest note comes through at the current speed; below 1 it is still too slow to hear in full. */
+  const audible = $derived(audibility(speedHz * Math.max(1, ...ratiosOf(summary))));
 
   // The shell replaces `snapshot` every frame: re-read the summary off that
   // clock and voice the notes at the engine's actual speed.
@@ -326,6 +328,7 @@
         title={muted ? 'Turn sound on' : 'Turn sound off'}
       ><Icon name={muted ? 'volume-off' : 'volume'} />Sound</button>
       <input type="range" min="0" max="1" step="0.01" value={volume} oninput={onVolume} disabled={muted} aria-label="Volume" />
+      {#if !muted && audible < 1}<span class="hint">Too slow to hear yet; try Real pitch.</span>{/if}
     </div>
   {/snippet}
 
@@ -421,6 +424,7 @@
   .speed .value { width: 8ch; text-align: right; color: var(--ink); }
   .sound input { width: 6rem; accent-color: var(--accent); }
   .sound input:disabled { opacity: 0.4; }
+  .sound .hint { color: var(--stone); font-size: 13px; white-space: normal; }
   .btn.mute[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-deep); }
   .tuning .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--tint); color: var(--accent-deep); }
 

@@ -7,8 +7,13 @@
 // compressor.
 import { clamp01, defaultContextFactory, type AudioContextFactory, type AudioContextLike } from '../audio/context';
 
-/** The loudness all voices share; each of n notes gets VOICE_LEVEL / n, so a chord is no louder than one note. */
-export const VOICE_LEVEL = 0.18;
+/**
+ * The loudness all voices share; each of n notes gets VOICE_LEVEL / n, so a chord is no
+ * louder than one note. Sized for one to three sustained sines (the sorting lab's blips
+ * are quieter each but sum across 28 lanes): with the default volume this lands near
+ * -11 dBFS after the compressor, which is comfortable rather than faint.
+ */
+export const VOICE_LEVEL = 0.8;
 /** Below this many swings per second the motion is too slow to hear as a tone. */
 export const AUDIBLE_FROM_HZ = 20;
 /** From here up the tone is at full level; between the two it fades in. */
