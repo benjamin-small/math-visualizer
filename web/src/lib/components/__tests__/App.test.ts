@@ -36,10 +36,18 @@ describe('App.svelte', () => {
 
   it('shows the lab tabs on a lab route with the active one marked', async () => {
     navigate('fourier');
+    const { container, getByRole } = render(App);
+    await vi.waitFor(() => expect(container.querySelector('canvas')).toBeTruthy());
+    expect(container.querySelectorAll('.tabs a')).toHaveLength(4);
+    expect(container.querySelector('.tabs a[aria-current="page"]')?.textContent).toBe('Fourier Epicycles');
+    expect(getByRole('link', { name: 'Notes & Chords' }).getAttribute('href')).toBe('#/notes');
+  });
+
+  it('marks the Notes & Chords tab on the notes route', async () => {
+    navigate('notes');
     const { container } = render(App);
     await vi.waitFor(() => expect(container.querySelector('canvas')).toBeTruthy());
-    expect(container.querySelectorAll('.tabs a')).toHaveLength(3);
-    expect(container.querySelector('.tabs a[aria-current="page"]')?.textContent).toBe('Fourier Epicycles');
+    expect(container.querySelector('.tabs a[aria-current="page"]')?.textContent).toBe('Notes & Chords');
   });
 
   it('mounts a lab with its labelled playback buttons and the iteration readout', async () => {
