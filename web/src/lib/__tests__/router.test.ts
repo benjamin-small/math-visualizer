@@ -36,6 +36,17 @@ describe('parseHashQuery / buildQuery', () => {
     expect(parseHash('#/sorting?n=80')).toBe('sorting');
     expect(parseHashQuery('#/sorting?n=80')).toBe('n=80');
   });
+  it('splits a notes link into its id and query', () => {
+    expect(parseHash('#/notes?n=60,67')).toBe('notes');
+    expect(parseHashQuery('#/notes?n=60,67')).toBe('n=60,67');
+  });
+  it('buildQuery keeps commas raw, and a list still round-trips through URLSearchParams', () => {
+    expect(buildQuery({ n: '60,67' })).toBe('n=60,67');
+    expect(buildQuery({ n: '60,67', t: 'equal' })).toBe('n=60,67&t=equal');
+    expect(new URLSearchParams(buildQuery({ n: '60,67' })).get('n')).toBe('60,67');
+    // Only the encoded comma is restored: a literal "%2C" in a value stays escaped.
+    expect(new URLSearchParams(buildQuery({ text: 'a,%2C' })).get('text')).toBe('a,%2C');
+  });
   it('buildQuery omits undefined/empty values and encodes the rest', () => {
     expect(buildQuery({ text: 'HELLO WORLD', n: '12' })).toBe('text=HELLO+WORLD&n=12');
     expect(buildQuery({ text: undefined, n: '' })).toBe('');

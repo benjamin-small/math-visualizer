@@ -7,6 +7,7 @@
   import SierpinskiLab from './lib/components/labs/SierpinskiLab.svelte';
   import FourierLab from './lib/components/labs/FourierLab.svelte';
   import SortingLab from './lib/components/labs/SortingLab.svelte';
+  import NotesLab from './lib/components/labs/NotesLab.svelte';
 
   onMount(installRouter);
 </script>
@@ -19,6 +20,7 @@
         <a href="#/sierpinski" aria-current={route.id === 'sierpinski' ? 'page' : undefined}>Sierpinski <span class="rest">Pyramid</span></a>
         <a href="#/fourier" aria-current={route.id === 'fourier' ? 'page' : undefined}>Fourier <span class="rest">Epicycles</span></a>
         <a href="#/sorting" aria-current={route.id === 'sorting' ? 'page' : undefined}>Sorting <span class="rest">Algorithms</span></a>
+        <a href="#/notes" aria-current={route.id === 'notes' ? 'page' : undefined}>Notes <span class="rest">&amp; Chords</span></a>
       </nav>
     {/if}
     <a class="source" href="https://github.com/benjamin-small/math-visualizer" rel="noopener" aria-label="Source">
@@ -35,6 +37,8 @@
       <FourierLab />
     {:else if route.id === 'sorting'}
       <SortingLab />
+    {:else if route.id === 'notes'}
+      <NotesLab />
     {:else}
       <SierpinskiLab />
     {/if}
