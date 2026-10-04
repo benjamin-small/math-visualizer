@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { pitchOf, planAudio, SortingAudio, BASE_HZ, OCTAVES, TONE_LEVEL, type AudioContextLike } from '../audio';
+import { pitchOf, planAudio, SortingAudio, BASE_HZ, OCTAVES, TONE_LEVEL } from '../audio';
+import { param, makeStubContext } from '../../test/stubAudio';
 import type { LaneSummary, SortingSummary } from '../summary';
 
 function lane(patch: Partial<LaneSummary> = {}): LaneSummary {
@@ -121,42 +122,6 @@ describe('planAudio', () => {
 });
 
 // ---- Web Audio wrapper, against a stub context ----------------------------
-
-function param(value = 0) {
-  return {
-    value,
-    setValueAtTime: vi.fn(),
-    setTargetAtTime: vi.fn(),
-    cancelScheduledValues: vi.fn(),
-    exponentialRampToValueAtTime: vi.fn(),
-  };
-}
-
-function makeStubContext() {
-  const oscillators: ReturnType<typeof makeOsc>[] = [];
-  function makeOsc() {
-    return {
-      type: 'sine',
-      frequency: param(440),
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      start: vi.fn(),
-      stop: vi.fn(),
-      onended: null as null | (() => void),
-    };
-  }
-  const ctx = {
-    currentTime: 1,
-    state: 'suspended' as AudioContextState,
-    destination: {} as AudioDestinationNode,
-    resume: vi.fn(async () => { ctx.state = 'running'; }),
-    close: vi.fn(async () => { ctx.state = 'closed'; }),
-    createOscillator: vi.fn(() => { const o = makeOsc(); oscillators.push(o); return o; }),
-    createGain: vi.fn(() => ({ gain: param(1), connect: vi.fn(), disconnect: vi.fn() })),
-    createDynamicsCompressor: vi.fn(() => ({ connect: vi.fn() })),
-  };
-  return { ctx: ctx as unknown as AudioContextLike, raw: ctx, oscillators };
-}
 
 describe('SortingAudio', () => {
   it('starts muted and does not touch the browser until unmuted', () => {

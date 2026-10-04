@@ -5,7 +5,12 @@
 // events: one persistent oscillator per lane, retriggered every frame the
 // lane advanced, behind a master gain and a compressor so 28 voices at once
 // stay listenable.
+import { clamp01, defaultContextFactory, type AudioContextFactory, type AudioContextLike } from '../audio/context';
 import type { SortingSummary, TouchKind } from './summary';
+
+// The context plumbing is shared with the notes lab (../audio/context); its two
+// types stay importable from here.
+export type { AudioContextFactory, AudioContextLike };
 
 /** Lowest tone (value 0) and how many octaves the value range spans above it. */
 export const BASE_HZ = 110;
@@ -58,22 +63,6 @@ export function planAudio(prev: SortingSummary | null, next: SortingSummary | nu
   });
   return events;
 }
-
-/** The slice of AudioContext the wrapper uses — lets tests hand in a stub. */
-export type AudioContextLike = Pick<
-  AudioContext,
-  'currentTime' | 'destination' | 'state' | 'resume' | 'close' | 'createOscillator' | 'createGain' | 'createDynamicsCompressor'
->;
-
-export type AudioContextFactory = () => AudioContextLike | null;
-
-/** The browser's AudioContext, or null where there is none (jsdom, old WebKit). */
-export const defaultContextFactory: AudioContextFactory = () => {
-  const Ctor =
-    (globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ??
-    (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  return Ctor ? new Ctor() : null;
-};
 
 interface Voice {
   osc: OscillatorNode;
@@ -230,8 +219,4 @@ export class SortingAudio {
     const now = this.ctx.currentTime;
     for (let i = 0; i < this.voices.length; i++) this.rest(i, now);
   }
-}
-
-function clamp01(v: number): number {
-  return Number.isFinite(v) ? Math.min(Math.max(v, 0), 1) : 0;
 }
