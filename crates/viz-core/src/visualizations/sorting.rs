@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use web_sys::WebGl2RenderingContext;
 
 use crate::config::{color_property, number_property, ConfigSchema, NumberOpts};
-use crate::render::{InstancedQuads, QuadInstance};
+use crate::render::{pixel_projection, InstancedQuads, QuadInstance};
 use crate::rules::sorting::{Lane, Op, SortingState};
 use crate::traits::Visualization;
 
@@ -107,15 +107,6 @@ impl ConfigSchema for SortingVizConfig {
     fn defaults() -> serde_json::Value {
         serde_json::to_value(SortingVizConfig::default()).unwrap()
     }
-}
-
-/// Column-major mat3 mapping device pixels to clip space with **y down**, so
-/// the cell rectangles measured in the DOM can be used verbatim:
-/// `x ∈ [0, w] → [-1, 1]`, `y ∈ [0, h] → [1, -1]`.
-fn pixel_projection(w: u32, h: u32) -> [f32; 9] {
-    let w = w.max(1) as f32;
-    let h = h.max(1) as f32;
-    [2.0 / w, 0.0, 0.0, 0.0, -2.0 / h, 0.0, -1.0, 1.0, 1.0]
 }
 
 /// Color for bar `k`: a finished lane is uniformly `done_color`, otherwise the
@@ -330,23 +321,6 @@ mod tests {
     #[test]
     fn id_is_sorting() {
         assert_eq!(SortingViz::new().id(), "sorting");
-    }
-
-    #[test]
-    fn projection_maps_pixels_to_clip_with_y_down() {
-        let p = pixel_projection(200, 100);
-        assert_eq!(p, [0.01, 0.0, 0.0, 0.0, -0.02, 0.0, -1.0, 1.0, 1.0]);
-        // Column-major: clip = p * (x, y, 1).
-        let map = |x: f32, y: f32| (p[0] * x + p[3] * y + p[6], p[1] * x + p[4] * y + p[7]);
-        assert_eq!(map(0.0, 0.0), (-1.0, 1.0), "top-left");
-        assert_eq!(map(200.0, 100.0), (1.0, -1.0), "bottom-right");
-        assert_eq!(map(100.0, 50.0), (0.0, 0.0), "center");
-    }
-
-    #[test]
-    fn projection_survives_a_zero_sized_canvas() {
-        let p = pixel_projection(0, 0);
-        assert!(p.iter().all(|v| v.is_finite()));
     }
 
     #[test]

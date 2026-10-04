@@ -12,7 +12,7 @@ pub mod line_batch_3d;
 pub mod sdf_circle;
 pub mod shader;
 
-pub use camera_2d::Camera2D;
+pub use camera_2d::{pixel_projection, Camera2D};
 pub use camera_3d::Camera3D;
 pub use instanced_points::{InstancedPoints, PointInstance};
 pub use instanced_points_3d::{InstancedPoints3D, PointInstance3D};
