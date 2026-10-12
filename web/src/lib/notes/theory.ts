@@ -71,8 +71,8 @@ export function etRatio(semitones: number): number {
   return 2 ** (semitones / 12);
 }
 
-/** The picker's chips: three octaves, C3 to C6 (midi 48 through 84). */
-export const PICKER_RANGE: readonly number[] = Array.from({ length: 37 }, (_, i) => 48 + i);
+/** The picker's chips: three octaves, C3 to B5 (midi 48 through 83). */
+export const PICKER_RANGE: readonly number[] = Array.from({ length: 36 }, (_, i) => 48 + i);
 
 /**
  * The viz colours as hex, for the legend, chips and overlay labels. The Rust

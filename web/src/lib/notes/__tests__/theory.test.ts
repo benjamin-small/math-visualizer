@@ -126,10 +126,10 @@ describe('etRatio', () => {
 });
 
 describe('PICKER_RANGE', () => {
-  it('is the thirty-seven semitones from C3 to C6, midi 48 through 84', () => {
-    expect(PICKER_RANGE).toHaveLength(37);
+  it('is the thirty-six semitones from C3 to B5, midi 48 through 83', () => {
+    expect(PICKER_RANGE).toHaveLength(36);
     expect(PICKER_RANGE[0]).toBe(48);
-    expect(PICKER_RANGE[36]).toBe(84);
+    expect(PICKER_RANGE[35]).toBe(83);
     PICKER_RANGE.forEach((m, i) => expect(m).toBe(48 + i));
   });
 });

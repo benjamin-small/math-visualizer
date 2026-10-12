@@ -179,7 +179,7 @@
 
   /** Pick single notes or a chord; a chord is built at once on the current root, when it fits. */
   function onPickMode(event: Event) {
-    const value = (event.currentTarget as HTMLSelectElement).value;
+    const value = (event.currentTarget as HTMLInputElement).value;
     chord = isChordId(value) ? value : null;
     const next = chord && notes.length > 0 ? chordOn(notes[0], chord) : undefined;
     if (next && formatNotesParam(next) !== formatNotesParam(notes)) {
@@ -375,18 +375,24 @@
       <button class="btn" aria-pressed={just} onclick={() => setTuning(true)} title="Whole-number ratios: the loop closes">Pure ratios</button>
       <button class="btn" aria-pressed={!just} onclick={() => setTuning(false)} title="Equal steps, as a piano is tuned: every ratio is rounded a little, so the shape drifts">Piano</button>
     </div>
-    <label class="pick-mode">
-      <span class="name">Pick</span>
-      <select class="btn" value={chord ?? 'notes'} onchange={onPickMode} aria-label="Pick" title="Single notes one at a time, or a whole chord built up from the note you press">
-        <option value="notes">Single notes</option>
-        {#each CHORDS as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
-      </select>
-    </label>
+    <!-- Real radio buttons, so the arrow keys move between the choices; each
+         one is drawn as a pill like the tuning pair, its circle hidden. -->
+    <div class="group pick-mode" role="radiogroup" aria-labelledby="notes-pick-name">
+      <span class="name" id="notes-pick-name">Pick</span>
+      <label class="btn" title="Press notes one at a time">
+        <input type="radio" name="notes-pick" value="notes" checked={chord === null} onchange={onPickMode} />Single notes
+      </label>
+      {#each CHORDS as c (c.id)}
+        <label class="btn" title={`A press builds a ${c.label.toLowerCase()} chord up from that note`}>
+          <input type="radio" name="notes-pick" value={c.id} checked={chord === c.id} onchange={onPickMode} />{c.label}
+        </label>
+      {/each}
+    </div>
     <div class="group picker" role="group" aria-label="Notes">
       {#each PICKER_RANGE as midi, i (midi)}
         {@const order = notes.indexOf(midi)}
-        <!-- Each octave starts a row of its own; the top C stays with the octave below it. -->
-        {#if i > 0 && i < PICKER_RANGE.length - 1 && midi % 12 === 0}<span class="octave-break" aria-hidden="true"></span>{/if}
+        <!-- Each octave starts a row of its own. -->
+        {#if i > 0 && midi % 12 === 0}<span class="octave-break" aria-hidden="true"></span>{/if}
         {@const selected = order !== -1}
         {@const blocked = chipBlocked(midi, selected)}
         <button
@@ -443,12 +449,12 @@
       which rounds every ratio off a little, so its shapes never quite sit still.
     </p>
     <p class="tip">
-      <em>Pick up to three notes</em> from C3 to C6. The first one you pick is the root: it swings on the left bar, and the
+      <em>Pick up to three notes</em> from C3 to B5. The first one you pick is the root: it swings on the left bar, and the
       speed counts its swings. A third note adds depth, and the curve turns inside a cube; drag the cube to look around it.
     </p>
     <p class="tip">
       Set <em>Pick</em> to a chord (Major, Minor, Diminished, Augmented, Sus2 or Sus4) and a press builds that chord up
-      from the note you press; press its root again to clear it. Notes whose chord would run past C6 are greyed out.
+      from the note you press; press its root again to clear it. Notes whose chord would run past B5 are greyed out.
     </p>
     <p class="tip">
       <em>Swings per second</em> runs from one swing every four seconds to a thousand a second. <em>Real pitch</em> glides
@@ -506,7 +512,11 @@
   /* Bezel bits, rendered into LabShell's bezel via `controls`. The shell's
      base `.bezel :global(.btn)` compiles three classes deep, so every button
      override below is at least four and wins whatever the stylesheet order. */
-  .pick-mode { display: flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; white-space: nowrap; }
+  .pick-mode .name { color: var(--stone); font-size: 14px; }
+  .pick-mode input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+  .pick-mode .btn { position: relative; cursor: pointer; }
+  .pick-mode .btn:has(input:checked) { border-color: var(--accent); background: var(--tint); color: var(--accent-deep); }
+  .pick-mode .btn:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   .speed, .sound { display: flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; white-space: nowrap; }
   .speed input { width: 140px; accent-color: var(--accent); }
   .speed .value { width: 8ch; text-align: right; color: var(--ink); }

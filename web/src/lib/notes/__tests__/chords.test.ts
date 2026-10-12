@@ -38,7 +38,7 @@ describe('chordOn', () => {
 
   it('refuses a chord that would run past the top of the picker', () => {
     const top = PICKER_RANGE[PICKER_RANGE.length - 1];
-    expect(chordOn(top - 7, 'major')).toEqual([top - 7, top - 3, top]); // F5 major ends on C6
+    expect(chordOn(top - 7, 'major')).toEqual([top - 7, top - 3, top]); // the highest major chord ends on the top note
     expect(chordOn(top - 6, 'major')).toBeUndefined();
     expect(chordOn(top - 8, 'augmented')).toEqual([top - 8, top - 4, top]);
     expect(chordOn(top - 7, 'augmented')).toBeUndefined();
