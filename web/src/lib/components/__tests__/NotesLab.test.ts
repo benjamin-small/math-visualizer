@@ -67,7 +67,7 @@ describe('NotesLab.svelte', () => {
   const badge = (chip: HTMLElement) => chip.querySelector('.badge')?.textContent;
 
   describe('shell', () => {
-    it('mounts with its own transport and a 13-note picker with C4 picked, and no shell playback or zoom', async () => {
+    it('mounts with its own transport and a 25-note picker with C4 picked, and no shell playback or zoom', async () => {
       const { container, getByRole } = await renderLab();
       expect(getByRole('heading', { level: 1 }).textContent).toBe('Notes & Chords');
       expect(container.querySelector('.readout')).toBeNull();
@@ -75,12 +75,17 @@ describe('NotesLab.svelte', () => {
       expect(container.querySelector('.zoom')).toBeNull();
       for (const name of ['Play', 'Reset']) expect(getByRole('button', { name }).querySelector('svg')).toBeTruthy();
 
-      // One chip per note, C4 to C5 in order, each named by its note.
+      // One chip per note, C3 to C5 in order, each named by its note.
       const chips = [...container.querySelectorAll<HTMLButtonElement>('.chip')];
-      expect(chips).toHaveLength(13);
+      expect(chips).toHaveLength(25);
       expect(PICKER_RANGE.map((midi) => chips.indexOf(chipFor(getByRole, midi)))).toEqual(PICKER_RANGE.map((_, i) => i));
       expect(chipFor(getByRole, 60).getAttribute('aria-pressed')).toBe('true');
-      expect(chips.filter((c) => c.getAttribute('aria-pressed') === 'false')).toHaveLength(12);
+      expect(chips.filter((c) => c.getAttribute('aria-pressed') === 'false')).toHaveLength(24);
+
+      // The picker breaks its rows at the octave: C3 to B3, then C4 to C5.
+      const breaks = container.querySelectorAll('.picker .octave-break');
+      expect(breaks).toHaveLength(1);
+      expect(breaks[0].nextElementSibling).toBe(chipFor(getByRole, 60));
     });
 
     it('on ready sets 0.5 swings per second and pushes C4 in pure ratios, then plays', async () => {
@@ -115,7 +120,7 @@ describe('NotesLab.svelte', () => {
       expect(lastPush()).toEqual(expect.objectContaining({ notes: [60, 64, 67] }));
 
       const unpicked = [...container.querySelectorAll<HTMLButtonElement>('.chip[aria-pressed="false"]')];
-      expect(unpicked).toHaveLength(10);
+      expect(unpicked).toHaveLength(22);
       for (const chip of unpicked) {
         expect(chip.getAttribute('aria-disabled')).toBe('true');
         expect(chip.disabled).toBe(false); // still in the tab order, so the hint can be reached
@@ -480,6 +485,7 @@ describe('NotesLab.svelte', () => {
       ['n=none', '#/notes?n=none', []],
       ['n=60,61,62,63', '#/notes?n=60,61,62', [60, 61, 62]],
       ['n=69,76,81', '#/notes?n=69', [69]],
+      ['n=47,48,60', '#/notes?n=48,60', [48, 60]],
     ])('rewrites ?%s to the pick that loaded (%s)', async (query, hash, notes) => {
       await renderLab(query);
       expect(updateRuleConfigSpy).toHaveBeenCalledWith(expect.objectContaining({ notes }));

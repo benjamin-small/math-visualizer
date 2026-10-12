@@ -39,7 +39,7 @@ describe('toggleNote', () => {
 
   it('refuses a midi number outside the picker, handing back the very same array', () => {
     const one = [60];
-    expect(toggleNote(one, 59)).toBe(one);
+    expect(toggleNote(one, 47)).toBe(one);
     expect(toggleNote(one, 73)).toBe(one);
     expect(toggleNote(one, 61.5)).toBe(one);
     expect(toggleNote(one, NaN)).toBe(one);
@@ -55,7 +55,7 @@ describe('toggleNote', () => {
 
 describe('sanitizeNotes', () => {
   it('keeps integers within the picker, drops duplicates (first wins) and stops at three', () => {
-    expect(sanitizeNotes([60, 60, 67, 999, 61.5, NaN, 72, 64])).toEqual([60, 67, 72]);
+    expect(sanitizeNotes([60, 60, 48, 999, 61.5, NaN, 72, 64])).toEqual([60, 48, 72]);
   });
 
   it('keeps the order it is given', () => {
@@ -64,7 +64,7 @@ describe('sanitizeNotes', () => {
 
   it('may come back empty', () => {
     expect(sanitizeNotes([])).toEqual([]);
-    expect(sanitizeNotes([999, 59, 73])).toEqual([]);
+    expect(sanitizeNotes([999, 47, 73])).toEqual([]);
   });
 
   it('returns a fresh array', () => {
