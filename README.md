@@ -33,7 +33,8 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   root; each note swings a dot on its own bar. Two notes draw the Lissajous loop of their interval (a 3:2 closes
 >   after two swings of the first note) and three draw a 3D curve in a turning cube. The
 >   speed slider is the first note's swings per second (0.25–1000 Hz); **Real pitch**
->   ramps it to that note's true frequency and **Sound** voices the notes once past about
+>   ramps it to that note's true frequency (a new root carries the speed along by the step
+>   between the roots, so the chord moves in pitch, not just in name) and **Sound** voices the notes once past about
 >   20 swings per second. **Pure ratios** closes the loop; **Piano** tuning never quite
 >   does. Share a pick with `#/notes?n=60,67` (`&t=equal` for piano tuning,
 >   `&c=major` for chord mode).

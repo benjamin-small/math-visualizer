@@ -15,7 +15,7 @@
   import { PICKER_RANGE, NOTE_COLORS, midiToHz, noteLabel } from '../../notes/theory';
   import { MAX_NOTES, toggleNote, parseNotesParam, formatNotesParam } from '../../notes/picker';
   import { CHORDS, chordById, chordOn, isChordId, type ChordId } from '../../notes/chords';
-  import { DEFAULT_SPEED_HZ, RAMP_MS, sliderToHz, hzToSlider, formatHz, rampSpeedAt } from '../../notes/speed';
+  import { DEFAULT_SPEED_HZ, MIN_HZ, MAX_HZ, RAMP_MS, sliderToHz, hzToSlider, formatHz, rampSpeedAt } from '../../notes/speed';
   import { notesLayout, toDevice, labelAnchors } from '../../notes/layout';
   import { readSummary, swingLabel, ratioLabel, type NotesSummary } from '../../notes/summary';
   import { NotesAudio, audibility } from '../../notes/audio';
@@ -108,7 +108,7 @@
       chord = p.chord;
       const next = p.notes ?? [DEFAULT_NOTE];
       if (formatNotesParam(next) === formatNotesParam(notes) && p.equal === !just) return;
-      if (next[0] !== notes[0]) cancelRamp(); // a new root: "Real pitch" was heading for the old one's frequency
+      followRoot(notes[0], next[0]);
       notes = next;
       just = !p.equal;
       applyConfig();
@@ -172,7 +172,7 @@
     const current = $state.snapshot(notes);
     const next = pressed(current, midi);
     if (next === current) return; // refused: a fourth note, a chord off the top, or a midi the picker does not offer
-    if (next[0] !== current[0]) cancelRamp(); // a new root: "Real pitch" was heading for the old one's frequency
+    followRoot(current[0], next[0]);
     notes = [...next];
     applyConfig();
   }
@@ -214,6 +214,22 @@
   function setSpeed(hz: number) {
     speedHz = hz;
     api?.dispatch(cmd.setSpeed(hz));
+  }
+
+  /**
+   * The speed counts the root's swings and every other note swings at a ratio
+   * to it, so a new root at the same speed would sound (and draw) exactly
+   * like the old one: C major and D major are both 4 : 5 : 6. Carry the speed
+   * by the step between the roots instead, so at Real pitch the new root
+   * sounds at its own pitch. A pick that empties or starts from empty has no
+   * step to follow. Any glide was heading for the old root, so it stops.
+   */
+  function followRoot(from: number | undefined, to: number | undefined) {
+    if (from === to) return;
+    cancelRamp();
+    if (from === undefined || to === undefined) return;
+    const hz = Math.min(MAX_HZ, Math.max(MIN_HZ, speedHz * (midiToHz(to) / midiToHz(from))));
+    if (hz !== speedHz) setSpeed(hz);
   }
 
   function onSpeedInput(e: Event) {
@@ -437,7 +453,8 @@
     <p class="tip">
       <em>Swings per second</em> runs from one swing every four seconds to a thousand a second. <em>Real pitch</em> glides
       to the root's true frequency (262 a second for C4) over a couple of seconds; moving the slider or pressing
-      <em>Play</em> or <em>Reset</em> stops the glide where it is.
+      <em>Play</em> or <em>Reset</em> stops the glide where it is. A new root carries the speed with it, by the step between
+      the two notes, so after <em>Real pitch</em> D major really sounds a step above C major.
     </p>
     <p class="tip">
       <em>Pure ratios</em> tunes the notes to whole-number ratios, so the loop closes. <em>Piano</em> tunes them the way a
