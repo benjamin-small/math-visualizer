@@ -223,6 +223,52 @@ describe('NotesLab.svelte', () => {
       expect(speeds().at(-1)).toBeCloseTo(sliderToHz(0.5));
       expect(readout(container)).toBe(formatHz(sliderToHz(0.5)));
     });
+
+    describe('follows the root, so a new root sounds at its own pitch', () => {
+      const step = (from: number, to: number) => midiToHz(to) / midiToHz(from);
+
+      it('scales the speed by the new root over the old one when the root changes', async () => {
+        const { container, getByRole, getByLabelText } = await renderLab();
+        await fireEvent.input(getByLabelText('Swings per second'), { target: { value: '0.7' } });
+        const hz = sliderToHz(0.7);
+        dispatchSpy.mockClear();
+        await fireEvent.click(chipFor(getByRole, 64)); // C4 stays the root
+        expect(speeds()).toEqual([]);
+        await fireEvent.click(chipFor(getByRole, 60)); // E4 becomes the root
+        expect(speeds().at(-1)).toBeCloseTo(hz * step(60, 64));
+        expect(readout(container)).toBe(formatHz(hz * step(60, 64)));
+      });
+
+      it('in chord mode, moving the chord up a step raises the speed a step', async () => {
+        const { getByRole, getByLabelText } = await renderLab('c=major');
+        await fireEvent.input(getByLabelText('Swings per second'), { target: { value: '0.7' } });
+        await fireEvent.click(chipFor(getByRole, 62)); // C major to D major
+        expect(lastPush()).toEqual(expect.objectContaining({ notes: [62, 66, 69] }));
+        expect(speeds().at(-1)).toBeCloseTo(sliderToHz(0.7) * step(60, 62));
+      });
+
+      it('stays within the slider: a root change at the top speed holds at the top', async () => {
+        const { getByRole, getByLabelText } = await renderLab('c=major');
+        await fireEvent.input(getByLabelText('Swings per second'), { target: { value: '1' } });
+        await fireEvent.click(chipFor(getByRole, 72));
+        expect(speeds().at(-1)).toBe(sliderToHz(1));
+      });
+
+      it('leaves the speed alone when the pick empties or a note joins an empty pick', async () => {
+        const { getByRole } = await renderLab('c=major');
+        dispatchSpy.mockClear();
+        await fireEvent.click(chipFor(getByRole, 60)); // clears the chord
+        await fireEvent.click(chipFor(getByRole, 62)); // a fresh chord: there is no old root to follow
+        expect(speeds()).toEqual([]);
+      });
+
+      it('follows a link opened while the lab is showing', async () => {
+        const { getByLabelText } = await renderLab();
+        await fireEvent.input(getByLabelText('Swings per second'), { target: { value: '0.7' } });
+        navigate('notes', 'n=67');
+        await vi.waitFor(() => expect(speeds().at(-1)).toBeCloseTo(sliderToHz(0.7) * step(60, 67)));
+      });
+    });
   });
 
   describe('Real pitch', () => {
@@ -514,7 +560,9 @@ describe('NotesLab.svelte', () => {
       await vi.waitFor(() =>
         expect(updateRuleConfigSpy).toHaveBeenCalledWith(expect.objectContaining({ notes: [62, 69], just_intonation: false })),
       );
-      expect(kinds()).toEqual(['Play']);
+      // The root moved from C4 to D4, so the speed follows it a step up before the push plays.
+      expect(kinds()).toEqual(['SetSpeed', 'Play']);
+      expect(speeds()[0]).toBeCloseTo(0.5 * (midiToHz(62) / midiToHz(60)));
       expect(badge(chipFor(getByRole, 62))).toBe('1');
       expect(badge(chipFor(getByRole, 69))).toBe('2');
       expect(getByRole('button', { name: 'Piano' }).getAttribute('aria-pressed')).toBe('true');
