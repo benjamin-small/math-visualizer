@@ -67,7 +67,7 @@ describe('NotesLab.svelte', () => {
   const badge = (chip: HTMLElement) => chip.querySelector('.badge')?.textContent;
 
   describe('shell', () => {
-    it('mounts with its own transport and a 25-note picker with C4 picked, and no shell playback or zoom', async () => {
+    it('mounts with its own transport and a 37-note picker with C4 picked, and no shell playback or zoom', async () => {
       const { container, getByRole } = await renderLab();
       expect(getByRole('heading', { level: 1 }).textContent).toBe('Notes & Chords');
       expect(container.querySelector('.readout')).toBeNull();
@@ -75,17 +75,18 @@ describe('NotesLab.svelte', () => {
       expect(container.querySelector('.zoom')).toBeNull();
       for (const name of ['Play', 'Reset']) expect(getByRole('button', { name }).querySelector('svg')).toBeTruthy();
 
-      // One chip per note, C3 to C5 in order, each named by its note.
+      // One chip per note, C3 to C6 in order, each named by its note.
       const chips = [...container.querySelectorAll<HTMLButtonElement>('.chip')];
-      expect(chips).toHaveLength(25);
+      expect(chips).toHaveLength(37);
       expect(PICKER_RANGE.map((midi) => chips.indexOf(chipFor(getByRole, midi)))).toEqual(PICKER_RANGE.map((_, i) => i));
       expect(chipFor(getByRole, 60).getAttribute('aria-pressed')).toBe('true');
-      expect(chips.filter((c) => c.getAttribute('aria-pressed') === 'false')).toHaveLength(24);
+      expect(chips.filter((c) => c.getAttribute('aria-pressed') === 'false')).toHaveLength(36);
 
-      // The picker breaks its rows at the octave: C3 to B3, then C4 to C5.
+      // The picker breaks its rows at the octave: C3 to B3, C4 to B4, then C5 to C6.
       const breaks = container.querySelectorAll('.picker .octave-break');
-      expect(breaks).toHaveLength(1);
+      expect(breaks).toHaveLength(2);
       expect(breaks[0].nextElementSibling).toBe(chipFor(getByRole, 60));
+      expect(breaks[1].nextElementSibling).toBe(chipFor(getByRole, 72));
     });
 
     it('on ready sets 0.5 swings per second and pushes C4 in pure ratios, then plays', async () => {
@@ -120,7 +121,7 @@ describe('NotesLab.svelte', () => {
       expect(lastPush()).toEqual(expect.objectContaining({ notes: [60, 64, 67] }));
 
       const unpicked = [...container.querySelectorAll<HTMLButtonElement>('.chip[aria-pressed="false"]')];
-      expect(unpicked).toHaveLength(22);
+      expect(unpicked).toHaveLength(34);
       for (const chip of unpicked) {
         expect(chip.getAttribute('aria-disabled')).toBe('true');
         expect(chip.disabled).toBe(false); // still in the tab order, so the hint can be reached
@@ -484,7 +485,7 @@ describe('NotesLab.svelte', () => {
       ['n=abc', '#/notes', [60]],
       ['n=none', '#/notes?n=none', []],
       ['n=60,61,62,63', '#/notes?n=60,61,62', [60, 61, 62]],
-      ['n=69,76,81', '#/notes?n=69', [69]],
+      ['n=69,85,90', '#/notes?n=69', [69]],
       ['n=47,48,60', '#/notes?n=48,60', [48, 60]],
     ])('rewrites ?%s to the pick that loaded (%s)', async (query, hash, notes) => {
       await renderLab(query);
@@ -517,6 +518,104 @@ describe('NotesLab.svelte', () => {
       expect(badge(chipFor(getByRole, 62))).toBe('1');
       expect(badge(chipFor(getByRole, 69))).toBe('2');
       expect(getByRole('button', { name: 'Piano' }).getAttribute('aria-pressed')).toBe('true');
+    });
+  });
+
+  describe('chord mode', () => {
+    /** The Pick select: Single notes or one of the six chords. */
+    const pickSelect = (getByRole: (role: string, opts: { name: string }) => HTMLElement) =>
+      getByRole('combobox', { name: 'Pick' }) as HTMLSelectElement;
+    const choose = (select: HTMLSelectElement, value: string) => fireEvent.change(select, { target: { value } });
+
+    it('starts on single notes and offers the six triads', async () => {
+      const { getByRole } = await renderLab();
+      const select = pickSelect(getByRole);
+      expect(select.value).toBe('notes');
+      expect([...select.options].map((o) => o.textContent)).toEqual([
+        'Single notes', 'Major', 'Minor', 'Diminished', 'Augmented', 'Sus2', 'Sus4',
+      ]);
+    });
+
+    it('choosing a chord builds it on the current root, then plays', async () => {
+      const { getByRole } = await renderLab();
+      updateRuleConfigSpy.mockClear();
+      dispatchSpy.mockClear();
+      await choose(pickSelect(getByRole), 'major');
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [60, 64, 67] }));
+      expect(kinds()).toEqual(['Play']);
+      expect(badge(chipFor(getByRole, 64))).toBe('2');
+      expect(badge(chipFor(getByRole, 67))).toBe('3');
+      expect(location.hash).toBe('#/notes?n=60,64,67&c=major');
+    });
+
+    it('a chip press replaces the pick with that chord; changing the chord re-voices the same root', async () => {
+      const { getByRole } = await renderLab();
+      const select = pickSelect(getByRole);
+      await choose(select, 'minor');
+      await fireEvent.click(chipFor(getByRole, 57)); // A3 minor
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [57, 60, 64] }));
+      // No three-note lock-out in chord mode: every chip stays available.
+      expect(chipFor(getByRole, 50).getAttribute('aria-disabled')).not.toBe('true');
+      await fireEvent.click(chipFor(getByRole, 50)); // D3 minor
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [50, 53, 57] }));
+      await choose(select, 'sus4');
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [50, 55, 57] }));
+      expect(location.hash).toBe('#/notes?n=50,55,57&c=sus4');
+    });
+
+    it('pressing the root again clears the chord', async () => {
+      const { getByRole } = await renderLab();
+      await choose(pickSelect(getByRole), 'major');
+      await fireEvent.click(chipFor(getByRole, 60));
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [] }));
+      expect(location.hash).toBe('#/notes?n=none&c=major');
+    });
+
+    it('marks the roots whose chord would run past C6 unavailable, with a hint, and refuses them', async () => {
+      const { getByRole } = await renderLab();
+      await choose(pickSelect(getByRole), 'major');
+      const f5 = chipFor(getByRole, 77);
+      const fSharp5 = chipFor(getByRole, 78);
+      expect(f5.getAttribute('aria-disabled')).not.toBe('true');
+      expect(fSharp5.getAttribute('aria-disabled')).toBe('true');
+      expect(fSharp5.title).toBe(`Major on ${noteLabel(78)} runs past C6`);
+      updateRuleConfigSpy.mockClear();
+      await fireEvent.click(fSharp5);
+      expect(updateRuleConfigSpy).not.toHaveBeenCalled();
+    });
+
+    it('back to single notes keeps the chord to edit one note at a time', async () => {
+      const { getByRole } = await renderLab();
+      const select = pickSelect(getByRole);
+      await choose(select, 'major');
+      updateRuleConfigSpy.mockClear();
+      await choose(select, 'notes');
+      expect(updateRuleConfigSpy).not.toHaveBeenCalled();
+      expect(location.hash).toBe('#/notes?n=60,64,67');
+      await fireEvent.click(chipFor(getByRole, 64));
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [60, 67] }));
+    });
+
+    it('loads chord mode from a link, keeping its notes as given, and Reset goes back to single notes', async () => {
+      const { getByRole } = await renderLab('n=60,67&c=minor');
+      expect(updateRuleConfigSpy).toHaveBeenCalledWith(expect.objectContaining({ notes: [60, 67] }));
+      expect(pickSelect(getByRole).value).toBe('minor');
+      expect(location.hash).toBe('#/notes?n=60,67&c=minor');
+      await fireEvent.click(getByRole('button', { name: 'Reset' }));
+      expect(pickSelect(getByRole).value).toBe('notes');
+      expect(location.hash).toBe('#/notes');
+    });
+
+    it('drops a chord id it does not know', async () => {
+      const { getByRole } = await renderLab('n=60&c=dom7');
+      expect(pickSelect(getByRole).value).toBe('notes');
+      expect(location.hash).toBe('#/notes');
+    });
+
+    it('adopts a chord from a link opened while the lab is showing', async () => {
+      const { getByRole } = await renderLab();
+      navigate('notes', 'c=augmented');
+      await vi.waitFor(() => expect(pickSelect(getByRole).value).toBe('augmented'));
     });
   });
 
