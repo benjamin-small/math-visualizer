@@ -40,7 +40,7 @@ describe('toggleNote', () => {
   it('refuses a midi number outside the picker, handing back the very same array', () => {
     const one = [60];
     expect(toggleNote(one, 47)).toBe(one);
-    expect(toggleNote(one, 85)).toBe(one);
+    expect(toggleNote(one, 84)).toBe(one);
     expect(toggleNote(one, 61.5)).toBe(one);
     expect(toggleNote(one, NaN)).toBe(one);
   });
@@ -64,7 +64,7 @@ describe('sanitizeNotes', () => {
 
   it('may come back empty', () => {
     expect(sanitizeNotes([])).toEqual([]);
-    expect(sanitizeNotes([999, 47, 85])).toEqual([]);
+    expect(sanitizeNotes([999, 47, 84])).toEqual([]);
   });
 
   it('returns a fresh array', () => {
