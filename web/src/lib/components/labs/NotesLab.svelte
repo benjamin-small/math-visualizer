@@ -21,7 +21,7 @@
   import { route, replaceQuery } from '../../router.svelte';
   import { buildQuery } from '../../router';
 
-  /** C4, middle C: from here every interval in the picker's octave is reachable upward. */
+  /** C4, middle C: the middle of the picker, so every interval in an octave is reachable up or down. */
   const DEFAULT_NOTE = 60;
 
   /**
@@ -320,8 +320,10 @@
       <button class="btn" aria-pressed={!just} onclick={() => setTuning(false)} title="Equal steps, as a piano is tuned: every ratio is rounded a little, so the shape drifts">Piano</button>
     </div>
     <div class="group picker" role="group" aria-label="Notes">
-      {#each PICKER_RANGE as midi (midi)}
+      {#each PICKER_RANGE as midi, i (midi)}
         {@const order = notes.indexOf(midi)}
+        <!-- Each octave starts a row of its own; the top C stays with the octave below it. -->
+        {#if i > 0 && i < PICKER_RANGE.length - 1 && midi % 12 === 0}<span class="octave-break" aria-hidden="true"></span>{/if}
         {@const selected = order !== -1}
         <button
           class="btn chip"
@@ -377,7 +379,7 @@
       which rounds every ratio off a little, so its shapes never quite sit still.
     </p>
     <p class="tip">
-      <em>Pick up to three notes</em> from C4 to C5. The first one you pick is the root: it swings on the left bar, and the
+      <em>Pick up to three notes</em> from C3 to C5. The first one you pick is the root: it swings on the left bar, and the
       speed counts its swings. A third note adds depth, and the curve turns inside a cube; drag the cube to look around it.
     </p>
     <p class="tip">
@@ -446,6 +448,7 @@
 
   /* The note picker. A picked chip wears its bar's colour on the border and
      on its order badge, a dark pill, so the colour is never text on paper. */
+  .picker .octave-break { flex-basis: 100%; height: 0; }
   .picker .btn.chip { position: relative; min-width: 3.25rem; justify-content: center; padding: 0 10px; }
   .btn.chip[aria-pressed="true"] { border-color: var(--note-color); box-shadow: inset 0 0 0 1px var(--note-color); }
   /* A full picker marks the other chips unavailable rather than disabling

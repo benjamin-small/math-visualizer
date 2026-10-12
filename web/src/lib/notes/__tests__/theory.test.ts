@@ -48,6 +48,7 @@ describe('noteName', () => {
 
 describe('noteLabel', () => {
   it('adds the octave, with middle C (midi 60) in octave 4', () => {
+    expect(noteLabel(48)).toBe('C3');
     expect(noteLabel(60)).toBe('C4');
     expect(noteLabel(72)).toBe('C5');
     expect(noteLabel(69)).toBe('A4');
@@ -124,11 +125,11 @@ describe('etRatio', () => {
 });
 
 describe('PICKER_RANGE', () => {
-  it('is the thirteen semitones from C4 to C5, midi 60 through 72', () => {
-    expect(PICKER_RANGE).toHaveLength(13);
-    expect(PICKER_RANGE[0]).toBe(60);
-    expect(PICKER_RANGE[12]).toBe(72);
-    PICKER_RANGE.forEach((m, i) => expect(m).toBe(60 + i));
+  it('is the twenty-five semitones from C3 to C5, midi 48 through 72', () => {
+    expect(PICKER_RANGE).toHaveLength(25);
+    expect(PICKER_RANGE[0]).toBe(48);
+    expect(PICKER_RANGE[24]).toBe(72);
+    PICKER_RANGE.forEach((m, i) => expect(m).toBe(48 + i));
   });
 });
 
