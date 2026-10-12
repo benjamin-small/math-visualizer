@@ -51,6 +51,7 @@ describe('noteLabel', () => {
     expect(noteLabel(48)).toBe('C3');
     expect(noteLabel(60)).toBe('C4');
     expect(noteLabel(72)).toBe('C5');
+    expect(noteLabel(84)).toBe('C6');
     expect(noteLabel(69)).toBe('A4');
     expect(noteLabel(61)).toBe('D♭4');
   });
@@ -125,10 +126,10 @@ describe('etRatio', () => {
 });
 
 describe('PICKER_RANGE', () => {
-  it('is the twenty-five semitones from C3 to C5, midi 48 through 72', () => {
-    expect(PICKER_RANGE).toHaveLength(25);
+  it('is the thirty-seven semitones from C3 to C6, midi 48 through 84', () => {
+    expect(PICKER_RANGE).toHaveLength(37);
     expect(PICKER_RANGE[0]).toBe(48);
-    expect(PICKER_RANGE[24]).toBe(72);
+    expect(PICKER_RANGE[36]).toBe(84);
     PICKER_RANGE.forEach((m, i) => expect(m).toBe(48 + i));
   });
 });

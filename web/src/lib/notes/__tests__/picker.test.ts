@@ -40,7 +40,7 @@ describe('toggleNote', () => {
   it('refuses a midi number outside the picker, handing back the very same array', () => {
     const one = [60];
     expect(toggleNote(one, 47)).toBe(one);
-    expect(toggleNote(one, 73)).toBe(one);
+    expect(toggleNote(one, 85)).toBe(one);
     expect(toggleNote(one, 61.5)).toBe(one);
     expect(toggleNote(one, NaN)).toBe(one);
   });
@@ -64,7 +64,7 @@ describe('sanitizeNotes', () => {
 
   it('may come back empty', () => {
     expect(sanitizeNotes([])).toEqual([]);
-    expect(sanitizeNotes([999, 47, 73])).toEqual([]);
+    expect(sanitizeNotes([999, 47, 85])).toEqual([]);
   });
 
   it('returns a fresh array', () => {
@@ -81,7 +81,7 @@ describe('parseNotesParam', () => {
   });
 
   it('drops the numbers the picker does not offer and keeps the rest', () => {
-    expect(parseNotesParam('69,76,81')).toEqual([69]);
+    expect(parseNotesParam('69,85,90')).toEqual([69]);
     expect(parseNotesParam('60,abc,64')).toEqual([60, 64]);
     expect(parseNotesParam('60,61,62,63')).toEqual([60, 61, 62]);
     expect(parseNotesParam('64,64,60')).toEqual([64, 60]);
@@ -92,7 +92,7 @@ describe('parseNotesParam', () => {
     expect(parseNotesParam('')).toBeUndefined();
     expect(parseNotesParam(null)).toBeUndefined();
     expect(parseNotesParam(',,')).toBeUndefined();
-    expect(parseNotesParam('76,81')).toBeUndefined();
+    expect(parseNotesParam('85,90')).toBeUndefined();
   });
 
   it('accepts plain decimal integers only, not the other spellings Number() would take', () => {

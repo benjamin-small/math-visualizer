@@ -14,6 +14,7 @@
   import { cmd } from '../../playback/commands';
   import { PICKER_RANGE, NOTE_COLORS, midiToHz, noteLabel } from '../../notes/theory';
   import { MAX_NOTES, toggleNote, parseNotesParam, formatNotesParam } from '../../notes/picker';
+  import { CHORDS, chordById, chordOn, isChordId, type ChordId } from '../../notes/chords';
   import { DEFAULT_SPEED_HZ, RAMP_MS, sliderToHz, hzToSlider, formatHz, rampSpeedAt } from '../../notes/speed';
   import { notesLayout, toDevice, labelAnchors } from '../../notes/layout';
   import { readSummary, swingLabel, ratioLabel, type NotesSummary } from '../../notes/summary';
@@ -26,12 +27,14 @@
 
   /**
    * Read the shareable-link params from a hash query: `n=60,67` (the pick, cut
-   * down to a legal one; undefined when nothing valid is left) and `t=equal`
-   * (piano tuning).
+   * down to a legal one; undefined when nothing valid is left), `t=equal`
+   * (piano tuning) and `c=major` (chord mode; null for single notes or an id
+   * we do not know).
    */
-  function paramsOf(query: string): { notes?: number[]; equal: boolean } {
+  function paramsOf(query: string): { notes?: number[]; equal: boolean; chord: ChordId | null } {
     const p = new URLSearchParams(query);
-    return { notes: parseNotesParam(p.get('n')), equal: p.get('t') === 'equal' };
+    const c = p.get('c');
+    return { notes: parseNotesParam(p.get('n')), equal: p.get('t') === 'equal', chord: isChordId(c) ? c : null };
   }
   const linked = paramsOf(route.query);
 
@@ -39,6 +42,8 @@
   let notes = $state<number[]>(linked.notes ?? [DEFAULT_NOTE]);
   /** Pure ratios (just intonation) or piano tuning (equal temperament). */
   let just = $state(!linked.equal);
+  /** Chord mode: a chip press picks this triad on that note. Null picks single notes. */
+  let chord = $state<ChordId | null>(linked.chord);
   /** The root's swings per second, which is the engine's playback speed. */
   let speedHz = $state(DEFAULT_SPEED_HZ);
   /** Sonification: one sine per note, off until the Sound button is clicked. */
@@ -67,12 +72,22 @@
   /** The overlay's label positions, from the same layout the viz was given. */
   const anchors = $derived(labelAnchors(layout.figure));
 
-  /** The share link for the current pick and tuning, defaults omitted: `n=60,67&t=equal`. */
+  /** Why a chip is unavailable (a full pick, or a chord that would run off the top), or undefined when it is not. */
+  function chipBlocked(midi: number, selected: boolean): string | undefined {
+    if (chord) {
+      if (midi === notes[0] || chordOn(midi, chord)) return undefined;
+      return `${chordById(chord).label} on ${noteLabel(midi)} runs past ${noteLabel(PICKER_RANGE[PICKER_RANGE.length - 1])}`;
+    }
+    return !selected && full ? 'Pick up to three notes' : undefined;
+  }
+
+  /** The share link for the current pick, tuning and chord mode, defaults omitted: `n=60,67&t=equal&c=major`. */
   function currentQuery(): string {
     const pick = $state.snapshot(notes);
     return buildQuery({
       n: pick.length === 1 && pick[0] === DEFAULT_NOTE ? undefined : formatNotesParam(pick),
       t: just ? undefined : 'equal',
+      c: chord ?? undefined,
     });
   }
 
@@ -90,6 +105,7 @@
       if (q === appliedQuery) return;
       appliedQuery = q;
       const p = paramsOf(q);
+      chord = p.chord;
       const next = p.notes ?? [DEFAULT_NOTE];
       if (formatNotesParam(next) === formatNotesParam(notes) && p.equal === !just) return;
       if (next[0] !== notes[0]) cancelRamp(); // a new root: "Real pitch" was heading for the old one's frequency
@@ -142,13 +158,36 @@
     syncUrl();
   }
 
+  /**
+   * In chord mode a press picks that note's chord (the root again clears it);
+   * otherwise it toggles the one note.
+   */
+  function pressed(current: readonly number[], midi: number): readonly number[] {
+    if (!chord) return toggleNote(current, midi);
+    if (midi === current[0]) return [];
+    return chordOn(midi, chord) ?? current;
+  }
+
   function onChip(midi: number) {
     const current = $state.snapshot(notes);
-    const next = toggleNote(current, midi);
-    if (next === current) return; // refused: a fourth note, or a midi the picker does not offer
+    const next = pressed(current, midi);
+    if (next === current) return; // refused: a fourth note, a chord off the top, or a midi the picker does not offer
     if (next[0] !== current[0]) cancelRamp(); // a new root: "Real pitch" was heading for the old one's frequency
     notes = [...next];
     applyConfig();
+  }
+
+  /** Pick single notes or a chord; a chord is built at once on the current root, when it fits. */
+  function onPickMode(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    chord = isChordId(value) ? value : null;
+    const next = chord && notes.length > 0 ? chordOn(notes[0], chord) : undefined;
+    if (next && formatNotesParam(next) !== formatNotesParam(notes)) {
+      notes = next;
+      applyConfig();
+    } else {
+      syncUrl();
+    }
   }
 
   function setTuning(pure: boolean) {
@@ -167,6 +206,7 @@
     cancelRamp();
     notes = [DEFAULT_NOTE];
     just = true;
+    chord = null;
     setSpeed(DEFAULT_SPEED_HZ);
     applyConfig(); // the push rewinds the engine; applyConfig then plays and rewrites the link
   }
@@ -319,17 +359,25 @@
       <button class="btn" aria-pressed={just} onclick={() => setTuning(true)} title="Whole-number ratios: the loop closes">Pure ratios</button>
       <button class="btn" aria-pressed={!just} onclick={() => setTuning(false)} title="Equal steps, as a piano is tuned: every ratio is rounded a little, so the shape drifts">Piano</button>
     </div>
+    <label class="pick-mode">
+      <span class="name">Pick</span>
+      <select class="btn" value={chord ?? 'notes'} onchange={onPickMode} aria-label="Pick" title="Single notes one at a time, or a whole chord built up from the note you press">
+        <option value="notes">Single notes</option>
+        {#each CHORDS as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
+      </select>
+    </label>
     <div class="group picker" role="group" aria-label="Notes">
       {#each PICKER_RANGE as midi, i (midi)}
         {@const order = notes.indexOf(midi)}
         <!-- Each octave starts a row of its own; the top C stays with the octave below it. -->
         {#if i > 0 && i < PICKER_RANGE.length - 1 && midi % 12 === 0}<span class="octave-break" aria-hidden="true"></span>{/if}
         {@const selected = order !== -1}
+        {@const blocked = chipBlocked(midi, selected)}
         <button
           class="btn chip"
           aria-pressed={selected}
-          aria-disabled={!selected && full}
-          title={!selected && full ? 'Pick up to three notes' : undefined}
+          aria-disabled={blocked !== undefined}
+          title={blocked}
           style:--note-color={selected ? NOTE_COLORS.bars[order] : undefined}
           onclick={() => onChip(midi)}
         >{noteLabel(midi)}{#if selected}<span class="badge mono" aria-hidden="true">{order + 1}</span>{/if}</button>
@@ -379,8 +427,12 @@
       which rounds every ratio off a little, so its shapes never quite sit still.
     </p>
     <p class="tip">
-      <em>Pick up to three notes</em> from C3 to C5. The first one you pick is the root: it swings on the left bar, and the
+      <em>Pick up to three notes</em> from C3 to C6. The first one you pick is the root: it swings on the left bar, and the
       speed counts its swings. A third note adds depth, and the curve turns inside a cube; drag the cube to look around it.
+    </p>
+    <p class="tip">
+      Set <em>Pick</em> to a chord (Major, Minor, Diminished, Augmented, Sus2 or Sus4) and a press builds that chord up
+      from the note you press; press its root again to clear it. Notes whose chord would run past C6 are greyed out.
     </p>
     <p class="tip">
       <em>Swings per second</em> runs from one swing every four seconds to a thousand a second. <em>Real pitch</em> glides
@@ -398,7 +450,7 @@
     </p>
     <p class="tip">
       The link in the address bar always holds this setup, ready to share: <em>?n=60,67</em> lists the notes as MIDI
-      numbers (60 is middle C) and <em>&amp;t=equal</em> means piano tuning.
+      numbers (60 is middle C), <em>&amp;t=equal</em> means piano tuning and <em>&amp;c=major</em> keeps chord mode on.
     </p>
   {/snippet}
 </LabShell>
@@ -437,6 +489,7 @@
   /* Bezel bits, rendered into LabShell's bezel via `controls`. The shell's
      base `.bezel :global(.btn)` compiles three classes deep, so every button
      override below is at least four and wins whatever the stylesheet order. */
+  .pick-mode { display: flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; white-space: nowrap; }
   .speed, .sound { display: flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; white-space: nowrap; }
   .speed input { width: 140px; accent-color: var(--accent); }
   .speed .value { width: 8ch; text-align: right; color: var(--ink); }
