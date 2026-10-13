@@ -78,8 +78,8 @@ export const PICKER_RANGE: readonly number[] = Array.from({ length: 36 }, (_, i)
  * The viz colours as hex, for the legend, chips and overlay labels. The Rust
  * visualization's defaults are the source of truth; these copy them.
  */
-export const NOTE_COLORS: { bars: readonly [string, string, string]; trail: string; sum: string } = {
-  bars: ['#F2B23C', '#F0665C', '#6CC68E'],
+export const NOTE_COLORS: { bars: readonly [string, string, string, string]; trail: string; sum: string } = {
+  bars: ['#F2B23C', '#F0665C', '#6CC68E', '#7FA8E8'],
   trail: '#F5E6CC',
   sum: '#E6E9EE',
 };

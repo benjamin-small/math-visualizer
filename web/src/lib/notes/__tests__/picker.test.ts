@@ -9,9 +9,15 @@ import {
 } from '../picker';
 
 describe('limits', () => {
-  it('allows up to three notes, an empty pick included', () => {
+  it('allows up to four notes, an empty pick included', () => {
     expect(MIN_NOTES).toBe(0);
-    expect(MAX_NOTES).toBe(3);
+    expect(MAX_NOTES).toBe(4);
+  });
+});
+
+describe('parseNotesParam (limit)', () => {
+  it('reads a link with five notes as its first four', () => {
+    expect(parseNotesParam('60,64,67,70,72')).toEqual([60, 64, 67, 70]);
   });
 });
 
@@ -27,9 +33,9 @@ describe('toggleNote', () => {
     expect(toggleNote([60, 64], 60)).toEqual([64]);
   });
 
-  it('refuses a fourth note, handing back the very same array', () => {
-    const three = [60, 64, 67];
-    expect(toggleNote(three, 69)).toBe(three);
+  it('refuses a fifth note, handing back the very same array', () => {
+    const four = [60, 64, 67, 70];
+    expect(toggleNote(four, 72)).toBe(four);
   });
 
   it('removes the only note too, leaving an empty pick', () => {
@@ -54,8 +60,8 @@ describe('toggleNote', () => {
 });
 
 describe('sanitizeNotes', () => {
-  it('keeps integers within the picker, drops duplicates (first wins) and stops at three', () => {
-    expect(sanitizeNotes([60, 60, 48, 999, 61.5, NaN, 72, 64])).toEqual([60, 48, 72]);
+  it('keeps integers within the picker, drops duplicates (first wins) and stops at four', () => {
+    expect(sanitizeNotes([60, 60, 48, 999, 61.5, NaN, 72, 64, 67])).toEqual([60, 48, 72, 64]);
   });
 
   it('keeps the order it is given', () => {
@@ -83,7 +89,7 @@ describe('parseNotesParam', () => {
   it('drops the numbers the picker does not offer and keeps the rest', () => {
     expect(parseNotesParam('69,85,90')).toEqual([69]);
     expect(parseNotesParam('60,abc,64')).toEqual([60, 64]);
-    expect(parseNotesParam('60,61,62,63')).toEqual([60, 61, 62]);
+    expect(parseNotesParam('60,61,62,63,64')).toEqual([60, 61, 62, 63]);
     expect(parseNotesParam('64,64,60')).toEqual([64, 60]);
   });
 

@@ -41,7 +41,7 @@ describe('voicePlan', () => {
   });
 
   it('splits the level so any number of notes totals the same loudness', () => {
-    for (const ratios of [[1], [1, 1.5], [1, 1.25, 1.5]]) {
+    for (const ratios of [[1], [1, 1.5], [1, 1.25, 1.5], [1, 1.25, 1.5, 1.8]]) {
       const plan = voicePlan(440, ratios, true, false);
       expect(plan).toHaveLength(ratios.length);
       expect(plan.reduce((total, v) => total + v.gain, 0)).toBeCloseTo(VOICE_LEVEL, 12);
