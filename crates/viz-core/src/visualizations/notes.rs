@@ -577,6 +577,55 @@ pub fn cube_edges(half: f32) -> [[f32; 3]; 24] {
     out
 }
 
+// ---- The fourth dimension ----
+
+/// The 4D eye's distance along w: perspective scales a point by
+/// `D / (D − w)`, so the far cube of a tesseract shrinks inside the near one.
+pub const PERSPECTIVE_4D: f32 = 3.0 * CUBE_HALF;
+/// Brings the perspective-projected tesseract back inside the 3D cube's
+/// bounding sphere (radius `√3 · CUBE_HALF`) at every turn, so the camera
+/// framing is unchanged. The worst case over a full turn is √(5/12) ≈ 0.6455;
+/// pinned by `the_turning_tesseract_stays_inside_the_cube_bounds`.
+pub const FIT_4D: f32 = 0.645;
+
+/// Turns `p` = (x, y, z, w) by `theta` in the x–w plane and then in the z–w
+/// plane. Periodic in 2π, so one slider covers every view; y (the root) is
+/// never touched. At a quarter turn the fourth note lies along x.
+pub fn rotate_4d(p: [f32; 4], theta: f32) -> [f32; 4] {
+    let (s, c) = theta.sin_cos();
+    let [x, y, z, w] = p;
+    let (x, w) = (x * c - w * s, x * s + w * c);
+    let (z, w) = (z * c - w * s, z * s + w * c);
+    [x, y, z, w]
+}
+
+/// Perspective from 4D to 3D along w, then `FIT_4D`: larger w (nearer the 4D
+/// eye) draws larger.
+pub fn project_4d(p: [f32; 4]) -> [f32; 3] {
+    let scale = FIT_4D * PERSPECTIVE_4D / (PERSPECTIVE_4D - p[3]);
+    [p[0] * scale, p[1] * scale, p[2] * scale]
+}
+
+/// The tesseract `[-half, half]⁴` as its 32 edges: each joins two corners
+/// that differ in exactly one coordinate.
+pub fn tesseract_edges(half: f32) -> [[[f32; 4]; 2]; 32] {
+    let corner = |bits: u32| -> [f32; 4] {
+        std::array::from_fn(|axis| if bits & (1 << axis) != 0 { half } else { -half })
+    };
+    let mut out = [[[0.0; 4]; 2]; 32];
+    let mut i = 0;
+    for bits in 0..16u32 {
+        for axis in 0..4 {
+            let other = bits ^ (1 << axis);
+            if other > bits {
+                out[i] = [corner(bits), corner(other)];
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
 /// `c` with its alpha scaled by `scale`.
 pub fn with_alpha(c: [f32; 4], scale: f32) -> [f32; 4] {
     [c[0], c[1], c[2], c[3] * scale]
@@ -1828,5 +1877,86 @@ mod tests {
             prev = smear;
         }
         assert_eq!(prev, 0.0);
+    }
+
+    // ---- the fourth dimension ----
+
+    fn near4(a: [f32; 4], b: [f32; 4]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5)
+    }
+    fn len3(p: [f32; 3]) -> f32 {
+        (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt()
+    }
+
+    #[test]
+    fn rotate_4d_is_the_identity_at_zero_and_periodic() {
+        let p = [0.1, -0.2, 0.3, 0.4];
+        assert!(near4(rotate_4d(p, 0.0), p));
+        assert!(near4(rotate_4d(p, std::f32::consts::TAU), p));
+        assert!(near4(
+            rotate_4d(p, 1.0 + std::f32::consts::TAU),
+            rotate_4d(p, 1.0)
+        ));
+    }
+
+    #[test]
+    fn rotate_4d_keeps_y_and_brings_w_onto_x_at_a_quarter_turn() {
+        let q = rotate_4d([0.0, 0.25, 0.0, 0.5], std::f32::consts::FRAC_PI_2);
+        assert!((q[0] + 0.5).abs() < 1e-5, "x′ = −w, got {q:?}");
+        assert!((q[1] - 0.25).abs() < 1e-6, "y is untouched");
+    }
+
+    #[test]
+    fn rotate_4d_preserves_length() {
+        let p = [0.3, -0.1, 0.2, -0.4];
+        let l = |v: [f32; 4]| v.iter().map(|c| c * c).sum::<f32>();
+        assert!((l(rotate_4d(p, 0.7)) - l(p)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn project_4d_shrinks_points_further_along_w() {
+        let near = project_4d([0.3, 0.3, 0.3, -0.4]);
+        let far = project_4d([0.3, 0.3, 0.3, 0.4]);
+        // w toward the viewer (larger w) scales up; away scales down.
+        assert!(len3(far) > len3(near));
+        assert!((project_4d([0.0; 4])[0]).abs() < 1e-7);
+    }
+
+    #[test]
+    fn the_turning_tesseract_stays_inside_the_cube_bounds() {
+        let limit = 3f32.sqrt() * CUBE_HALF + 1e-4;
+        let mut worst = 0f32;
+        for k in 0u32..720 {
+            let theta = std::f32::consts::TAU * k as f32 / 720.0;
+            for [a, b] in tesseract_edges(CUBE_HALF) {
+                for p in [a, b] {
+                    worst = worst.max(len3(project_4d(rotate_4d(p, theta))));
+                }
+            }
+            // Interior points (a trail lives inside the hypercube) too.
+            for i in 0u32..16 {
+                let f = |j: u32| ((i * 7 + j * 13 + k) % 17) as f32 / 16.0 * 2.0 - 1.0;
+                let p = [f(1), f(2), f(3), f(4)].map(|c| c * CUBE_HALF);
+                worst = worst.max(len3(project_4d(rotate_4d(p, theta))));
+            }
+        }
+        assert!(worst <= limit, "worst radius {worst} > {limit}");
+        assert!(worst > 0.97 * limit, "FIT_4D wastes the frame: {worst}");
+    }
+
+    #[test]
+    fn tesseract_has_32_edges_each_along_one_axis() {
+        let edges = tesseract_edges(0.5);
+        assert_eq!(edges.len(), 32);
+        for [a, b] in edges {
+            let diff = (0..4).filter(|&i| (a[i] - b[i]).abs() > 1e-6).count();
+            assert_eq!(diff, 1, "{a:?} → {b:?}");
+            assert!(a.iter().chain(&b).all(|c| (c.abs() - 0.5).abs() < 1e-6));
+        }
+        // No edge appears twice.
+        let mut keys: Vec<String> = edges.iter().map(|e| format!("{e:?}")).collect();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), 32);
     }
 }
