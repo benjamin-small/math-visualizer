@@ -46,11 +46,11 @@ describe('readSummary', () => {
     expect(s).not.toHaveProperty('extra');
   });
 
-  it('accepts up to three notes, an empty pick included, and no more', () => {
-    for (const notes of [[], [C], [C, G], [C, E, G]]) {
+  it('accepts up to four notes, an empty pick included, and no more', () => {
+    for (const notes of [[], [C], [C, G], [C, E, G], [C, E, G, note({ midi: 70, ratio: 1.8, num: 9, den: 5 })]]) {
       expect(readSummary({ ...notesSummaryFixture, notes })?.notes).toHaveLength(notes.length);
     }
-    expect(readSummary({ ...notesSummaryFixture, notes: [C, E, G, note({ midi: 72, ratio: 2, num: 2, den: 1 })] })).toBeNull();
+    expect(readSummary({ ...notesSummaryFixture, notes: [C, E, G, note({ midi: 70, ratio: 1.8, num: 9, den: 5 }), note({ midi: 72, ratio: 2, num: 2, den: 1 })] })).toBeNull();
   });
 
   it('rejects null, undefined and non-objects', () => {

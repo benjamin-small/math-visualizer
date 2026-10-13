@@ -577,7 +577,7 @@ fn notes_schemas_expose_notes_and_layout_rects() {
 }
 
 #[wasm_bindgen_test]
-fn notes_renders_one_two_and_three_notes() {
+fn notes_renders_one_to_four_notes() {
     let canvas = make_canvas("test-canvas-notes-counts");
     let mut engine =
         Engine::new("test-canvas-notes-counts", Some("notes".into())).expect("engine constructs");
@@ -622,6 +622,21 @@ fn notes_renders_one_two_and_three_notes() {
     assert_eq!(summary_field(&engine, "period").as_f64(), Some(4.0));
     let notes = summary_field(&engine, "notes");
     assert_eq!(js_sys::Array::from(&notes).length(), 3);
+    assert_no_gl_error(&gl_of(&canvas));
+
+    // C, E, G and B♭ (20:25:30:36) draw the tesseract, and the viz reports its 4D angle.
+    engine
+        .update_rule_config(cmd(r#"{"notes":[60,64,67,70]}"#))
+        .expect("four notes");
+    engine.frame(48.0);
+    assert_eq!(summary_field(&engine, "period").as_f64(), Some(20.0));
+    assert_eq!(
+        js_sys::Array::from(&summary_field(&engine, "notes")).length(),
+        4
+    );
+    let angle = js_sys::Reflect::get(&engine.viz_readout(), &JsValue::from_str("angle_4d"))
+        .expect("readout has angle_4d");
+    assert!(angle.as_f64().is_some());
     assert_no_gl_error(&gl_of(&canvas));
 }
 

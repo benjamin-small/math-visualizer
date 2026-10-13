@@ -1,7 +1,8 @@
 <script lang="ts">
-  // The Notes & Chords lab: pick one to three notes and each one swings a dot
+  // The Notes & Chords lab: pick one to four notes and each one swings a dot
   // on its own bar; two draw the loop of their interval, three a curve in a
-  // turning cube. The engine counts the first note's swings, so its playback
+  // turning cube, four a curve in a tesseract turning through the fourth
+  // dimension. The engine counts the first note's swings, so its playback
   // speed is swings per second: this page owns that speed (its own transport,
   // a log slider and a "Real pitch" ramp up to the note's true frequency) and
   // voices the notes once they swing fast enough to hear. It is also the
@@ -38,14 +39,18 @@
   }
   const linked = paramsOf(route.query);
 
-  /** The pick in bar order: [0] is the root (left bar), then the top bar, then the right bar. */
+  /** The pick in bar order: [0] is the root (left bar), then the top bar, the right bar and the bottom bar. */
   let notes = $state<number[]>(linked.notes ?? [DEFAULT_NOTE]);
   /** Pure ratios (just intonation) or piano tuning (equal temperament). */
   let just = $state(!linked.equal);
-  /** Chord mode: a chip press picks this triad on that note. Null picks single notes. */
+  /** Chord mode: a chip press picks this chord (a triad or a seventh) on that note. Null picks single notes. */
   let chord = $state<ChordId | null>(linked.chord);
   /** The root's swings per second, which is the engine's playback speed. */
   let speedHz = $state(DEFAULT_SPEED_HZ);
+  /** The 4D turn (four notes): whether the viz turns it, and the angle in radians the slider shows. */
+  let turning = $state(true);
+  let angle4d = $state(0);
+  const angleDeg = $derived(Math.round((angle4d * 180) / Math.PI) % 360);
   /** Sonification: one sine per note, off until the Sound button is clicked. */
   const audio = new NotesAudio();
   let muted = $state(audio.muted);
@@ -70,7 +75,7 @@
   const full = $derived(notes.length >= MAX_NOTES);
   const playing = $derived(api?.snapshot.playing ?? false);
   /** The overlay's label positions, from the same layout the viz was given. */
-  const anchors = $derived(labelAnchors(layout.figure));
+  const anchors = $derived(labelAnchors(layout.figure, layout.strip));
 
   /** Why a chip is unavailable (a full pick, or a chord that would run off the top), or undefined when it is not. */
   function chipBlocked(midi: number, selected: boolean): string | undefined {
@@ -78,7 +83,7 @@
       if (midi === notes[0] || chordOn(midi, chord)) return undefined;
       return `${chordById(chord).label} on ${noteLabel(midi)} runs past ${noteLabel(PICKER_RANGE[PICKER_RANGE.length - 1])}`;
     }
-    return !selected && full ? 'Pick up to three notes' : undefined;
+    return !selected && full ? 'Pick up to four notes' : undefined;
   }
 
   /** The share link for the current pick, tuning and chord mode, defaults omitted: `n=60,67&t=equal&c=major`. */
@@ -130,6 +135,11 @@
     // this effect just wrote would make it re-run on its own write.
     const next = readSummary(a.readSummary());
     summary = next;
+    // While turning the viz owns the 4D angle; mirror it for the slider.
+    if (untrack(() => notes.length === 4 && turning)) {
+      const r = a.readVizReadout() as { angle_4d?: unknown } | null;
+      if (typeof r?.angle_4d === 'number') angle4d = r.angle_4d;
+    }
     audio.update({ playing: on, speedHz: speed, ratios: ratiosOf(next) });
   });
 
@@ -171,7 +181,7 @@
   function onChip(midi: number) {
     const current = $state.snapshot(notes);
     const next = pressed(current, midi);
-    if (next === current) return; // refused: a fourth note, a chord off the top, or a midi the picker does not offer
+    if (next === current) return; // refused: a fifth note, a chord off the top, or a midi the picker does not offer
     followRoot(current[0], next[0]);
     notes = [...next];
     applyConfig();
@@ -201,13 +211,18 @@
     api?.dispatch(cmd.togglePlay());
   }
 
-  /** Back to the defaults (one note, pure ratios, half a swing a second), from the first swing, playing. */
+  /** Back to the defaults (one note, pure ratios, half a swing a second, the 4D turn on), from the first swing, playing. */
   function onReset() {
     cancelRamp();
     notes = [DEFAULT_NOTE];
     just = true;
     chord = null;
     setSpeed(DEFAULT_SPEED_HZ);
+    // A held angle is only taken while held, so set it held at 0, then turn.
+    angle4d = 0;
+    turning = true;
+    api?.patchVizConfig({ turn_4d: false, angle_4d: 0 });
+    api?.patchVizConfig({ turn_4d: true });
     applyConfig(); // the push rewinds the engine; applyConfig then plays and rewrites the link
   }
 
@@ -230,6 +245,19 @@
     if (from === undefined || to === undefined) return;
     const hz = Math.min(MAX_HZ, Math.max(MIN_HZ, speedHz * (midiToHz(to) / midiToHz(from))));
     if (hz !== speedHz) setSpeed(hz);
+  }
+
+  /** Hold the turn at the slider's angle. */
+  function on4dInput(e: Event) {
+    angle4d = (Number((e.target as HTMLInputElement).value) * Math.PI) / 180;
+    turning = false;
+    api?.patchVizConfig({ turn_4d: false, angle_4d: angle4d });
+  }
+
+  /** Start or stop the turn; stopping holds it where the slider shows. */
+  function toggleTurn() {
+    turning = !turning;
+    api?.patchVizConfig(turning ? { turn_4d: true } : { turn_4d: false, angle_4d: angle4d });
   }
 
   function onSpeedInput(e: Event) {
@@ -308,7 +336,7 @@
     // paused at 0, so Play follows.
     a.patchRuleConfig({ notes: $state.snapshot(notes), just_intonation: just });
     a.dispatch(cmd.play());
-    // A link that had to be cleaned up (?n=abc, a fourth note, a note off the
+    // A link that had to be cleaned up (?n=abc, a fifth note, a note off the
     // picker) is rewritten to what actually loaded.
     if (route.query !== currentQuery()) syncUrl();
     pushLayout();
@@ -329,14 +357,15 @@
 <LabShell
   labId="notes"
   title="Notes &amp; Chords"
-  thesis="Every note is a vibration; two or three at once draw the shape of their interval."
+  thesis="Every note is a vibration; two or more at once draw the shape of their interval."
   playback={false}
   zoom={false}
   {onReady}
 >
   {#snippet overlay()}
     <!-- Text over the canvas, placed from the layout the viz was given: each
-         note's swing count at its bar's end, and the ratio under the figure. -->
+         note's swing count at its bar's end, and the ratio in the strip's
+         corner (under the figure when there is no strip). -->
     <div class="marks" bind:this={overlayEl}>
       {#if empty}
         <span class="prompt" style:left="{layout.figure.x + layout.figure.w / 2}px" style:top="{layout.figure.y + layout.figure.h / 2}px">Pick a note to start.</span>
@@ -352,7 +381,7 @@
           >{swingLabel(note, summary)}</span>
         {/each}
         {#if summary.notes.length > 1}
-          <span class="ratio mono" style:left="{anchors.ratio.x}px" style:top="{anchors.ratio.y}px">{ratioLabel(summary)}</span>
+          <span class="ratio mono" class:corner={anchors.ratioInCorner} style:left="{anchors.ratio.x}px" style:top="{anchors.ratio.y}px">{ratioLabel(summary)}</span>
         {/if}
       {/if}
     </div>
@@ -363,7 +392,7 @@
       <button class="btn primary" onclick={onTogglePlay}>
         <Icon name={playing ? 'pause' : 'play'} />{playing ? 'Pause' : 'Play'}
       </button>
-      <button class="btn" onclick={onReset} title="Back to one note, pure ratios and half a swing a second, playing"><Icon name="rotate-ccw" />Reset</button>
+      <button class="btn" onclick={onReset} title="Back to one note, pure ratios, half a swing a second, the 4D turn back on, playing"><Icon name="rotate-ccw" />Reset</button>
     </div>
     <label class="speed">
       <span class="name">Swings per second</span>
@@ -382,8 +411,16 @@
       <label class="btn" title="Press notes one at a time">
         <input type="radio" name="notes-pick" value="notes" checked={chord === null} onchange={onPickMode} />Single notes
       </label>
-      {#each CHORDS as c (c.id)}
+      {#each CHORDS.filter((c) => c.group === 'triad') as c (c.id)}
         <label class="btn" title={`A press builds a ${c.label.toLowerCase()} chord up from that note`}>
+          <input type="radio" name="notes-pick" value={c.id} checked={chord === c.id} onchange={onPickMode} />{c.label}
+        </label>
+      {/each}
+      <!-- The sevenths take a row of their own, still in the one radio group. -->
+      <span class="row-break" aria-hidden="true"></span>
+      <span class="name">Sevenths</span>
+      {#each CHORDS.filter((c) => c.group === 'seventh') as c (c.id)}
+        <label class="btn" title={`A press builds a ${c.label} chord up from that note: four notes`}>
           <input type="radio" name="notes-pick" value={c.id} checked={chord === c.id} onchange={onPickMode} />{c.label}
         </label>
       {/each}
@@ -405,6 +442,16 @@
         >{noteLabel(midi)}{#if selected}<span class="badge mono" aria-hidden="true">{order + 1}</span>{/if}</button>
       {/each}
     </div>
+    {#if notes.length === 4}
+      <div class="group turn-4d">
+        <label class="speed">
+          <span class="name">4D turn</span>
+          <input type="range" min="0" max="359" step="1" value={angleDeg} oninput={on4dInput} aria-label="4D turn" />
+          <span class="value mono">{angleDeg}°</span>
+        </label>
+        <button class="btn" aria-pressed={turning} onclick={toggleTurn} title={turning ? 'Hold the turn where it is' : 'Turn through the fourth dimension again'}>Turn</button>
+      </div>
+    {/if}
     <div class="sound group">
       <button
         class="btn mute"
@@ -422,6 +469,7 @@
     <span class="item"><i class="swatch" style:background={NOTE_COLORS.bars[0]}></i>Note 1 (left bar)</span>
     <span class="item"><i class="swatch" style:background={NOTE_COLORS.bars[1]}></i>Note 2 (top bar)</span>
     <span class="item"><i class="swatch" style:background={NOTE_COLORS.bars[2]}></i>Note 3 (right bar)</span>
+    <span class="item"><i class="swatch" style:background={NOTE_COLORS.bars[3]}></i>Note 4 (bottom bar)</span>
     <span class="item"><i class="swatch" style:background={NOTE_COLORS.trail}></i>Trail</span>
     <span class="item"><i class="swatch" style:background={NOTE_COLORS.sum}></i>Sum line</span>
   {/snippet}
@@ -449,12 +497,15 @@
       which rounds every ratio off a little, so its shapes never quite sit still.
     </p>
     <p class="tip">
-      <em>Pick up to three notes</em> from C3 to B5. The first one you pick is the root: it swings on the left bar, and the
-      speed counts its swings. A third note adds depth, and the curve turns inside a cube; drag the cube to look around it.
+      <em>Pick up to four notes</em> from C3 to B5. The first one you pick is the root: it swings on the left bar, and the
+      speed counts its swings. A third note adds depth, and the curve turns inside a cube; a fourth turns that cube into a
+      tesseract, a four-dimensional cube, and the curve folds through it. The <em>4D turn</em> slider holds it at an angle
+      and <em>Turn</em> sets it going again; drag to look around it.
     </p>
     <p class="tip">
       Set <em>Pick</em> to a chord (Major, Minor, Diminished, Augmented, Sus2 or Sus4) and a press builds that chord up
-      from the note you press; press its root again to clear it. Notes whose chord would run past B5 are greyed out.
+      from the note you press; press its root again to clear it. The row of sevenths (Dom7, Maj7, Min7, Half-dim7
+      and Dim7) builds four notes the same way. Notes whose chord would run past B5 are greyed out.
     </p>
     <p class="tip">
       <em>Swings per second</em> runs from one swing every four seconds to a thousand a second. <em>Real pitch</em> glides
@@ -473,15 +524,15 @@
     </p>
     <p class="tip">
       The link in the address bar always holds this setup, ready to share: <em>?n=60,67</em> lists the notes as MIDI
-      numbers (60 is middle C), <em>&amp;t=equal</em> means piano tuning and <em>&amp;c=major</em> keeps chord mode on.
+      numbers (60 is middle C), <em>&amp;t=equal</em> means piano tuning and <em>&amp;c=major</em> (or <em>&amp;c=dom7</em>) keeps chord mode on.
     </p>
   {/snippet}
 </LabShell>
 
 <style>
   /* The marks are text only, so like the shell's overlay wrapper they let
-     pointer events through: a drag has to reach the canvas (with three
-     notes it turns the cube). */
+     pointer events through: a drag has to reach the canvas (with three or
+     four notes it turns the cube or the tesseract). */
   .marks {
     /* The stage is dark in both themes, so the labels keep one light-on-dark
        look (like the sorting lab's cell badges) instead of the paper tokens. */
@@ -501,11 +552,13 @@
     background: var(--label-bg);
     white-space: nowrap;
   }
-  /* A bar's bottom end hangs its label just below it; the top bar's right end, just to its right. */
+  /* A bar's bottom end hangs its label just below it; the top and bottom bars' right ends, just to their right. */
   .note-label { transform: translate(-50%, 4px); }
   .note-label.beside { transform: translate(6px, -50%); }
   /* The ratio sits centred in the figure's bottom gutter, which has no bar. */
   .ratio { font-size: 13px; transform: translate(-50%, -50%); }
+  /* With the strip beside the figure, the ratio hangs just inside the strip's top-left corner. */
+  .ratio.corner { transform: translate(6px, 6px); }
   /* The empty stage's invitation, centred on the figure square. */
   .prompt { position: absolute; transform: translate(-50%, -50%); color: var(--stone); font-size: 14px; white-space: nowrap; }
 
@@ -517,6 +570,7 @@
   .pick-mode .btn { position: relative; cursor: pointer; }
   .pick-mode .btn:has(input:checked) { border-color: var(--accent); background: var(--tint); color: var(--accent-deep); }
   .pick-mode .btn:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pick-mode .row-break { flex-basis: 100%; height: 0; }
   .speed, .sound { display: flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; white-space: nowrap; }
   .speed input { width: 140px; accent-color: var(--accent); }
   .speed .value { width: 8ch; text-align: right; color: var(--ink); }
@@ -525,6 +579,8 @@
   .sound .hint { color: var(--stone); font-size: 13px; white-space: normal; }
   .btn.mute[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-deep); }
   .tuning .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--tint); color: var(--accent-deep); }
+  .turn-4d .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--tint); color: var(--accent-deep); }
+  .turn-4d .value { width: 4ch; text-align: right; color: var(--ink); }
 
   /* The note picker. A picked chip wears its bar's colour on the border and
      on its order badge, a dark pill, so the colour is never text on paper. */
@@ -533,7 +589,7 @@
   .btn.chip[aria-pressed="true"] { border-color: var(--note-color); box-shadow: inset 0 0 0 1px var(--note-color); }
   /* A full picker marks the other chips unavailable rather than disabling
      them, so they stay focusable and their hint reachable; onChip refuses a
-     fourth note. */
+     fifth note. */
   .btn.chip[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
   .chip .badge {
     position: absolute;

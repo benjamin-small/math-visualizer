@@ -3,6 +3,7 @@
 **Date:** 2026-10-04
 **Status:** Approved for implementation
 **Scope:** a fourth lab, `#/notes`: Rust rule + WebGL2 visualization in `crates/viz-core`, a Svelte lab page, a home tile, docs.
+**Extended by:** `2026-10-12-notes-tesseract-design.md` (four notes, sevenths, the tesseract).
 
 ## Summary
 

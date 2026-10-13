@@ -2,12 +2,14 @@
 //! its own bar, and together the notes draw a figure.
 //!
 //! The figure square (`figure`, pushed by the lab in device pixels, or
-//! fitted to the canvas while unset) has a gutter on three sides: note 0's
-//! bar on the left (it drives y), note 1's on top (x) and note 2's on the
-//! right (depth). The plot sits inside the gutters. One note draws a time
-//! plot of its swing; two draw their Lissajous figure, with dashed guides
-//! from each dot to the pen; three draw a curve inside a slowly turning
-//! wireframe cube (drag to orbit), rendered into the plot's own viewport. An
+//! fitted to the canvas while unset) has a gutter on every side: note 0's
+//! bar on the left (it drives y), note 1's on top (x), note 2's on the
+//! right (depth) and note 3's along the bottom (the fourth dimension). The
+//! plot sits inside the gutters. One note draws a time plot of its swing;
+//! two draw their Lissajous figure, with dashed guides from each dot to the
+//! pen; three draw a curve inside a slowly turning wireframe cube (drag to
+//! orbit), rendered into the plot's own viewport; four draw it inside a
+//! tesseract that also turns through the fourth dimension. An
 //! optional waveform strip (`strip`) shows each note's wave, their sum and a
 //! playhead over the current block of swings.
 //!
@@ -42,9 +44,9 @@ const DEFAULT_AUTO_ROTATE_SPEED: f32 = 0.25;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotesVizConfig {
     pub background: [f32; 4],
-    /// One colour per bar, in bar order: note 0 (left), 1 (top), 2 (right).
-    /// The lab's legend and chips copy these (JS `NOTE_COLORS`).
-    pub note_colors: [[f32; 4]; 3],
+    /// One colour per bar, in bar order: note 0 (left), 1 (top), 2 (right),
+    /// 3 (bottom). The lab's legend and chips copy these (JS `NOTE_COLORS`).
+    pub note_colors: [[f32; 4]; 4],
     /// The trail: the time plot, the 2D figure or the 3D curve.
     pub trail_color: [f32; 4],
     /// The strip's normalised sum of the notes.
@@ -57,6 +59,18 @@ pub struct NotesVizConfig {
     pub pen_size_px: f32,
     /// Radians per second; 0 stops the cube's spin (dragging still orbits).
     pub auto_rotate_speed: f32,
+    /// Whether `tick` turns the four-note figure through the fourth
+    /// dimension. Off holds it at `angle_4d`.
+    #[serde(default = "default_true")]
+    pub turn_4d: bool,
+    /// Radians per second of the 4D turn.
+    #[serde(default = "default_turn_4d_speed")]
+    pub turn_4d_speed: f32,
+    /// The 4D angle in radians, taken only while `turn_4d` is off (the lab's
+    /// slider holds it there); a turning figure ignores it, so a layout push
+    /// carrying a stale value never snaps it back.
+    #[serde(default)]
+    pub angle_4d: f32,
     /// Trail samples per cycle of the fastest note.
     pub samples_per_cycle: u32,
     /// Cap on the trail's samples per frame, and on the segments of each of
@@ -83,6 +97,7 @@ impl Default for NotesVizConfig {
                 [0.949, 0.698, 0.235, 1.0], // amber #F2B23C
                 [0.941, 0.400, 0.361, 1.0], // coral #F0665C
                 [0.424, 0.776, 0.557, 1.0], // mint #6CC68E
+                [0.498, 0.659, 0.910, 1.0], // soft blue #7FA8E8
             ],
             // #F5E6CC at 85%
             trail_color: [0.961, 0.902, 0.800, 0.85],
@@ -95,12 +110,26 @@ impl Default for NotesVizConfig {
             dot_size_px: 8.0,
             pen_size_px: 6.0,
             auto_rotate_speed: DEFAULT_AUTO_ROTATE_SPEED,
+            turn_4d: true,
+            turn_4d_speed: DEFAULT_TURN_4D_SPEED,
+            angle_4d: 0.0,
             samples_per_cycle: 40,
             max_samples: 8192,
             figure: [0.0; 4],
             strip: [0.0; 4],
         }
     }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Radians per second the four-note figure turns through 4D.
+const DEFAULT_TURN_4D_SPEED: f32 = 0.35;
+
+fn default_turn_4d_speed() -> f32 {
+    DEFAULT_TURN_4D_SPEED
 }
 
 /// Schema for a device-pixel `[x, y, w, h]` the lab pushes from its layout.
@@ -126,15 +155,16 @@ impl ConfigSchema for NotesVizConfig {
                 "background": color_property("Background", d.background),
                 "note_colors": {
                     "type": "array",
-                    "title": "Note colors (3)",
-                    "minItems": 3,
-                    "maxItems": 3,
-                    // Per-slot defaults so a schema-driven reset keeps three
-                    // distinct bars; items=false forbids a fourth.
+                    "title": "Note colors (4)",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    // Per-slot defaults so a schema-driven reset keeps four
+                    // distinct bars; items=false forbids a fifth.
                     "prefixItems": [
                         color_property("Note 1 (left bar)",  d.note_colors[0]),
                         color_property("Note 2 (top bar)",   d.note_colors[1]),
                         color_property("Note 3 (right bar)", d.note_colors[2]),
+                        color_property("Note 4 (bottom bar)", d.note_colors[3]),
                     ],
                     "items": false,
                 },
@@ -155,6 +185,17 @@ impl ConfigSchema for NotesVizConfig {
                 "auto_rotate_speed": number_property(NumberOpts {
                     label: "Cube auto-rotate speed (rad/s, 0 = stop)",
                     default: DEFAULT_AUTO_ROTATE_SPEED as f64, min: 0.0, max: 3.0, step: 0.05,
+                    integer: false, cosmetic: true, widget: None,
+                }),
+                "turn_4d": { "type": "boolean", "title": "Turn through 4D (four notes)", "default": true },
+                "turn_4d_speed": number_property(NumberOpts {
+                    label: "4D turn speed (rad/s)",
+                    default: DEFAULT_TURN_4D_SPEED as f64, min: 0.0, max: 3.0, step: 0.05,
+                    integer: false, cosmetic: true, widget: None,
+                }),
+                "angle_4d": number_property(NumberOpts {
+                    label: "4D angle when held (rad)",
+                    default: 0.0, min: 0.0, max: std::f64::consts::TAU, step: 0.01,
                     integer: false, cosmetic: true, widget: None,
                 }),
                 "samples_per_cycle": number_property(NumberOpts {
@@ -211,10 +252,12 @@ pub enum BarSide {
     Left,
     Top,
     Right,
+    /// The fourth note's bar.
+    Bottom,
 }
 
 /// One note's bar, in device pixels. `from` = displacement −1 end, `to` = +1
-/// end (left/right bars: bottom → top; top bar: left → right).
+/// end (left/right bars: bottom → top; top and bottom bars: left → right).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bar {
     pub side: BarSide,
@@ -223,13 +266,13 @@ pub struct Bar {
 }
 
 /// Where everything goes this frame, in device pixels. `bars` is in bar
-/// order (note 0 left, note 1 top, note 2 right); a frame draws the first
-/// `notes.len()` of them.
+/// order (note 0 left, note 1 top, note 2 right, note 3 bottom); a frame
+/// draws the first `notes.len()` of them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
     pub figure: Rect,
     pub plot: Rect,
-    pub bars: [Bar; 3],
+    pub bars: [Bar; 4],
     pub strip: Option<Rect>,
 }
 
@@ -276,6 +319,7 @@ pub fn layout(canvas_px: [u32; 2], figure: [f32; 4], strip: [f32; 4]) -> Layout 
     let left_x = figure.x + midline;
     let right_x = figure.x + figure.w - midline;
     let top_y = figure.y + midline;
+    let bottom_y = figure.y + figure.h - midline;
     let (plot_top, plot_bottom) = (plot.y, plot.y + plot.h);
     let bars = [
         Bar {
@@ -292,6 +336,11 @@ pub fn layout(canvas_px: [u32; 2], figure: [f32; 4], strip: [f32; 4]) -> Layout 
             side: BarSide::Right,
             from: [right_x, plot_bottom],
             to: [right_x, plot_top],
+        },
+        Bar {
+            side: BarSide::Bottom,
+            from: [plot.x, bottom_y],
+            to: [plot.x + plot.w, bottom_y],
         },
     ];
     Layout {
@@ -548,7 +597,7 @@ pub fn glow_quad(bar: &Bar, half_thickness_px: f32, color: [f32; 4]) -> QuadInst
     let lo = [bar.from[0].min(bar.to[0]), bar.from[1].min(bar.to[1])];
     let hi = [bar.from[0].max(bar.to[0]), bar.from[1].max(bar.to[1])];
     let (min, max) = match bar.side {
-        BarSide::Top => ([lo[0], lo[1] - h], [hi[0], hi[1] + h]),
+        BarSide::Top | BarSide::Bottom => ([lo[0], lo[1] - h], [hi[0], hi[1] + h]),
         BarSide::Left | BarSide::Right => ([lo[0] - h, lo[1]], [hi[0] + h, hi[1]]),
     };
     QuadInstance { min, max, color }
@@ -572,6 +621,57 @@ pub fn cube_edges(half: f32) -> [[f32; 3]; 24] {
             out[i] = a;
             out[i + 1] = b;
             i += 2;
+        }
+    }
+    out
+}
+
+// ---- The fourth dimension ----
+
+/// The 4D eye's distance along w: perspective scales a point by
+/// `D / (D − w)`, so the far cube of a tesseract shrinks inside the near one.
+pub const PERSPECTIVE_4D: f32 = 3.0 * CUBE_HALF;
+/// Brings the perspective-projected tesseract back inside the 3D cube's
+/// bounding sphere (radius `√3 · CUBE_HALF` ≈ 0.866) at every turn, so the
+/// camera framing is unchanged. It sits just under √(5/12) ≈ 0.6455, the
+/// scale that puts the worst turn's furthest corner exactly on that sphere,
+/// so the worst projected radius (≈ 0.865) stays inside it; pinned by
+/// `the_turning_tesseract_stays_inside_the_cube_bounds`.
+pub const FIT_4D: f32 = 0.645;
+
+/// Turns `p` = (x, y, z, w) by `theta` in the x–w plane and then in the z–w
+/// plane. Periodic in 2π, so one slider covers every view; y (the root) is
+/// never touched. At a quarter turn the fourth note lies along x.
+pub fn rotate_4d(p: [f32; 4], theta: f32) -> [f32; 4] {
+    let (s, c) = theta.sin_cos();
+    let [x, y, z, w] = p;
+    let (x, w) = (x * c - w * s, x * s + w * c);
+    let (z, w) = (z * c - w * s, z * s + w * c);
+    [x, y, z, w]
+}
+
+/// Perspective from 4D to 3D along w, then `FIT_4D`: larger w (nearer the 4D
+/// eye) draws larger.
+pub fn project_4d(p: [f32; 4]) -> [f32; 3] {
+    let scale = FIT_4D * PERSPECTIVE_4D / (PERSPECTIVE_4D - p[3]);
+    [p[0] * scale, p[1] * scale, p[2] * scale]
+}
+
+/// The tesseract `[-half, half]⁴` as its 32 edges: each joins two corners
+/// that differ in exactly one coordinate.
+pub fn tesseract_edges(half: f32) -> [[[f32; 4]; 2]; 32] {
+    let corner = |bits: u32| -> [f32; 4] {
+        std::array::from_fn(|axis| if bits & (1 << axis) != 0 { half } else { -half })
+    };
+    let mut out = [[[0.0; 4]; 2]; 32];
+    let mut i = 0;
+    for bits in 0..16u32 {
+        for axis in 0..4 {
+            let other = bits ^ (1 << axis);
+            if other > bits {
+                out[i] = [corner(bits), corner(other)];
+                i += 1;
+            }
         }
     }
     out
@@ -637,9 +737,9 @@ struct FrameCtx {
 }
 
 /// The Notes & Chords visualization. Between frames it keeps only the orbit
-/// camera's angles, the smear tracker and the strip's held block (plus GL
-/// resources and scratch); everything it draws is rebuilt from the state
-/// each frame.
+/// camera's angles, the 4D turn's angle, the smear tracker and the strip's
+/// held block (plus GL resources and scratch); everything it draws is
+/// rebuilt from the state each frame.
 pub struct NotesViz {
     camera: Camera3D,
     /// Accumulated by `tick`: the cube's slow spin.
@@ -651,6 +751,10 @@ pub struct NotesViz {
     /// `auto_rotate_speed` from the last `init`, so `tick`, which never sees
     /// the config, can spin the cube.
     cached_auto_speed: f32,
+    /// The 4D turn, radians in [0, 2π).
+    angle_4d: f32,
+    /// `turn_4d` and its speed from the last `init`, for `tick`.
+    cached_turn_4d: (bool, f32),
     /// The phase at the last frame, for the smear; `None` before the first.
     last_phase: Option<f64>,
     /// This frame's smear, 0 crisp dots … 1 lit bars: quick to rise, a few
@@ -686,6 +790,8 @@ impl NotesViz {
             azimuth_offset: 0.0,
             elevation: 0.35,
             cached_auto_speed: DEFAULT_AUTO_ROTATE_SPEED,
+            angle_4d: 0.0,
+            cached_turn_4d: (true, DEFAULT_TURN_4D_SPEED),
             last_phase: None,
             smear: 0.0,
             strip_hold: None,
@@ -702,8 +808,18 @@ impl NotesViz {
         }
     }
 
+    /// The turn part of `init`, separate so it is testable without GL:
+    /// caches whether and how fast `tick` turns, and while held takes the
+    /// config's angle.
+    fn apply_turn_config(&mut self, cfg: &NotesVizConfig) {
+        self.cached_turn_4d = (cfg.turn_4d, cfg.turn_4d_speed);
+        if !cfg.turn_4d {
+            self.angle_4d = cfg.angle_4d.rem_euclid(std::f32::consts::TAU);
+        }
+    }
+
     /// The 2D batches every frame draws with. The cube's are made by
-    /// `ensure_3d_resources` once three notes render.
+    /// `ensure_3d_resources` once three or four notes render.
     fn ensure_resources(&mut self, gl: &Gl) -> Result<(), String> {
         if self.lines.is_none() {
             self.lines = Some(LineBatch::new(gl)?);
@@ -717,8 +833,8 @@ impl NotesViz {
         Ok(())
     }
 
-    /// The cube's line batch and pen, made the first time three notes
-    /// render rather than up front: most notes engines (the home tile's
+    /// The cube's line batch and pen, made the first time three or four
+    /// notes render rather than up front: most notes engines (the home tile's
     /// two-note one among them) never draw the cube.
     fn ensure_3d_resources(&mut self, gl: &Gl) -> Result<(), String> {
         if self.lines_3d.is_none() {
@@ -878,6 +994,86 @@ impl NotesViz {
         gl.viewport(0, 0, frame.canvas[0] as i32, frame.canvas[1] as i32);
     }
 
+    /// Four notes: the curve inside a tesseract, turned through the fourth
+    /// dimension by `angle_4d` (see `rotate_4d`), projected to 3D
+    /// (`project_4d`) and drawn with the cube's camera, batches and pen.
+    fn draw_figure_4d(
+        &mut self,
+        gl: &Gl,
+        state: &NotesState,
+        cfg: &NotesVizConfig,
+        frame: &FrameCtx,
+    ) {
+        if self.ensure_3d_resources(gl).is_err() {
+            return;
+        }
+        let [n0, n1, n2, n3] = [
+            &state.notes[0],
+            &state.notes[1],
+            &state.notes[2],
+            &state.notes[3],
+        ];
+        let just = state.just_intonation;
+        let theta = self.angle_4d;
+        // x = note 1 (top), y = note 0 (left), z = note 2 (right), w = note 3 (bottom).
+        let point_at = |t: f64| {
+            project_4d(rotate_4d(
+                [
+                    displacement_at(n1, just, t) * CUBE_HALF,
+                    displacement_at(n0, just, t) * CUBE_HALF,
+                    displacement_at(n2, just, t) * CUBE_HALF,
+                    displacement_at(n3, just, t) * CUBE_HALF,
+                ],
+                theta,
+            ))
+        };
+
+        let [x, y, w, h] = gl_viewport_rect(frame.canvas[1], &frame.layout.plot);
+        let plot_px = [w.max(0) as u32, h.max(0) as u32];
+        gl.viewport(x, y, w, h);
+        self.camera.resize(plot_px[0], plot_px[1]);
+        self.camera.azimuth = self.auto_azimuth + self.azimuth_offset;
+        self.camera.elevation = self.elevation;
+        let view_proj = self.camera.view_projection();
+
+        sample_trail(
+            state,
+            cfg,
+            trail_window(state.period),
+            &mut self.time_scratch,
+        );
+        self.line_3d_scratch.clear();
+        for [a, b] in tesseract_edges(CUBE_HALF) {
+            for p in [a, b] {
+                self.line_3d_scratch.push(LineVertex3D {
+                    position: project_4d(rotate_4d(p, theta)),
+                    color: cfg.axis_color,
+                });
+            }
+        }
+        push_polyline(
+            &mut self.line_3d_scratch,
+            self.time_scratch.iter().map(|&t| LineVertex3D {
+                position: point_at(t),
+                color: cfg.trail_color,
+            }),
+        );
+        let lines_3d = self.lines_3d.as_mut().expect("ensure_3d_resources ran");
+        lines_3d.upload(gl, &self.line_3d_scratch);
+        lines_3d.draw(gl, &view_proj);
+
+        let pen = PointInstance3D {
+            position: point_at(state.phase),
+            color: with_alpha(PEN_COLOR, 1.0 - frame.smear),
+            radius_px: cfg.pen_size_px * 0.5,
+        };
+        let points_3d = self.points_3d.as_mut().expect("ensure_3d_resources ran");
+        points_3d.upload(gl, &[pen]);
+        points_3d.draw(gl, &view_proj, plot_px);
+
+        gl.viewport(0, 0, frame.canvas[0] as i32, frame.canvas[1] as i32);
+    }
+
     /// The bars of the notes in play: each one's line and centre tick, its
     /// glow while the swings smear, and its dot.
     fn draw_bars(&mut self, gl: &Gl, state: &NotesState, cfg: &NotesVizConfig, frame: &FrameCtx) {
@@ -888,7 +1084,7 @@ impl NotesViz {
         for bar in bars {
             let [cx, cy] = bar_point(bar, 0.0);
             let (dx, dy) = match bar.side {
-                BarSide::Top => (0.0, half_tick),
+                BarSide::Top | BarSide::Bottom => (0.0, half_tick),
                 BarSide::Left | BarSide::Right => (half_tick, 0.0),
             };
             let tick = segment([cx - dx, cy - dy], [cx + dx, cy + dy], axis);
@@ -1020,11 +1216,13 @@ impl Visualization for NotesViz {
 
     /// Runs at construction and again on every `update_viz_config`, which
     /// the lab sends whenever its layout changes. So it only refreshes the
-    /// spin speed `tick` uses and makes sure the 2D GL resources exist (the
+    /// spin speed `tick` uses and the 4D turn's settings (a held angle is
+    /// taken from the config), and makes sure the 2D GL resources exist (the
     /// cube's wait for its first frame); the camera, the smear tracker and
     /// the strip's hold carry over.
     fn init(&mut self, gl: &Gl, cfg: &Self::Config) {
         self.cached_auto_speed = cfg.auto_rotate_speed;
+        self.apply_turn_config(cfg);
         // A failure is retried by the next render, like the other vizzes.
         let _ = self.ensure_resources(gl);
     }
@@ -1061,10 +1259,10 @@ impl Visualization for NotesViz {
 
         // Nothing picked leaves the cleared stage (the page shows a prompt).
         if frame.n_notes > 0 {
-            if frame.n_notes == 3 {
-                self.draw_figure_3d(gl, state, cfg, &frame);
-            } else {
-                self.draw_figure_2d(gl, state, cfg, &frame);
+            match frame.n_notes {
+                4 => self.draw_figure_4d(gl, state, cfg, &frame),
+                3 => self.draw_figure_3d(gl, state, cfg, &frame),
+                _ => self.draw_figure_2d(gl, state, cfg, &frame),
             }
             self.draw_bars(gl, state, cfg, &frame);
             self.draw_strip(gl, state, cfg, &frame);
@@ -1084,6 +1282,10 @@ impl Visualization for NotesViz {
     fn tick(&mut self, dt: f32) {
         // The spin always runs; a drag adds its offset on top.
         self.auto_azimuth += self.cached_auto_speed * dt;
+        let (turning, speed) = self.cached_turn_4d;
+        if turning {
+            self.angle_4d = (self.angle_4d + speed * dt).rem_euclid(std::f32::consts::TAU);
+        }
     }
 
     /// Dragging with the primary button orbits the cube, as in the
@@ -1104,6 +1306,11 @@ impl Visualization for NotesViz {
     /// Ignored: the lab hides the zoom control, and `CUBE_HALF` only clears
     /// the frustum from `CAMERA_DISTANCE`.
     fn set_zoom(&mut self, _zoom: f32) {}
+
+    /// The 4D angle, so the lab's slider can follow the turn.
+    fn readout(&self) -> serde_json::Value {
+        serde_json::json!({ "angle_4d": self.angle_4d })
+    }
 }
 
 #[cfg(test)]
@@ -1145,13 +1352,16 @@ mod tests {
                 "no property for {key}"
             );
         }
-        // Every config field is required, and nothing else is.
+        // Every config field is required, and nothing else is, except the
+        // 4D turn's: older pushes omit them, so they stay optional.
+        let optional = ["turn_4d", "turn_4d_speed", "angle_4d"];
         let defaults = NotesVizConfig::defaults();
         let mut fields: Vec<&str> = defaults
             .as_object()
             .unwrap()
             .keys()
             .map(String::as_str)
+            .filter(|key| !optional.contains(key))
             .collect();
         required.sort_unstable();
         fields.sort_unstable();
@@ -1164,17 +1374,20 @@ mod tests {
         assert_eq!(props["figure"]["minItems"], 4);
         assert_eq!(props["figure"]["x-cosmetic"], true);
         // One colour slot per bar, each defaulting to that bar's own colour,
-        // so a schema-driven reset gives three distinct notes.
+        // so a schema-driven reset gives four distinct notes.
         let slots = props["note_colors"]["prefixItems"]
             .as_array()
-            .expect("three colour slots");
-        assert_eq!(slots.len(), 3);
+            .expect("four colour slots");
+        assert_eq!(slots.len(), 4);
         for (i, slot) in slots.iter().enumerate() {
             assert_eq!(slot["x-widget"], "color");
             assert_eq!(slot["default"], defaults["note_colors"][i], "slot {i}");
         }
-        assert_ne!(slots[0]["default"], slots[1]["default"]);
-        assert_ne!(slots[1]["default"], slots[2]["default"]);
+        for i in 0..4 {
+            for j in i + 1..4 {
+                assert_ne!(slots[i]["default"], slots[j]["default"], "{i} vs {j}");
+            }
+        }
     }
 
     #[test]
@@ -1273,10 +1486,10 @@ mod tests {
         };
         assert_rect_near(l.plot, plot, "plot");
 
-        let [left, top, right] = l.bars;
+        let [left, top, right, bottom] = l.bars;
         assert_eq!(
-            [left.side, top.side, right.side],
-            [BarSide::Left, BarSide::Top, BarSide::Right]
+            [left.side, top.side, right.side, bottom.side],
+            [BarSide::Left, BarSide::Top, BarSide::Right, BarSide::Bottom]
         );
         // On the gutter midlines (6 px in from the square's edge), spanning
         // the plot; `from` is the −1 end.
@@ -1286,6 +1499,8 @@ mod tests {
         assert_point_near(top.to, [98.0, 26.0], "top to");
         assert_point_near(right.from, [104.0, 108.0], "right from");
         assert_point_near(right.to, [104.0, 32.0], "right to");
+        assert_point_near(bottom.from, [22.0, 114.0], "bottom from");
+        assert_point_near(bottom.to, [98.0, 114.0], "bottom to");
 
         assert_eq!(
             l.strip,
@@ -1300,7 +1515,7 @@ mod tests {
 
     #[test]
     fn bar_point_maps_displacement_to_bar_ends() {
-        let [left, top, right] = explicit().bars;
+        let [left, top, right, bottom] = explicit().bars;
         assert_point_near(bar_point(&left, 1.0), [16.0, 32.0], "left +1, plot top");
         assert_point_near(
             bar_point(&left, -1.0),
@@ -1312,6 +1527,16 @@ mod tests {
         assert_point_near(bar_point(&top, 1.0), [98.0, 26.0], "top +1, plot right");
         assert_point_near(bar_point(&top, -1.0), [22.0, 26.0], "top -1, plot left");
         assert_point_near(bar_point(&top, 0.5), [79.0, 26.0], "top +0.5");
+        assert_point_near(
+            bar_point(&bottom, 1.0),
+            [98.0, 114.0],
+            "bottom +1, plot right",
+        );
+        assert_point_near(
+            bar_point(&bottom, -1.0),
+            [22.0, 114.0],
+            "bottom -1, plot left",
+        );
     }
 
     #[test]
@@ -1330,7 +1555,7 @@ mod tests {
 
         // So the dashed guides are axis-aligned: the pen shares its y with
         // note 0's dot on the left bar and its x with note 1's on the top.
-        let [left, top, _] = l.bars;
+        let [left, top, ..] = l.bars;
         for d in [-1.0, -0.3, 0.0, 0.6, 1.0] {
             assert_near(pen_point_2d(&plot, 0.25, d)[1], bar_point(&left, d)[1], "y");
             assert_near(pen_point_2d(&plot, d, 0.25)[0], bar_point(&top, d)[0], "x");
@@ -1652,7 +1877,7 @@ mod tests {
 
     #[test]
     fn glow_quad_spans_the_bar_with_thickness() {
-        let [left, top, right] = explicit().bars;
+        let [left, top, right, bottom] = explicit().bars;
         let color = [0.9, 0.7, 0.2, 0.6];
         let q = glow_quad(&left, 2.0, color);
         assert_point_near(q.min, [14.0, 32.0], "left min");
@@ -1664,6 +1889,9 @@ mod tests {
         let q = glow_quad(&top, 2.0, color);
         assert_point_near(q.min, [22.0, 24.0], "top min");
         assert_point_near(q.max, [98.0, 28.0], "top max");
+        let q = glow_quad(&bottom, 2.0, color);
+        assert_point_near(q.min, [22.0, 112.0], "bottom min");
+        assert_point_near(q.max, [98.0, 116.0], "bottom max");
     }
 
     #[test]
@@ -1828,5 +2056,190 @@ mod tests {
             prev = smear;
         }
         assert_eq!(prev, 0.0);
+    }
+
+    // ---- the fourth dimension ----
+
+    fn near4(a: [f32; 4], b: [f32; 4]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5)
+    }
+    fn len3(p: [f32; 3]) -> f32 {
+        (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt()
+    }
+
+    #[test]
+    fn rotate_4d_is_the_identity_at_zero_and_periodic() {
+        let p = [0.1, -0.2, 0.3, 0.4];
+        assert!(near4(rotate_4d(p, 0.0), p));
+        assert!(near4(rotate_4d(p, std::f32::consts::TAU), p));
+        assert!(near4(
+            rotate_4d(p, 1.0 + std::f32::consts::TAU),
+            rotate_4d(p, 1.0)
+        ));
+    }
+
+    #[test]
+    fn rotate_4d_keeps_y_and_brings_w_onto_x_at_a_quarter_turn() {
+        let q = rotate_4d([0.0, 0.25, 0.0, 0.5], std::f32::consts::FRAC_PI_2);
+        assert!((q[0] + 0.5).abs() < 1e-5, "x′ = −w, got {q:?}");
+        assert!((q[1] - 0.25).abs() < 1e-6, "y is untouched");
+    }
+
+    #[test]
+    fn rotate_4d_preserves_length() {
+        let p = [0.3, -0.1, 0.2, -0.4];
+        let l = |v: [f32; 4]| v.iter().map(|c| c * c).sum::<f32>();
+        assert!((l(rotate_4d(p, 0.7)) - l(p)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn rotate_4d_turns_x_onto_z_through_w_at_a_quarter_turn() {
+        // x–w first: x′ = x·c − w·s = 0, w′ = x·s + w·c = 0.5. Then z–w:
+        // z′ = z·c − w′·s = −0.5, w″ = z·s + w′·c = 0. So x ends on −z.
+        let q = rotate_4d([0.5, 0.0, 0.0, 0.0], std::f32::consts::FRAC_PI_2);
+        assert!(q[0].abs() < 1e-5, "x′ ≈ 0, got {q:?}");
+        assert!((q[2] + 0.5).abs() < 1e-5, "z′ ≈ −0.5, got {q:?}");
+        assert!(q[3].abs() < 1e-5, "w′ ≈ 0, got {q:?}");
+    }
+
+    #[test]
+    fn project_4d_grows_points_nearer_the_4d_eye() {
+        let near = project_4d([0.3, 0.3, 0.3, -0.4]);
+        let far = project_4d([0.3, 0.3, 0.3, 0.4]);
+        // w toward the viewer (larger w) scales up; away scales down.
+        assert!(len3(far) > len3(near));
+        assert!((project_4d([0.0; 4])[0]).abs() < 1e-7);
+    }
+
+    #[test]
+    fn the_turning_tesseract_stays_inside_the_cube_bounds() {
+        let limit = 3f32.sqrt() * CUBE_HALF + 1e-4;
+        let mut worst = 0f32;
+        for k in 0u32..720 {
+            let theta = std::f32::consts::TAU * k as f32 / 720.0;
+            for [a, b] in tesseract_edges(CUBE_HALF) {
+                for p in [a, b] {
+                    worst = worst.max(len3(project_4d(rotate_4d(p, theta))));
+                }
+            }
+            // Interior points (a trail lives inside the hypercube) too.
+            for i in 0u32..16 {
+                let f = |j: u32| ((i * 7 + j * 13 + k) % 17) as f32 / 16.0 * 2.0 - 1.0;
+                let p = [f(1), f(2), f(3), f(4)].map(|c| c * CUBE_HALF);
+                worst = worst.max(len3(project_4d(rotate_4d(p, theta))));
+            }
+        }
+        assert!(worst <= limit, "worst radius {worst} > {limit}");
+        assert!(worst > 0.97 * limit, "FIT_4D wastes the frame: {worst}");
+    }
+
+    #[test]
+    fn tesseract_has_32_edges_each_along_one_axis() {
+        let edges = tesseract_edges(0.5);
+        assert_eq!(edges.len(), 32);
+        for [a, b] in edges {
+            let diff = (0..4).filter(|&i| (a[i] - b[i]).abs() > 1e-6).count();
+            assert_eq!(diff, 1, "{a:?} → {b:?}");
+            assert!(a.iter().chain(&b).all(|c| (c.abs() - 0.5).abs() < 1e-6));
+        }
+        // No edge appears twice.
+        let mut keys: Vec<String> = edges.iter().map(|e| format!("{e:?}")).collect();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), 32);
+    }
+
+    // ---- four notes: the fourth bar and the turn ----
+
+    #[test]
+    fn the_fourth_bar_runs_along_the_bottom_gutter_left_to_right() {
+        let l = layout([1000, 800], [100.0, 50.0, 500.0, 500.0], [0.0; 4]);
+        let gutter = GUTTER_FRAC * 500.0;
+        let bottom = l.bars[3];
+        assert_eq!(bottom.side, BarSide::Bottom);
+        let y = 50.0 + 500.0 - gutter * 0.5;
+        assert_point_near(bottom.from, [l.plot.x, y], "bottom bar from");
+        assert_point_near(bottom.to, [l.plot.x + l.plot.w, y], "bottom bar to");
+    }
+
+    #[test]
+    fn turn_config_defaults_and_schema() {
+        let d = NotesVizConfig::default();
+        assert!(d.turn_4d);
+        assert_eq!(d.turn_4d_speed, 0.35);
+        assert_eq!(d.angle_4d, 0.0);
+        assert_eq!(d.note_colors.len(), 4);
+        assert_eq!(d.note_colors[3], [0.498, 0.659, 0.910, 1.0]);
+        let schema = NotesVizConfig::schema();
+        for key in ["turn_4d", "turn_4d_speed", "angle_4d"] {
+            assert!(schema["properties"][key].is_object(), "{key} in schema");
+        }
+        assert_eq!(schema["properties"]["note_colors"]["maxItems"], 4);
+        // Older pushes without the new fields still parse, with the defaults.
+        let mut older = NotesVizConfig::defaults();
+        for key in ["turn_4d", "turn_4d_speed", "angle_4d"] {
+            older.as_object_mut().unwrap().remove(key);
+        }
+        let parsed: NotesVizConfig =
+            serde_json::from_value(older).expect("parses without the 4D fields");
+        assert!(parsed.turn_4d);
+        assert_eq!(parsed.turn_4d_speed, 0.35);
+        assert_eq!(parsed.angle_4d, 0.0);
+    }
+
+    #[test]
+    fn tick_turns_while_turning_and_holds_while_held() {
+        let mut viz = NotesViz::new();
+        viz.apply_turn_config(&NotesVizConfig {
+            turn_4d_speed: 1.0,
+            ..NotesVizConfig::default()
+        });
+        viz.tick(0.5);
+        assert!((viz.angle_4d - 0.5).abs() < 1e-6);
+        viz.apply_turn_config(&NotesVizConfig {
+            turn_4d: false,
+            angle_4d: 2.0,
+            ..NotesVizConfig::default()
+        });
+        assert!(
+            (viz.angle_4d - 2.0).abs() < 1e-6,
+            "a held config sets the angle"
+        );
+        viz.tick(1.0);
+        assert!((viz.angle_4d - 2.0).abs() < 1e-6, "held: tick leaves it");
+    }
+
+    #[test]
+    fn a_turning_config_never_snaps_the_angle_back() {
+        let mut viz = NotesViz::new();
+        viz.apply_turn_config(&NotesVizConfig {
+            turn_4d_speed: 1.0,
+            ..NotesVizConfig::default()
+        });
+        viz.tick(1.2);
+        // A layout push carries a stale angle_4d with turn_4d still on.
+        viz.apply_turn_config(&NotesVizConfig {
+            turn_4d_speed: 1.0,
+            angle_4d: 0.1,
+            ..NotesVizConfig::default()
+        });
+        assert!((viz.angle_4d - 1.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_angle_wraps_and_the_readout_reports_it() {
+        let mut viz = NotesViz::new();
+        viz.apply_turn_config(&NotesVizConfig {
+            turn_4d_speed: 1.0,
+            ..NotesVizConfig::default()
+        });
+        viz.tick(std::f32::consts::TAU + 0.25);
+        assert!((viz.angle_4d - 0.25).abs() < 1e-4);
+        let r = viz.readout();
+        assert!((r["angle_4d"].as_f64().unwrap() - 0.25).abs() < 1e-4);
+        // Through the erased wrapper too.
+        let erased = crate::engine::erased::TypedViz::new(NotesViz::new());
+        use crate::engine::erased::ErasedVisualization;
+        assert_eq!(erased.readout()["angle_4d"].as_f64(), Some(0.0));
     }
 }

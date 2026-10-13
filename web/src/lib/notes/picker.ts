@@ -1,14 +1,14 @@
-// The note picker's rules: up to three notes from the picker's octave, the
+// The note picker's rules: up to four notes from the picker's octave, the
 // first one picked being the root, plus the share-link spelling of a pick
 // (`#/notes?n=60,67`). Pure, so the lab page only wires clicks to it.
 import { PICKER_RANGE } from './theory';
 
 export const MIN_NOTES = 0;
-export const MAX_NOTES = 3;
+export const MAX_NOTES = 4;
 
 /**
  * Click a chip: append a note that is not picked yet, remove one that is (the
- * last one too: an empty pick is allowed). A refusal (a fourth note, a midi
+ * last one too: an empty pick is allowed). A refusal (a fifth note, a midi
  * number the picker does not offer) returns the same array it was given, so
  * the caller can tell "nothing changed" with `===` and skip the engine push.
  */
@@ -20,7 +20,7 @@ export function toggleNote(notes: readonly number[], midi: number): readonly num
 
 /**
  * Whatever the URL (or anyone) hands us, cut down to a legal pick: integers
- * within the picker, each at most once (first occurrence wins), at most three.
+ * within the picker, each at most once (first occurrence wins), at most four.
  * May be empty; the caller supplies the default.
  */
 export function sanitizeNotes(candidates: readonly number[]): number[] {

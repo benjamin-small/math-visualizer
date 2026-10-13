@@ -47,7 +47,7 @@ function readNote(raw: unknown): NoteSummary | null {
 /**
  * Validate the raw `engine.rule_summary()` value. Returns a fresh, normalised
  * summary, or `null` for null/undefined, another lab's summary, and any shape
- * that is not one to three well-formed notes.
+ * that is not one to four well-formed notes.
  */
 export function readSummary(raw: unknown): NotesSummary | null {
   if (typeof raw !== 'object' || raw === null) return null;

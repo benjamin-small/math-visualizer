@@ -1,21 +1,28 @@
-// Chord mode for the note picker: the six triads, and the one rule that turns
+// Chord mode for the note picker: the six triads and five sevenths, and the one rule that turns
 // a pressed chip into a whole chord. Pure, so the lab page only wires the
 // select and the chips to it.
 import { PICKER_RANGE } from './theory';
 
-export type ChordId = 'major' | 'minor' | 'diminished' | 'augmented' | 'sus2' | 'sus4';
+export type ChordId =
+  | 'major' | 'minor' | 'diminished' | 'augmented' | 'sus2' | 'sus4'
+  | 'dom7' | 'maj7' | 'min7' | 'halfdim7' | 'dim7';
 
-/** A triad: its share-link id, its name in the picker, and its notes in semitones above the root. */
-export type Chord = { id: ChordId; label: string; steps: readonly [number, number, number] };
+/** A chord: its share-link id, its name in the picker, its row, and its notes in semitones above the root. */
+export type Chord = { id: ChordId; label: string; group: 'triad' | 'seventh'; steps: readonly number[] };
 
-/** Three notes each, so a chord fills the lab's three bars: root left, then top, then right. */
+/** Triads fill three bars and sevenths all four: root left, then top, right and bottom. */
 export const CHORDS: readonly Chord[] = [
-  { id: 'major', label: 'Major', steps: [0, 4, 7] },
-  { id: 'minor', label: 'Minor', steps: [0, 3, 7] },
-  { id: 'diminished', label: 'Diminished', steps: [0, 3, 6] },
-  { id: 'augmented', label: 'Augmented', steps: [0, 4, 8] },
-  { id: 'sus2', label: 'Sus2', steps: [0, 2, 7] },
-  { id: 'sus4', label: 'Sus4', steps: [0, 5, 7] },
+  { id: 'major', label: 'Major', group: 'triad', steps: [0, 4, 7] },
+  { id: 'minor', label: 'Minor', group: 'triad', steps: [0, 3, 7] },
+  { id: 'diminished', label: 'Diminished', group: 'triad', steps: [0, 3, 6] },
+  { id: 'augmented', label: 'Augmented', group: 'triad', steps: [0, 4, 8] },
+  { id: 'sus2', label: 'Sus2', group: 'triad', steps: [0, 2, 7] },
+  { id: 'sus4', label: 'Sus4', group: 'triad', steps: [0, 5, 7] },
+  { id: 'dom7', label: 'Dom7', group: 'seventh', steps: [0, 4, 7, 10] },
+  { id: 'maj7', label: 'Maj7', group: 'seventh', steps: [0, 4, 7, 11] },
+  { id: 'min7', label: 'Min7', group: 'seventh', steps: [0, 3, 7, 10] },
+  { id: 'halfdim7', label: 'Half-dim7', group: 'seventh', steps: [0, 3, 6, 10] },
+  { id: 'dim7', label: 'Dim7', group: 'seventh', steps: [0, 3, 6, 9] },
 ];
 
 export function isChordId(value: unknown): value is ChordId {

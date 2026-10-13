@@ -191,6 +191,8 @@ pub trait ErasedVisualization {
     fn handle_input(&mut self, ev: &InputEvent);
     fn tick(&mut self, dt: f32);
     fn set_zoom(&mut self, zoom: f32);
+    /// Forwards `Visualization::readout`.
+    fn readout(&self) -> Value;
 }
 
 /// A concrete `Visualization` together with its deserialized config.
@@ -254,6 +256,10 @@ where
 
     fn set_zoom(&mut self, zoom: f32) {
         self.viz.set_zoom(zoom);
+    }
+
+    fn readout(&self) -> Value {
+        self.viz.readout()
     }
 }
 

@@ -176,30 +176,62 @@ describe('toDevice', () => {
 });
 
 describe('labelAnchors', () => {
-  it('puts each bar label at its bar end and the ratio at the square bottom-centre', () => {
-    const { bars, ratio } = labelAnchors({ x: 10, y: 20, w: 100, h: 100 });
+  const STRIP = { x: 140, y: 30, w: 300, h: 45 };
+
+  it('puts each bar label at its bar end, the bottom bar under its middle', () => {
+    const { bars } = labelAnchors({ x: 10, y: 20, w: 100, h: 100 }, STRIP);
     expectPoint(bars[0], 16, 108); // left bar: bottom end, 6% in
     expectPoint(bars[1], 98, 26); // top bar: right end, 6% down
     expectPoint(bars[2], 104, 108); // right bar: bottom end, 94% across
+    expectPoint(bars[3], 60, 114); // bottom bar: middle, hung under the bar
+    expectPoint(labelAnchors({ x: 0, y: 0, w: 200, h: 200 }, STRIP).bars[3], 100, 188);
+  });
+
+  it('never lets two bar labels overlap, at phone and laptop sizes', () => {
+    type Box = [number, number, number, number];
+    for (const s of [300, 450, 618]) {
+      const { bars } = labelAnchors({ x: 0, y: 0, w: s, h: s }, STRIP);
+      const boxes: Box[] = bars.map((b, i) =>
+        i === 1 ? [b.x + 6, b.y - 9, b.x + 76, b.y + 9] : [b.x - 35, b.y + 4, b.x + 35, b.y + 22],
+      );
+      for (let i = 0; i < 4; i++)
+        for (let j = i + 1; j < 4; j++) {
+          const [a, b] = [boxes[i], boxes[j]];
+          const hit = a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+          expect(hit, `labels ${i} and ${j} at s=${s}`).toBe(false);
+        }
+    }
+  });
+
+  it('hangs the ratio in the strip top-left corner', () => {
+    const { ratio, ratioInCorner } = labelAnchors({ x: 10, y: 20, w: 100, h: 100 }, STRIP);
+    expectPoint(ratio, 140, 30);
+    expect(ratioInCorner).toBe(true);
+  });
+
+  it('keeps the ratio at the figure bottom-centre when there is no strip', () => {
+    const { ratio, ratioInCorner } = labelAnchors({ x: 10, y: 20, w: 100, h: 100 }, ZERO);
     expectPoint(ratio, 60, 114);
+    expect(ratioInCorner).toBe(false);
   });
 
   it('scales with the square', () => {
-    const { bars, ratio } = labelAnchors({ x: 0, y: 0, w: 200, h: 200 });
+    const { bars } = labelAnchors({ x: 0, y: 0, w: 200, h: 200 }, ZERO);
     expectPoint(bars[0], 12, 176);
     expectPoint(bars[1], 176, 12);
     expectPoint(bars[2], 188, 176);
-    expectPoint(ratio, 100, 188);
+    expectPoint(bars[3], 100, 188);
   });
 
-  it('keeps every anchor inside the figure', () => {
-    const { figure } = notesLayout(1168, 650);
-    const { bars, ratio } = labelAnchors(figure);
-    for (const p of [...bars, ratio]) {
+  it('keeps every bar anchor inside the figure and the ratio on the strip', () => {
+    const { figure, strip } = notesLayout(1168, 650);
+    const { bars, ratio } = labelAnchors(figure, strip);
+    for (const p of bars) {
       expect(p.x).toBeGreaterThan(figure.x);
       expect(p.x).toBeLessThan(figure.x + figure.w);
       expect(p.y).toBeGreaterThan(figure.y);
       expect(p.y).toBeLessThan(figure.y + figure.h);
     }
+    expectPoint(ratio, strip.x, strip.y);
   });
 });

@@ -135,10 +135,15 @@ describe('PICKER_RANGE', () => {
 });
 
 describe('NOTE_COLORS', () => {
-  it('copies the Rust viz defaults: amber, coral and mint bars, warm-white trail, cool-white sum', () => {
-    expect(NOTE_COLORS.bars).toEqual(['#F2B23C', '#F0665C', '#6CC68E']);
+  it('copies the Rust viz defaults: amber, coral and mint top bars, warm-white trail, cool-white sum', () => {
+    expect(NOTE_COLORS.bars.slice(0, 3)).toEqual(['#F2B23C', '#F0665C', '#6CC68E']);
     expect(NOTE_COLORS.trail).toBe('#F5E6CC');
     expect(NOTE_COLORS.sum).toBe('#E6E9EE');
+  });
+
+  it('has four bar colours, the fourth the soft blue of the bottom bar', () => {
+    expect(NOTE_COLORS.bars).toHaveLength(4);
+    expect(NOTE_COLORS.bars[3]).toBe('#7FA8E8');
   });
 
   it('are all #rrggbb', () => {

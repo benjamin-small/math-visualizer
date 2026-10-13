@@ -112,6 +112,13 @@ pub trait Visualization {
     /// default framing); >1 zooms in, <1 zooms out. Visualizations that
     /// support zoom override this; default is no-op.
     fn set_zoom(&mut self, _zoom: f32) {}
+
+    /// Optional read-only snapshot of view state the UI mirrors every frame
+    /// (e.g. the notes lab's 4D angle, which the viz advances in `tick`).
+    /// Keep it cheap. Default: `null`.
+    fn readout(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
 }
 
 /// Pointer / keyboard input forwarded from the canvas to the active viz.
@@ -188,5 +195,21 @@ mod tests {
             }
             other => panic!("wrong variant: {other:?}"),
         }
+    }
+
+    struct Bare;
+    impl Visualization for Bare {
+        type State = crate::rules::notes::NotesState;
+        type Config = crate::visualizations::notes::NotesVizConfig;
+        fn id(&self) -> &'static str {
+            "bare"
+        }
+        fn init(&mut self, _gl: &WebGl2RenderingContext, _cfg: &Self::Config) {}
+        fn render(&mut self, _gl: &WebGl2RenderingContext, _s: &Self::State, _c: &Self::Config) {}
+    }
+
+    #[test]
+    fn readout_defaults_to_null() {
+        assert_eq!(Bare.readout(), serde_json::Value::Null);
     }
 }

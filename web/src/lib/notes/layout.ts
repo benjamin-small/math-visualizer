@@ -84,21 +84,32 @@ export function toDevice(r: Rect, dpr: number): DeviceRect {
 
 /**
  * Where the overlay hangs its text, for a figure of side `figure.w`: one label
- * at each bar's end (left bar at the bottom, top bar at the right, right bar
- * at the bottom) and the ratio readout at the bottom-centre. The bars lie on
- * their gutters' midlines, half of `BAR_INSET` in from the figure's edge, and
- * span the plot, which ends `BAR_INSET` short of the opposite edge.
+ * at each of the first three bars' ends (left bar at the bottom, top bar at the
+ * right, right bar at the bottom), the bottom bar's label under the bar's
+ * middle (the corners already hold the other labels, which would collide
+ * below ~517 px), and the ratio readout. The bars lie
+ * on their gutters' midlines, half of `BAR_INSET` in from the figure's edge,
+ * and span the plot, which ends `BAR_INSET` short of the opposite edge. The
+ * ratio hangs from the strip's top-left corner (the bottom gutter now holds
+ * the fourth bar), or sits at the figure's bottom-centre when there is no
+ * strip (only when the stage is too small to lay out, so the figure is all-zero); `ratioInCorner` says which, so the page can align the pill.
  */
-export function labelAnchors(figure: Rect): { bars: [Point, Point, Point]; ratio: Point } {
+export function labelAnchors(
+  figure: Rect,
+  strip: Rect,
+): { bars: [Point, Point, Point, Point]; ratio: Point; ratioInCorner: boolean } {
   const s = figure.w;
   const mid = BAR_INSET / 2;
   const far = 1 - BAR_INSET;
+  const ratioInCorner = strip.w > 0 && strip.h > 0;
   return {
     bars: [
       { x: figure.x + mid * s, y: figure.y + far * s },
       { x: figure.x + far * s, y: figure.y + mid * s },
       { x: figure.x + (1 - mid) * s, y: figure.y + far * s },
+      { x: figure.x + 0.5 * s, y: figure.y + (1 - mid) * s },
     ],
-    ratio: { x: figure.x + 0.5 * s, y: figure.y + (1 - mid) * s },
+    ratio: ratioInCorner ? { x: strip.x, y: strip.y } : { x: figure.x + 0.5 * s, y: figure.y + (1 - mid) * s },
+    ratioInCorner,
   };
 }
