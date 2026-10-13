@@ -1,5 +1,5 @@
 //! Notes & Chords: the oscillator model behind the lab. Each note is a sine
-//! that swings a dot back and forth along one bar; two or three notes
+//! that swings a dot back and forth along one bar; two to four notes
 //! together draw a Lissajous figure.
 //!
 //! **One iteration is one full swing of the root note** (the first note in
@@ -28,8 +28,8 @@ use crate::traits::{Capabilities, Rule, SceneState};
 /// MIDI note 60 (C4): the lab's default note and the fallback for an empty
 /// note list.
 pub const DEFAULT_NOTE: u8 = 60;
-/// The lab draws at most three notes: the left, top and right bar.
-pub const MAX_NOTES: usize = 3;
+/// The lab draws at most four notes, one per bar: left, top, right, bottom.
+pub const MAX_NOTES: usize = 4;
 /// Highest MIDI note number.
 const MAX_MIDI: u8 = 127;
 
@@ -113,8 +113,8 @@ fn default_max_iter() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotesConfig {
     /// MIDI notes in bar order: `[0]` is the root (left bar, drives y), `[1]`
-    /// the top bar (x), `[2]` the right bar (depth). May be empty (nothing
-    /// picked). Use `effective_notes`
+    /// the top bar (x), `[2]` the right bar (depth), `[3]` the bottom bar. May
+    /// be empty (nothing picked). Use `effective_notes`
     /// for the normalised list the model actually runs on.
     #[serde(default = "default_notes")]
     pub notes: Vec<u8>,
@@ -252,7 +252,7 @@ pub fn displacement_at(note: &NoteState, just_intonation: bool, phase: f64) -> f
 }
 
 /// Builds the whole state for iteration `n`, `sub` of the way into the next
-/// one. The model is at most three notes, so it is derived from the config
+/// one. The model is at most four notes, so it is derived from the config
 /// every time rather than cached; that is what keeps `advance_to` and
 /// `substep` pure.
 fn recompute(cfg: &NotesConfig, n: u32, sub: f32) -> NotesState {
@@ -512,6 +512,35 @@ mod tests {
     }
 
     #[test]
+    fn keeps_four_notes_and_drops_a_fifth() {
+        let cfg = NotesConfig {
+            notes: vec![60, 64, 67, 70, 72],
+            ..NotesConfig::default()
+        };
+        assert_eq!(cfg.effective_notes(), vec![60, 64, 67, 70]);
+        assert_eq!(NotesConfig::schema()["properties"]["notes"]["maxItems"], 4);
+    }
+
+    #[test]
+    fn a_pure_dominant_seventh_closes_after_twenty_root_swings() {
+        // C E G B♭: 1, 5/4, 3/2, 9/5 in the 5-limit table, so 20 : 25 : 30 : 36.
+        let cfg = NotesConfig {
+            notes: vec![60, 64, 67, 70],
+            ..NotesConfig::default()
+        };
+        let state = Notes.init(&cfg, 0);
+        assert_eq!(state.notes.len(), 4);
+        assert_eq!(state.period, 20);
+        let summary = Notes.summary(&state);
+        let notes = summary["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 4);
+        assert_eq!(
+            (notes[3]["num"].as_u64(), notes[3]["den"].as_u64()),
+            (Some(9), Some(5))
+        );
+    }
+
+    #[test]
     fn config_rejects_bad_notes() {
         let parse = |v: serde_json::Value| serde_json::from_value::<NotesConfig>(v);
         assert!(parse(json!({"notes": ["A4"]})).is_err());
@@ -533,7 +562,7 @@ mod tests {
         }
         let notes = &schema["properties"]["notes"];
         assert_eq!(notes["minItems"], 0);
-        assert_eq!(notes["maxItems"], 3);
+        assert_eq!(notes["maxItems"], 4);
         assert_eq!(notes["items"]["maximum"], 127);
         assert_eq!(
             schema["properties"]["max_iterations"]["default"],
@@ -573,11 +602,11 @@ mod tests {
     fn effective_notes_normalizes() {
         let eff = |notes: &[u8]| cfg(notes, true).effective_notes();
         assert_eq!(eff(&[]), Vec::<u8>::new());
-        assert_eq!(eff(&[60, 62, 64, 65, 67]), vec![60, 62, 64]);
+        assert_eq!(eff(&[60, 62, 64, 65, 67]), vec![60, 62, 64, 65]);
         assert_eq!(eff(&[200]), vec![127]);
         // Order is bar order, so it must survive; every kept note is clamped.
         assert_eq!(eff(&[67, 60, 64]), vec![67, 60, 64]);
-        assert_eq!(eff(&[200, 10, 255, 30]), vec![127, 10, 127]);
+        assert_eq!(eff(&[200, 10, 255, 30, 40]), vec![127, 10, 127, 30]);
     }
 
     // ---- state and rule ----
@@ -638,8 +667,8 @@ mod tests {
         assert_eq!(empty.period, 1);
         assert!(!empty.closed);
 
-        let crowded = Notes.init(&cfg(&[60, 64, 67, 72], true), 0);
-        assert_eq!(crowded.notes.len(), 3);
+        let crowded = Notes.init(&cfg(&[60, 64, 67, 72, 76], true), 0);
+        assert_eq!(crowded.notes.len(), 4);
 
         let loud = Notes.init(&cfg(&[200], true), 0);
         assert_eq!(loud.notes[0].midi, 127);
