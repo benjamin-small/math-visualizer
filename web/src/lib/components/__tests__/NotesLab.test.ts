@@ -520,7 +520,9 @@ describe('NotesLab.svelte', () => {
       try {
         const { container } = await renderLab('n=60,64,67,70');
         await vi.waitFor(() => expect(container.querySelectorAll('.note-label')).toHaveLength(4));
-        expect(container.querySelectorAll('.note-label.beside')).toHaveLength(2);
+        const beside = container.querySelectorAll('.note-label.beside');
+        expect(beside).toHaveLength(1);
+        expect(container.querySelectorAll('.note-label')[1]).toBe(beside[0]);
       } finally {
         notesSummaryFixture.notes = saved;
       }
@@ -744,6 +746,21 @@ describe('NotesLab.svelte', () => {
       await fireEvent.click(turnButton(getByRole));
       expect(lastViz()).toEqual(expect.objectContaining({ turn_4d: true }));
       expect(turnButton(getByRole).getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('pressing Turn while turning holds at the mirrored angle', async () => {
+      const { getByLabelText, getByRole } = await renderLab('n=60,64,67,70');
+      notesVizReadout.angle_4d = Math.PI / 3;
+      try {
+        await vi.waitFor(() => expect((getByLabelText('4D turn') as HTMLInputElement).value).toBe('60'));
+        updateVizConfigSpy.mockClear();
+        await fireEvent.click(turnButton(getByRole));
+        expect(lastViz()).toEqual(expect.objectContaining({ turn_4d: false }));
+        expect(lastViz().angle_4d as number).toBeCloseTo(Math.PI / 3);
+        expect(turnButton(getByRole).getAttribute('aria-pressed')).toBe('false');
+      } finally {
+        notesVizReadout.angle_4d = 0;
+      }
     });
 
     it('hides the 4D controls below four notes and keeps the held angle', async () => {

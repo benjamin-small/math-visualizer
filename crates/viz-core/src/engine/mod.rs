@@ -202,7 +202,7 @@ impl Engine {
     }
 
     /// The active visualization's `readout()` (view state the UI mirrors,
-    /// such as the notes lab's 4D angle); `null` for vizzes without one.
+    /// such as the notes lab's 4D angle); `undefined` in JS (a JSON null) for vizzes without one.
     pub fn viz_readout(&self) -> JsValue {
         to_js(&self.viz.readout())
     }

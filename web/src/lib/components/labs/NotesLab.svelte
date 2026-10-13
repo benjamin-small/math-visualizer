@@ -136,8 +136,10 @@
     const next = readSummary(a.readSummary());
     summary = next;
     // While turning the viz owns the 4D angle; mirror it for the slider.
-    const r = a.readVizReadout() as { angle_4d?: unknown } | null;
-    if (untrack(() => turning) && typeof r?.angle_4d === 'number') angle4d = r.angle_4d;
+    if (untrack(() => notes.length === 4 && turning)) {
+      const r = a.readVizReadout() as { angle_4d?: unknown } | null;
+      if (typeof r?.angle_4d === 'number') angle4d = r.angle_4d;
+    }
     audio.update({ playing: on, speedHz: speed, ratios: ratiosOf(next) });
   });
 
@@ -355,7 +357,7 @@
 <LabShell
   labId="notes"
   title="Notes &amp; Chords"
-  thesis="Every note is a vibration; two or three at once draw the shape of their interval."
+  thesis="Every note is a vibration; two or more at once draw the shape of their interval."
   playback={false}
   zoom={false}
   {onReady}
@@ -372,7 +374,7 @@
         {#each summary.notes as note, i}
           <span
             class="note-label mono"
-            class:beside={i === 1 || i === 3}
+            class:beside={i === 1}
             style:left="{anchors.bars[i].x}px"
             style:top="{anchors.bars[i].y}px"
             style:color={NOTE_COLORS.bars[i]}
