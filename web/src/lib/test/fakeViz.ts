@@ -85,6 +85,9 @@ export const notesSummaryFixture: NotesSummary = {
   ],
 };
 
+/** What the fake's `viz_readout()` returns on the notes lab (null elsewhere). Mutable so a test can move the 4D angle. */
+export const notesVizReadout = { angle_4d: 0 };
+
 export class FakeEngine {
   private readonly _lab: string | null | undefined;
 
@@ -114,6 +117,7 @@ export class FakeEngine {
     if (this._lab === 'notes') return notesSummaryFixture;
     return null;
   }
+  viz_readout() { return this._lab === 'notes' ? notesVizReadout : null; }
   viz_config() { return {}; }
   update_rule_config(cfg: unknown) { updateRuleConfigSpy(cfg); }
   update_rule_config_with_path(cfg: unknown, xy: Float32Array, pen: Uint8Array) { updateRuleConfigWithPathSpy(cfg, xy, pen); }

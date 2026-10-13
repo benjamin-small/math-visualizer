@@ -72,4 +72,9 @@ export class LabApi {
   readSummary(): unknown {
     return this.engine?.rule_summary() ?? null;
   }
+
+  /** Read the visualization's readout (view state it advances itself, e.g. the notes lab's 4D angle), or null. */
+  readVizReadout(): unknown {
+    return this.engine?.viz_readout() ?? null;
+  }
 }
