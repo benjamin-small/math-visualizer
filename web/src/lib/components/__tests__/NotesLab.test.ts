@@ -6,6 +6,7 @@ import {
   updateRuleConfigSpy,
   updateVizConfigSpy,
   notesSummaryFixture,
+  notesVizReadout,
 } from '../../test/fakeViz';
 import { navigate } from '../../router.svelte';
 import { PICKER_RANGE, midiToHz, noteLabel } from '../../notes/theory';
@@ -46,6 +47,8 @@ type RuleConfig = { notes: number[]; just_intonation: boolean };
 const kinds = () => dispatchSpy.mock.calls.map(([c]) => (c as Dispatched).kind);
 /** The last rule config the lab pushed. */
 const lastPush = () => updateRuleConfigSpy.mock.lastCall?.[0] as RuleConfig;
+/** The last viz config the lab pushed. */
+const lastViz = () => updateVizConfigSpy.mock.lastCall?.[0] as Record<string, unknown>;
 /** Every speed dispatched (SetSpeed values), oldest first. */
 const speeds = () =>
   dispatchSpy.mock.calls.map(([c]) => c as Dispatched).filter((c) => c.kind === 'SetSpeed').map((c) => c.value);
@@ -63,7 +66,7 @@ describe('NotesLab.svelte', () => {
   function chipFor(getByRole: (role: string, opts: { name: string }) => HTMLElement, midi: number) {
     return getByRole('button', { name: noteLabel(midi) }) as HTMLButtonElement;
   }
-  /** The order badge on a chip (1, 2 or 3), or undefined when the chip is not picked. */
+  /** The order badge on a chip (1 to 4), or undefined when the chip is not picked. */
   const badge = (chip: HTMLElement) => chip.querySelector('.badge')?.textContent;
 
   describe('shell', () => {
@@ -114,20 +117,19 @@ describe('NotesLab.svelte', () => {
       expect(badge(chipFor(getByRole, 64))).toBe('2');
     });
 
-    it('stops at three notes: every other chip is marked unavailable with a hint but stays focusable, and a click on one pushes nothing', async () => {
+    it('stops at four notes: every other chip is marked unavailable with a hint but stays focusable, and a click on one pushes nothing', async () => {
       const { container, getByRole } = await renderLab();
-      await fireEvent.click(chipFor(getByRole, 64));
-      await fireEvent.click(chipFor(getByRole, 67));
-      expect(lastPush()).toEqual(expect.objectContaining({ notes: [60, 64, 67] }));
+      for (const midi of [64, 67, 70]) await fireEvent.click(chipFor(getByRole, midi));
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [60, 64, 67, 70] }));
 
       const unpicked = [...container.querySelectorAll<HTMLButtonElement>('.chip[aria-pressed="false"]')];
-      expect(unpicked).toHaveLength(33);
+      expect(unpicked).toHaveLength(32);
       for (const chip of unpicked) {
         expect(chip.getAttribute('aria-disabled')).toBe('true');
         expect(chip.disabled).toBe(false); // still in the tab order, so the hint can be reached
-        expect(chip.title).toBe('Pick up to three notes');
+        expect(chip.title).toBe('Pick up to four notes');
       }
-      for (const midi of [60, 64, 67]) expect(chipFor(getByRole, midi).getAttribute('aria-disabled')).not.toBe('true');
+      for (const midi of [60, 64, 67, 70]) expect(chipFor(getByRole, midi).getAttribute('aria-disabled')).not.toBe('true');
 
       updateRuleConfigSpy.mockClear();
       dispatchSpy.mockClear();
@@ -476,7 +478,7 @@ describe('NotesLab.svelte', () => {
         expect(updateVizConfigSpy).toHaveBeenLastCalledWith(
           expect.objectContaining({ figure: toDevice(figure, 1), strip: toDevice(strip, 1) }),
         );
-        const anchors = labelAnchors(figure);
+        const anchors = labelAnchors(figure, strip);
         const px = (el: Element | null, side: 'left' | 'top') => parseFloat((el as HTMLElement).style[side]);
         container.querySelectorAll('.note-label').forEach((label, i) => {
           expect(px(label, 'left')).toBeCloseTo(anchors.bars[i].x);
@@ -484,6 +486,7 @@ describe('NotesLab.svelte', () => {
         });
         expect(px(container.querySelector('.ratio'), 'left')).toBeCloseTo(anchors.ratio.x);
         expect(px(container.querySelector('.ratio'), 'top')).toBeCloseTo(anchors.ratio.y);
+        expect(container.querySelector('.ratio')?.classList.contains('corner')).toBe(anchors.ratioInCorner);
       } finally {
         width.mockRestore();
         height.mockRestore();
@@ -509,6 +512,19 @@ describe('NotesLab.svelte', () => {
         notesSummaryFixture.notes = original;
       }
     });
+
+    it('labels four bars and hangs the ratio in the strip corner', async () => {
+      // The fixture summary has two notes; give it four for this read.
+      const saved = notesSummaryFixture.notes;
+      notesSummaryFixture.notes = [...saved, saved[0], saved[1]].slice(0, 4);
+      try {
+        const { container } = await renderLab('n=60,64,67,70');
+        await vi.waitFor(() => expect(container.querySelectorAll('.note-label')).toHaveLength(4));
+        expect(container.querySelectorAll('.note-label.beside')).toHaveLength(2);
+      } finally {
+        notesSummaryFixture.notes = saved;
+      }
+    });
   });
 
   describe('share link', () => {
@@ -530,7 +546,8 @@ describe('NotesLab.svelte', () => {
     it.each([
       ['n=abc', '#/notes', [60]],
       ['n=none', '#/notes?n=none', []],
-      ['n=60,61,62,63', '#/notes?n=60,61,62', [60, 61, 62]],
+      ['n=60,61,62,63', '#/notes?n=60,61,62,63', [60, 61, 62, 63]],
+      ['n=60,64,67,70,72', '#/notes?n=60,64,67,70', [60, 64, 67, 70]],
       ['n=69,85,90', '#/notes?n=69', [69]],
       ['n=47,48,60', '#/notes?n=48,60', [48, 60]],
     ])('rewrites ?%s to the pick that loaded (%s)', async (query, hash, notes) => {
@@ -567,25 +584,50 @@ describe('NotesLab.svelte', () => {
       expect(badge(chipFor(getByRole, 69))).toBe('2');
       expect(getByRole('button', { name: 'Piano' }).getAttribute('aria-pressed')).toBe('true');
     });
+
+    it('keeps a linked chord mode and its notes as given: links are not re-voiced', async () => {
+      await renderLab('n=60,64,67&c=dom7');
+      expect(updateRuleConfigSpy).toHaveBeenCalledWith(expect.objectContaining({ notes: [60, 64, 67] }));
+      expect(location.hash).toBe('#/notes?n=60,64,67&c=dom7');
+    });
   });
 
   describe('chord mode', () => {
     type Get = (role: string, opts: { name: string }) => HTMLElement;
-    /** The Pick radio group's choices: Single notes, then the six chords. */
+    /** The Pick radio group's choices: Single notes, then the six triads and the five sevenths. */
     const radios = (getByRole: Get) =>
       [...getByRole('radiogroup', { name: 'Pick' }).querySelectorAll<HTMLInputElement>('input[type="radio"]')];
     /** The label of the choice that is on. */
     const picked = (getByRole: Get) => radios(getByRole).find((r) => r.checked)?.closest('label')?.textContent?.trim();
     const choose = (getByRole: Get, name: string) => fireEvent.click(getByRole('radio', { name }));
 
-    it('starts on single notes and offers the six triads as radio buttons', async () => {
-      const { getByRole } = await renderLab();
+    it('starts on single notes and offers the six triads and five sevenths as radio buttons', async () => {
+      const { getByRole, getByText } = await renderLab();
       expect(picked(getByRole)).toBe('Single notes');
       expect(radios(getByRole).map((r) => r.closest('label')?.textContent?.trim())).toEqual([
         'Single notes', 'Major', 'Minor', 'Diminished', 'Augmented', 'Sus2', 'Sus4',
+        'Dom7', 'Maj7', 'Min7', 'Half-dim7', 'Dim7',
       ]);
       // One group: a shared name, so the arrow keys move between them.
       expect(new Set(radios(getByRole).map((r) => r.name)).size).toBe(1);
+      expect(getByText('Sevenths')).toBeTruthy();
+    });
+
+    it('a seventh builds four notes on the pressed root', async () => {
+      const { getByRole } = await renderLab();
+      await choose(getByRole, 'Dom7');
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [60, 64, 67, 70] }));
+      expect(badge(chipFor(getByRole, 70))).toBe('4');
+      await fireEvent.click(chipFor(getByRole, 62));
+      expect(lastPush()).toEqual(expect.objectContaining({ notes: [62, 66, 69, 72] }));
+      expect(location.hash).toBe('#/notes?n=62,66,69,72&c=dom7');
+    });
+
+    it('greys out a root whose seventh would pass B5', async () => {
+      const { getByRole } = await renderLab();
+      await choose(getByRole, 'Maj7');
+      expect(chipFor(getByRole, 72).getAttribute('aria-disabled')).not.toBe('true');
+      expect(chipFor(getByRole, 73).getAttribute('aria-disabled')).toBe('true');
     });
 
     it('choosing a chord builds it on the current root, then plays', async () => {
@@ -605,7 +647,7 @@ describe('NotesLab.svelte', () => {
       await choose(getByRole, 'Minor');
       await fireEvent.click(chipFor(getByRole, 57)); // A3 minor
       expect(lastPush()).toEqual(expect.objectContaining({ notes: [57, 60, 64] }));
-      // No three-note lock-out in chord mode: every chip stays available.
+      // No full-pick lock-out in chord mode: every chip stays available.
       expect(chipFor(getByRole, 50).getAttribute('aria-disabled')).not.toBe('true');
       await fireEvent.click(chipFor(getByRole, 50)); // D3 minor
       expect(lastPush()).toEqual(expect.objectContaining({ notes: [50, 53, 57] }));
@@ -657,7 +699,7 @@ describe('NotesLab.svelte', () => {
     });
 
     it('drops a chord id it does not know', async () => {
-      const { getByRole } = await renderLab('n=60&c=dom7');
+      const { getByRole } = await renderLab('n=60&c=dom9');
       expect(picked(getByRole)).toBe('Single notes');
       expect(location.hash).toBe('#/notes');
     });
@@ -669,10 +711,65 @@ describe('NotesLab.svelte', () => {
     });
   });
 
+  describe('4D turn', () => {
+    const turnButton = (getByRole: (r: string, o: { name: string }) => HTMLElement) =>
+      getByRole('button', { name: 'Turn' });
+
+    it('shows its controls only with four notes', async () => {
+      const { queryByLabelText, getByRole } = await renderLab('n=60,64,67');
+      expect(queryByLabelText('4D turn')).toBeNull();
+      await fireEvent.click(chipFor(getByRole, 70));
+      expect(queryByLabelText('4D turn')).not.toBeNull();
+      expect(turnButton(getByRole).getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('the slider follows the viz while turning', async () => {
+      const { getByLabelText, container } = await renderLab('n=60,64,67,70');
+      notesVizReadout.angle_4d = Math.PI / 2;
+      try {
+        await vi.waitFor(() => expect((getByLabelText('4D turn') as HTMLInputElement).value).toBe('90'));
+        expect(container.querySelector('.turn-4d .value')?.textContent).toBe('90°');
+      } finally {
+        notesVizReadout.angle_4d = 0;
+      }
+    });
+
+    it('grabbing the slider holds the turn at that angle; Turn resumes it', async () => {
+      const { getByLabelText, getByRole } = await renderLab('n=60,64,67,70');
+      updateVizConfigSpy.mockClear();
+      await fireEvent.input(getByLabelText('4D turn'), { target: { value: '45' } });
+      expect(lastViz()).toEqual(expect.objectContaining({ turn_4d: false }));
+      expect(lastViz().angle_4d as number).toBeCloseTo(Math.PI / 4);
+      expect(turnButton(getByRole).getAttribute('aria-pressed')).toBe('false');
+      await fireEvent.click(turnButton(getByRole));
+      expect(lastViz()).toEqual(expect.objectContaining({ turn_4d: true }));
+      expect(turnButton(getByRole).getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('hides the 4D controls below four notes and keeps the held angle', async () => {
+      const { getByLabelText, queryByLabelText, getByRole } = await renderLab('n=60,64,67,70');
+      await fireEvent.input(getByLabelText('4D turn'), { target: { value: '30' } });
+      await fireEvent.click(chipFor(getByRole, 70));
+      expect(queryByLabelText('4D turn')).toBeNull();
+      await fireEvent.click(chipFor(getByRole, 70));
+      expect((getByLabelText('4D turn') as HTMLInputElement).value).toBe('30');
+    });
+
+    it('Reset turns it on again from 0', async () => {
+      const { getByRole } = await renderLab('n=60,64,67,70');
+      await fireEvent.click(turnButton(getByRole)); // hold
+      updateVizConfigSpy.mockClear();
+      await fireEvent.click(getByRole('button', { name: 'Reset' }));
+      const pushes = updateVizConfigSpy.mock.calls.map(([c]) => c as Record<string, unknown>);
+      expect(pushes).toContainEqual(expect.objectContaining({ turn_4d: false, angle_4d: 0 }));
+      expect(pushes.at(-1)).toEqual(expect.objectContaining({ turn_4d: true }));
+    });
+  });
+
   describe('legend and story', () => {
     it('has a swatch for each note, the trail and the sum, and a story with tips', async () => {
       const { container, getByRole } = await renderLab();
-      expect(container.querySelectorAll('.legend .swatch')).toHaveLength(5);
+      expect(container.querySelectorAll('.legend .swatch')).toHaveLength(6);
       expect(getByRole('heading', { level: 2, name: 'How it works' })).toBeTruthy();
       expect(container.querySelectorAll('.story .tip').length).toBeGreaterThan(0);
     });

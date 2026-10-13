@@ -28,16 +28,18 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   speed and array size (10–300, default 50). Share a size with `#/sorting?n=<size>`.
 >   Turn on **Sound** for a tone per operation (pitch rises with the value, writes ring
 >   brighter than compares) and a chime when a lane finishes.
-> - **Notes & Chords** (`#/notes`) — pick up to three notes from C3 to B5, or set
->   **Pick** to a chord (Major, Minor, Diminished, Augmented, Sus2, Sus4) and press its
->   root; each note swings a dot on its own bar. Two notes draw the Lissajous loop of their interval (a 3:2 closes
->   after two swings of the first note) and three draw a 3D curve in a turning cube. The
+> - **Notes & Chords** (`#/notes`) — pick up to four notes from C3 to B5, or set
+>   **Pick** to a chord (six triads, or a seventh: Dom7, Maj7, Min7, Half-dim7, Dim7) and
+>   press its root; each note swings a dot on its own bar. Two notes draw the Lissajous loop of their interval (a 3:2 closes
+>   after two swings of the first note), three draw a 3D curve in a turning cube and four a
+>   curve in a tesseract that turns through the fourth dimension (**4D turn** holds it,
+>   **Turn** restarts it). The
 >   speed slider is the first note's swings per second (0.25–1000 Hz); **Real pitch**
 >   ramps it to that note's true frequency (a new root carries the speed along by the step
 >   between the roots, so the chord moves in pitch, not just in name) and **Sound** voices the notes once past about
 >   20 swings per second. **Pure ratios** closes the loop; **Piano** tuning never quite
 >   does. Share a pick with `#/notes?n=60,67` (`&t=equal` for piano tuning,
->   `&c=major` for chord mode).
+>   `&c=major` or `&c=dom7` for chord mode).
 >
 > Every lab page has the same shape: a labelled control bezel, the canvas mounted as a
 > framed dark stage (a thin terracotta clock line along its top edge fills with the
