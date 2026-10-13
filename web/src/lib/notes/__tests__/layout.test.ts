@@ -176,30 +176,45 @@ describe('toDevice', () => {
 });
 
 describe('labelAnchors', () => {
-  it('puts each bar label at its bar end and the ratio at the square bottom-centre', () => {
-    const { bars, ratio } = labelAnchors({ x: 10, y: 20, w: 100, h: 100 });
+  const STRIP = { x: 140, y: 30, w: 300, h: 45 };
+
+  it('puts each bar label at its bar end, the bottom bar at its right end', () => {
+    const { bars } = labelAnchors({ x: 10, y: 20, w: 100, h: 100 }, STRIP);
     expectPoint(bars[0], 16, 108); // left bar: bottom end, 6% in
     expectPoint(bars[1], 98, 26); // top bar: right end, 6% down
     expectPoint(bars[2], 104, 108); // right bar: bottom end, 94% across
+    expectPoint(bars[3], 98, 114); // bottom bar: right end, 6% up from the bottom
+  });
+
+  it('hangs the ratio in the strip top-left corner', () => {
+    const { ratio, ratioInCorner } = labelAnchors({ x: 10, y: 20, w: 100, h: 100 }, STRIP);
+    expectPoint(ratio, 140, 30);
+    expect(ratioInCorner).toBe(true);
+  });
+
+  it('keeps the ratio at the figure bottom-centre when there is no strip', () => {
+    const { ratio, ratioInCorner } = labelAnchors({ x: 10, y: 20, w: 100, h: 100 }, ZERO);
     expectPoint(ratio, 60, 114);
+    expect(ratioInCorner).toBe(false);
   });
 
   it('scales with the square', () => {
-    const { bars, ratio } = labelAnchors({ x: 0, y: 0, w: 200, h: 200 });
+    const { bars } = labelAnchors({ x: 0, y: 0, w: 200, h: 200 }, ZERO);
     expectPoint(bars[0], 12, 176);
     expectPoint(bars[1], 176, 12);
     expectPoint(bars[2], 188, 176);
-    expectPoint(ratio, 100, 188);
+    expectPoint(bars[3], 176, 188);
   });
 
-  it('keeps every anchor inside the figure', () => {
-    const { figure } = notesLayout(1168, 650);
-    const { bars, ratio } = labelAnchors(figure);
-    for (const p of [...bars, ratio]) {
+  it('keeps every bar anchor inside the figure and the ratio on the strip', () => {
+    const { figure, strip } = notesLayout(1168, 650);
+    const { bars, ratio } = labelAnchors(figure, strip);
+    for (const p of bars) {
       expect(p.x).toBeGreaterThan(figure.x);
       expect(p.x).toBeLessThan(figure.x + figure.w);
       expect(p.y).toBeGreaterThan(figure.y);
       expect(p.y).toBeLessThan(figure.y + figure.h);
     }
+    expectPoint(ratio, strip.x, strip.y);
   });
 });
