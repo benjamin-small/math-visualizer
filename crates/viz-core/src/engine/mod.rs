@@ -201,6 +201,12 @@ impl Engine {
         }
     }
 
+    /// The active visualization's `readout()` (view state the UI mirrors,
+    /// such as the notes lab's 4D angle); `null` for vizzes without one.
+    pub fn viz_readout(&self) -> JsValue {
+        to_js(&self.viz.readout())
+    }
+
     pub fn viz_config(&self) -> JsValue {
         to_js(&self.viz_cfg)
     }
