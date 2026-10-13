@@ -6,7 +6,7 @@
 
 ## Summary
 
-Today one note swings a dot on a bar, two draw a Lissajous loop and three draw a curve inside a turning cube. This adds a fourth note. It gets a fourth bar (bottom gutter) and becomes the fourth coordinate, w, of the curve: the cube becomes a tesseract (16 corners, 32 edges, the cube-inside-a-cube picture), turned through the fourth dimension and squashed back to 3D with perspective, then drawn by the existing 3D pipeline. A pure 4 : 5 : 6 : 7 chord (a dominant seventh) closes after four swings of the root.
+Today one note swings a dot on a bar, two draw a Lissajous loop and three draw a curve inside a turning cube. This adds a fourth note. It gets a fourth bar (bottom gutter) and becomes the fourth coordinate, w, of the curve: the cube becomes a tesseract (16 corners, 32 edges, the cube-inside-a-cube picture), turned through the fourth dimension and squashed back to 3D with perspective, then drawn by the existing 3D pipeline. In pure ratios a dominant seventh (C, E, G, B♭) is 20 : 25 : 30 : 36, because the lab's 5-limit table makes the minor seventh 9/5; it closes after 20 swings of the root (the trail shows the last 64 at most, as now).
 
 Four notes come from single-note mode (up to four picks) and from five new seventh chords in chord mode.
 
@@ -42,7 +42,7 @@ Four notes come from single-note mode (up to four picks) and from five new seven
 ### Rule (`crates/viz-core/src/rules/notes.rs`)
 
 - `MAX_NOTES` 3 → 4; the schema's `maxItems` follows it; `effective_notes()` keeps at most four.
-- Ratios, `period_cycles`, the summary and the trail sampling are already per-note: no other change. New tests: four notes are kept and a fifth dropped; `[60, 64, 67, 70]` in pure ratios is 4 : 5 : 6 : 7 with a period of 4 root cycles; the summary lists four notes.
+- Ratios, `period_cycles`, the summary and the trail sampling are already per-note: no other change. New tests: four notes are kept and a fifth dropped; `[60, 64, 67, 70]` in pure ratios is 1, 5/4, 3/2, 9/5 (20 : 25 : 30 : 36) with a period of 20 root cycles; the summary lists four notes.
 
 ### Trait and engine (shared)
 
