@@ -37,7 +37,7 @@ fn validate(spec: &HuffSpec) -> Result<(), JpegError> {
     let mut code = 0u32;
     for (i, &n) in spec.bits.iter().enumerate() {
         code += n as u32;
-        if code > 1 << (i + 1) {
+        if code > 1 << (i + 1) || (i == 15 && code == 1 << 16) {
             return Err(JpegError::Corrupt("over-full Huffman table"));
         }
         code <<= 1;
@@ -425,6 +425,22 @@ mod tests {
         ));
         let over = spec([3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], &[1, 2, 3]);
         assert!(matches!(canonical_codes(&over), Err(JpegError::Corrupt(_))));
+    }
+
+    #[test]
+    fn rejects_a_table_that_uses_the_all_ones_code() {
+        // One code at each length 1..=15 and two at length 16: together they
+        // fill all 65536 sixteen-bit codes, including the reserved all-ones one.
+        let full = HuffSpec {
+            bits: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2],
+            vals: (0..17).collect(),
+        };
+        assert!(matches!(canonical_codes(&full), Err(JpegError::Corrupt(_))));
+        assert!(matches!(
+            HuffDecoder::new(&full),
+            Err(JpegError::Corrupt(_))
+        ));
+        assert!(matches!(tree(&full), Err(JpegError::Corrupt(_))));
     }
 
     #[test]
