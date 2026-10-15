@@ -272,6 +272,19 @@ pub fn parse_options(quality: u8, subsampling: &str, huffman: &str) -> Result<Op
     })
 }
 
+/// Refuses a frame `decode` would refuse, before the kit copies and encodes
+/// it: the round trip would otherwise succeed in `encode` and then fail (after
+/// all the work) in `decode`.
+fn check_round_trip_size(w: usize, h: usize) -> Result<(), String> {
+    match w.checked_mul(h) {
+        Some(n) if n <= jpeg::codec::MAX_DECODE_PIXELS => Ok(()),
+        _ => Err(format!(
+            "image larger than {} pixels",
+            jpeg::codec::MAX_DECODE_PIXELS
+        )),
+    }
+}
+
 fn round_trip(
     rgba: &[u8],
     w: usize,
@@ -281,6 +294,7 @@ fn round_trip(
     huffman: &str,
 ) -> Result<(Rgb8Image, usize, Rgb8Image), JsError> {
     let opts = parse_options(quality, subsampling, huffman).map_err(|e| JsError::new(&e))?;
+    check_round_trip_size(w, h).map_err(|e| JsError::new(&e))?;
     let img = Rgb8Image::new(w, h, rgba.to_vec()).map_err(js)?;
     let bytes = encode(&img, &opts).map_err(js)?.bytes;
     let back = decode(&bytes).map_err(js)?.image;
@@ -337,5 +351,15 @@ mod tests {
         assert_eq!(o.huffman, HuffmanMode::Standard);
         assert!(parse_options(75, "411", "standard").is_err());
         assert!(parse_options(75, "420", "fast").is_err());
+    }
+
+    #[test]
+    fn round_trips_refuse_what_decode_would_refuse() {
+        let cap = jpeg::codec::MAX_DECODE_PIXELS;
+        assert!(check_round_trip_size(4096, 4096).is_ok());
+        assert!(check_round_trip_size(4097, 4097).is_err());
+        assert!(check_round_trip_size(cap, 1).is_ok());
+        assert!(check_round_trip_size(cap + 1, 1).is_err());
+        assert!(check_round_trip_size(usize::MAX, 2).is_err());
     }
 }

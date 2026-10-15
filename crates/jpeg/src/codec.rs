@@ -33,7 +33,9 @@ pub enum HuffmanMode {
 pub struct Options {
     /// 1–100 (clamped), scaling the standard tables.
     pub quality: u8,
+    /// How much chroma resolution survives.
     pub subsampling: Subsampling,
+    /// Which Huffman tables are written.
     pub huffman: HuffmanMode,
     /// `[luma, chroma]` tables used as-is instead of the scaled standard ones.
     pub tables: Option<[Table; 2]>,
@@ -58,10 +60,13 @@ impl Default for Options {
 pub struct BlockTrace {
     /// The DCT of the level-shifted samples.
     pub dct: Block,
+    /// The quantized coefficients, row-major.
     pub quant: QBlock,
     /// DC of the previous block in this component (0 for the first).
     pub dc_prev: i32,
+    /// `dc - dc_prev`, the value that gets coded.
     pub dc_diff: i32,
+    /// The block's AC coefficients as run/size tokens (ends with EOB unless coefficient 63 is non-zero).
     pub tokens: Vec<AcToken>,
     /// This block's bits in the unstuffed scan payload.
     pub bits: BitSpan,
@@ -71,25 +76,33 @@ pub struct BlockTrace {
 
 /// Table slots in `Trace::huffman` / `Trace::frequencies`.
 pub const DC_LUMA: usize = 0;
+/// Slot of the luminance AC table.
 pub const AC_LUMA: usize = 1;
+/// Slot of the chrominance DC table.
 pub const DC_CHROMA: usize = 2;
+/// Slot of the chrominance AC table.
 pub const AC_CHROMA: usize = 3;
 
 /// Every intermediate of one encode.
 #[derive(Debug, Clone)]
 pub struct Trace {
+    /// Image width in pixels.
     pub width: usize,
+    /// Image height in pixels.
     pub height: usize,
+    /// The settings used, with `quality` clamped to 1–100.
     pub options: Options,
     /// Full-resolution Y, Cb, Cr (Y only for grayscale).
     pub planes: Vec<Plane>,
     /// The padded (and, for chroma, subsampled) planes cut into blocks.
     pub coded: Vec<Plane>,
+    /// The scan order and block grids.
     pub layout: McuLayout,
     /// `[luma, chroma]` quantization tables, row-major.
     pub tables: [Table; 2],
     /// Indexed by `DC_LUMA`, `AC_LUMA`, `DC_CHROMA`, `AC_CHROMA`.
     pub huffman: [HuffSpec; 4],
+    /// Symbol counts per Huffman slot (same order as `huffman`).
     pub frequencies: [[u32; 256]; 4],
     /// Per component, its blocks in raster order of `layout.grids[c]`.
     pub blocks: Vec<Vec<BlockTrace>>,
@@ -97,6 +110,7 @@ pub struct Trace {
     pub mcu_bits: Vec<BitSpan>,
     /// The scan before byte stuffing.
     pub payload: Vec<u8>,
+    /// The marker segments of the file, in order.
     pub segments: Vec<Segment>,
 }
 
@@ -131,7 +145,9 @@ impl Trace {
 /// The file and how it was made.
 #[derive(Debug, Clone)]
 pub struct Encoded {
+    /// The JFIF file.
     pub bytes: Vec<u8>,
+    /// Every intermediate of the encode.
     pub trace: Trace,
 }
 
@@ -146,6 +162,12 @@ fn slots(c: usize) -> (usize, usize) {
 
 /// Encodes `img` as a baseline JFIF file.
 pub fn encode(img: &Rgb8Image, opts: &Options) -> Result<Encoded, JpegError> {
+    // The fields are public, so don't trust that `Rgb8Image::new` ran.
+    img.validate()?;
+    let opts = &Options {
+        quality: opts.quality.clamp(1, 100),
+        ..*opts
+    };
     if let Some(tables) = &opts.tables {
         if tables.iter().flatten().any(|&q| !(1..=255).contains(&q)) {
             return Err(JpegError::Corrupt("quantization table entry outside 1–255"));
@@ -315,7 +337,9 @@ pub fn encode(img: &Rgb8Image, opts: &Options) -> Result<Encoded, JpegError> {
 /// grayscale).
 #[derive(Debug, Clone)]
 pub struct Decoded {
+    /// The decoded RGBA image (alpha 255).
     pub image: Rgb8Image,
+    /// Full-resolution Y, Cb, Cr planes, 0–255 (Y only for grayscale).
     pub planes: Vec<Plane>,
 }
 
@@ -326,8 +350,9 @@ fn byte(p: &[u8], i: usize) -> Result<u8, JpegError> {
 /// `(frame component index, DC table id, AC table id)` for one scan component.
 type ScanComponent = (usize, usize, usize);
 
-/// Largest frame `decode` accepts (4096 × 4096), so a hostile header can't
-/// ask for gigabytes.
+/// Largest frame `decode` accepts, as a pixel count (width × height):
+/// 16 777 216 pixels, e.g. 4096 × 4096 or 8192 × 2048. A hostile header
+/// can't ask for gigabytes.
 pub const MAX_DECODE_PIXELS: usize = 1 << 24;
 
 struct FrameInfo {
@@ -506,7 +531,8 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, JpegError> {
                 return Err(JpegError::Corrupt("DC size"));
             }
             let diff = from_amplitude_bits(r.read_bits(size)? as u16, size);
-            pred[u.component] += diff;
+            // A hostile file can keep adding; saturate rather than overflow.
+            pred[u.component] = pred[u.component].saturating_add(diff);
             let mut z = [0i32; 64];
             z[0] = pred[u.component];
             let mut k = 1;
@@ -915,5 +941,74 @@ mod tests {
             *b = 0xFE;
         }
         let _ = decode(&junk); // any Result is fine; it must not panic
+    }
+
+    #[test]
+    fn an_ever_growing_dc_predictor_does_not_overflow() {
+        // 520 × 520 grayscale = 4225 blocks, each adding +2047 to the DC
+        // predictor, with every quantization entry 255: pred · 255 passes
+        // i32::MAX long before the last block.
+        let (dc, ac) = (std_dc_luma(), std_ac_luma());
+        let (dc_codes, ac_codes) = (canonical_codes(&dc).unwrap(), canonical_codes(&ac).unwrap());
+        let mut w = BitWriter::new();
+        for _ in 0..(520 / 8) * (520 / 8) {
+            encode_symbol(&mut w, &dc_codes, 11).unwrap();
+            w.write(2047, 11); // amplitude bits of +2047
+            encode_symbol(&mut w, &ac_codes, 0x00).unwrap(); // EOB
+        }
+        let (scan, _) = w.finish();
+        let bytes = write_segments(&Frame {
+            width: 520,
+            height: 520,
+            components: vec![FrameComponent {
+                id: 1,
+                h: 1,
+                v: 1,
+                tq: 0,
+                td: 0,
+                ta: 0,
+            }],
+            qtables: vec![(0, [255; 64])],
+            htables: vec![(0, 0, &dc), (1, 0, &ac)],
+            scan: &scan,
+        });
+        let d = decode(&bytes).unwrap();
+        assert_eq!((d.image.w, d.image.h), (520, 520));
+    }
+
+    #[test]
+    fn encode_validates_images_built_from_public_fields() {
+        // A struct literal skips `Rgb8Image::new`; `encode` must still refuse.
+        let too_long = Rgb8Image {
+            w: 2,
+            h: 2,
+            rgba: vec![0; 20],
+        };
+        assert_eq!(
+            encode(&too_long, &Options::default()).err(),
+            Some(JpegError::BadLength {
+                expected: 16,
+                got: 20
+            })
+        );
+        // 65 544 would silently truncate to a width of 8 in the frame header.
+        let too_wide = Rgb8Image {
+            w: 65_544,
+            h: 1,
+            rgba: vec![0; 65_544 * 4],
+        };
+        assert_eq!(
+            encode(&too_wide, &Options::default()).err(),
+            Some(JpegError::BadDimensions)
+        );
+    }
+
+    #[test]
+    fn the_trace_records_the_clamped_quality() {
+        let img = test_image(16, 16);
+        for (asked, stored) in [(0u8, 1u8), (1, 1), (50, 50), (100, 100), (200, 100)] {
+            let e = encode(&img, &opts(asked, Subsampling::S444)).unwrap();
+            assert_eq!(e.trace.options.quality, stored, "asked {asked}");
+        }
     }
 }

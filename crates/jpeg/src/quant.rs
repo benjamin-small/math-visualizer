@@ -45,11 +45,13 @@ pub fn quantize(c: &Block, t: &Table) -> QBlock {
     out
 }
 
-/// `q · Q` — the coefficients the decoder sees.
+/// `q · Q` — the coefficients the decoder sees. The product is taken in
+/// `f32`, so it cannot overflow for any `i32` coefficient (a hostile file can
+/// grow the DC predictor without bound); it is exact for every legal value.
 pub fn dequantize(q: &QBlock, t: &Table) -> Block {
     let mut out = [0.0; 64];
     for i in 0..64 {
-        out[i] = (q[i] * t[i] as i32) as f32;
+        out[i] = (q[i] as f32) * (t[i] as f32);
     }
     out
 }

@@ -17,7 +17,9 @@ pub struct HuffSpec {
 /// Encoder lookup: code and length per symbol (length 0 = no code).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HuffTable {
+    /// The code bits, right-aligned in the low `len` bits.
     pub code: [u16; 256],
+    /// Code length in bits.
     pub len: [u8; 256],
 }
 
@@ -30,10 +32,20 @@ pub struct HuffDecoder {
     vals: Vec<u8>,
 }
 
-/// Checks that `bits` and `vals` agree and the codes fit in 16 bits.
+/// Checks that `bits` and `vals` agree, every symbol appears once (else
+/// `Corrupt("duplicate Huffman symbol")`), and the codes fit in 16 bits: it
+/// refuses over-full tables (more codes of a length than the code space
+/// leaves) and a table that fills the whole 16-bit code space, which would
+/// use the reserved all-ones code.
 fn validate(spec: &HuffSpec) -> Result<(), JpegError> {
     let total: usize = spec.bits.iter().map(|&b| b as usize).sum();
     crate::error::check_len(total, spec.vals.len())?;
+    let mut seen = [false; 256];
+    for &sym in &spec.vals {
+        if std::mem::replace(&mut seen[sym as usize], true) {
+            return Err(JpegError::Corrupt("duplicate Huffman symbol"));
+        }
+    }
     let mut code = 0u32;
     for (i, &n) in spec.bits.iter().enumerate() {
         code += n as u32;
@@ -69,6 +81,7 @@ pub fn canonical_codes(spec: &HuffSpec) -> Result<HuffTable, JpegError> {
 }
 
 impl HuffDecoder {
+    /// A decoder for `spec`, refusing the tables `canonical_codes` refuses.
     pub fn new(spec: &HuffSpec) -> Result<Self, JpegError> {
         validate(spec)?;
         let mut d = HuffDecoder {
@@ -209,6 +222,7 @@ pub fn optimal_lengths(freq: &[u32; 256]) -> HuffSpec {
 /// One node of the code tree, for drawing: the root is depth 0, code 0.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeNode {
+    /// Bits from the root (the root is 0).
     pub depth: u8,
     /// The `depth` bits leading here.
     pub code: u16,
@@ -441,6 +455,15 @@ mod tests {
             Err(JpegError::Corrupt(_))
         ));
         assert!(matches!(tree(&full), Err(JpegError::Corrupt(_))));
+    }
+
+    #[test]
+    fn rejects_duplicate_symbols() {
+        let dup = spec([0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], &[5, 5]);
+        let expected = Err(JpegError::Corrupt("duplicate Huffman symbol"));
+        assert_eq!(canonical_codes(&dup).map(|_| ()), expected);
+        assert_eq!(HuffDecoder::new(&dup).map(|_| ()), expected);
+        assert_eq!(tree(&dup).map(|_| ()), expected);
     }
 
     #[test]

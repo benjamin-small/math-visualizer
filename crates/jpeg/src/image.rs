@@ -13,8 +13,11 @@ pub type Table = [u16; 64];
 /// One channel of samples, row-major.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plane {
+    /// Width in samples.
     pub w: usize,
+    /// Height in samples.
     pub h: usize,
+    /// Samples, row-major (`x + w * y`).
     pub data: Vec<f32>,
 }
 
@@ -34,7 +37,7 @@ impl Plane {
     }
 
     /// The sample at `(x, y)` with both coordinates clamped into the plane
-    /// (edge replication).
+    /// (edge replication). The plane must be non-empty.
     pub fn get_clamped(&self, x: isize, y: isize) -> f32 {
         let x = x.clamp(0, self.w as isize - 1) as usize;
         let y = y.clamp(0, self.h as isize - 1) as usize;
@@ -45,8 +48,11 @@ impl Plane {
 /// An 8-bit RGBA image (alpha is carried but never encoded).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rgb8Image {
+    /// Width in pixels (1–65535).
     pub w: usize,
+    /// Height in pixels (1–65535).
     pub h: usize,
+    /// `w * h * 4` bytes: R, G, B, A per pixel.
     pub rgba: Vec<u8>,
 }
 
@@ -57,15 +63,24 @@ impl Rgb8Image {
     /// Validates the size (1..=65535 each way) and that `rgba` holds exactly
     /// `w * h * 4` bytes.
     pub fn new(w: usize, h: usize, rgba: Vec<u8>) -> Result<Self, JpegError> {
-        if w == 0 || h == 0 || w > MAX_DIMENSION || h > MAX_DIMENSION {
+        let img = Self { w, h, rgba };
+        img.validate()?;
+        Ok(img)
+    }
+
+    /// The check `new` applies, for images built from the public fields:
+    /// each side in 1..=65535 (`BadDimensions`) and `rgba.len() == w * h * 4`
+    /// (`BadLength`). `encode` runs it first.
+    pub fn validate(&self) -> Result<(), JpegError> {
+        if self.w == 0 || self.h == 0 || self.w > MAX_DIMENSION || self.h > MAX_DIMENSION {
             return Err(JpegError::BadDimensions);
         }
-        let expected = w
-            .checked_mul(h)
+        let expected = self
+            .w
+            .checked_mul(self.h)
             .and_then(|n| n.checked_mul(4))
             .ok_or(JpegError::BadDimensions)?;
-        check_len(expected, rgba.len())?;
-        Ok(Self { w, h, rgba })
+        check_len(expected, self.rgba.len())
     }
 }
 
@@ -104,8 +119,11 @@ impl Subsampling {
 /// The three channels after the colour transform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Component {
+    /// Luma.
     Y,
+    /// Blue-difference chroma.
     Cb,
+    /// Red-difference chroma.
     Cr,
 }
 
