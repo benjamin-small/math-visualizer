@@ -33,3 +33,19 @@ features = [
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+wasm-bindgen-futures = "0.4"
+
+# Browser-decoder oracle (tests/jpeg_oracle.rs) only.
+[dev-dependencies.web-sys]
+version = "0.3"
+features = [
+    "Blob",
+    "BlobPropertyBag",
+    "ColorSpaceConversion",
+    "ImageBitmap",
+    "ImageBitmapOptions",
+    "ImageData",
+    "OffscreenCanvas",
+    "OffscreenCanvasRenderingContext2d",
+    "PremultiplyAlpha",
+]
