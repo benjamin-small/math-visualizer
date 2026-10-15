@@ -5,9 +5,14 @@
 
 pub mod blocks;
 pub mod color;
+pub mod dct;
 pub mod error;
 pub mod image;
 pub mod sampling;
+pub mod zigzag;
+
+#[cfg(test)]
+mod test_data;
 
 pub use error::JpegError;
 pub use image::{Block, Component, Plane, QBlock, Rgb8Image, Subsampling, Table};
