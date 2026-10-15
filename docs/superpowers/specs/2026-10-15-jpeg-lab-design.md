@@ -1,8 +1,12 @@
 # JPEG Compression lab — Design
 
 **Date:** 2026-10-15
-**Status:** Draft for review
+**Status:** Approved (2026-10-15); amended by Plan 1 (see note)
 **Scope:** a fifth lab, `#/jpeg`: a new pure-Rust workspace crate `crates/jpeg` (a granular library of JPEG's parts plus a baseline codec built from them), stateless WASM bindings for those parts ("the kit"), a `jpeg` rule + WebGL2 visualization in `crates/viz-core`, two small generic engine additions, a Svelte lab page with a nine-stage stepper, a home tile, docs.
+
+## Amendment (Plan 1, 2026-10-15)
+
+Prototyping the library before planning refined a few details, folded into the text below: `JpegError::Corrupt`; a pure `level_shift`; `HuffSpec`; `Segment.header_len`; `Decoded` without a trace; the decoder's per-sample clamp (without it the browser oracle's worst pixel was 23 levels off); a 16 MP decode cap; kit amplitude limits; `kit.ts` moving to slice 2; and the oracle tolerance set from measurement (max 3, mean 0.5).
 
 ## Summary
 
@@ -45,7 +49,7 @@ The codec is not a black box. `crates/jpeg` is a **library of parts**: every sta
 - `Plane { w: usize, h: usize, data: Vec<f32> }`; `Rgb8Image { w, h, rgba: Vec<u8> }`.
 - `Subsampling::{S444, S422, S420}` with `factors() -> (h, v)` for luma = (1,1) / (2,1) / (2,2); chroma always (1,1).
 - `Component::{Y, Cb, Cr}`.
-- `JpegError::{BadLength { expected, got }, BadDimensions, Truncated, BadMarker(u8), BadHuffmanCode, Unsupported(&'static str)}`. Functions that take outside input return `Result<_, JpegError>`; nothing panics on malformed input.
+- `JpegError::{BadLength { expected, got }, BadDimensions, Truncated, BadMarker(u8), BadHuffmanCode, Corrupt(&'static str), Unsupported(&'static str)}`. Functions that take outside input return `Result<_, JpegError>`; nothing panics on malformed input.
 
 ### Modules (each: forward, inverse, and the extra handles experiments need)
 
@@ -53,15 +57,15 @@ The codec is not a black box. `crates/jpeg` is a **library of parts**: every sta
 |---|---|---|
 | `color` | `rgb_to_ycbcr(r,g,b) -> [f32;3]` / `ycbcr_to_rgb`; `split_planes(&Rgb8Image) -> [Plane;3]` / `merge_planes` (clamps, rounds) | `RGB_TO_YCBCR: [[f32;3];3]`, `YCBCR_OFFSET: [f32;3]` and the inverse matrix (JFIF full-range BT.601: Y = .299R + .587G + .114B; Cb = −.168736R − .331264G + .5B + 128; Cr = .5R − .418688G − .081312B + 128) |
 | `sampling` | `downsample(&Plane, Subsampling) -> Plane` (box average) / `upsample(&Plane, Subsampling, Upsample, w, h)` | `Upsample::{Nearest, Fancy}`: `Nearest` for the "see the chroma blocks" view; `Fancy` is libjpeg's triangle filter, used by the decoder so it matches browser decoders |
-| `blocks` | `pad(&Plane, mcu_w, mcu_h) -> Plane` (edge replication) / `crop`; `to_blocks(&Plane) -> Vec<Block>` / `from_blocks`; `level_shift(&mut Block)` (−128) / `unshift` | `block_grid(w, h) -> (cols, rows)`; `mcu_layout(Subsampling, w, h)` listing, per MCU, the (component, block index) pairs in scan order |
+| `blocks` | `pad(&Plane, mcu_w, mcu_h) -> Plane` (edge replication) / `crop`; `to_blocks(&Plane) -> Vec<Block>` / `from_blocks`; `level_shift(&Block) -> Block` (−128) / `unshift` | `block_grid(w, h) -> (cols, rows)`; `mcu_layout(Subsampling, w, h)` listing, per MCU, the (component, block index) pairs in scan order |
 | `dct` | `fdct(&Block) -> Block` / `idct(&Block) -> Block` (separable, precomputed cosine table, orthonormal DCT-II with C(0) = 1/√2) | `cos_table() -> [[f32;8];8]`; `basis(u, v) -> Block`; `idct_partial(&Block, k) -> Block` (first k coefficients in zigzag order); `energy(&Block) -> f32`; `dct_1d` / `idct_1d` / `dft_1d` on `[f32; N]`; `extend_periodic` / `extend_mirrored` for the "why cosines" demo |
 | `quant` | `quantize(&Block, &Table) -> QBlock` (round half away from zero) / `dequantize` | `STD_LUMA`, `STD_CHROMA` (ITU T.81 Annex K, Tables K.1/K.2); `scale_table(&Table, quality) -> Table` (IJG: q < 50 → s = 5000/q, else s = 200 − 2q; entry = clamp((base·s + 50) / 100, 1, 255)) |
 | `zigzag` | `to_zigzag(&QBlock) -> [i32;64]` / `from_zigzag` | `ZIGZAG: [u8; 64]` (zigzag index → row-major index) and its inverse |
 | `rle` | `dc_diff(prev, dc) -> i32` / `dc_undiff`; `ac_symbols(&[i32;64]) -> Vec<AcToken>` / `ac_expand` | `size_category(v) -> u8` (bits needed for \|v\|); `amplitude_bits(v) -> (u16, u8)` / `from_amplitude_bits`; `AcToken { run, size, amp }`, with `ZRL` (15,0) and `EOB` (0,0) explicit; `symbol(run, size) -> u8` |
-| `huffman` | `encode_symbol(&mut BitWriter, &HuffTable, sym)` / `decode_symbol(&mut BitReader, &HuffDecoder)` | `count_frequencies`; `optimal_lengths(&[u32; 256]) -> Spec` (Annex K.2, codes ≤ 16 bits, all-ones code reserved); `Spec { bits: [u8;16], vals: Vec<u8> }` (the DHT form); `canonical_codes(&Spec) -> HuffTable`; `tree(&Spec) -> Tree` (nodes with depth, code, symbol, for drawing); `STD_DC_LUMA`, `STD_AC_LUMA`, `STD_DC_CHROMA`, `STD_AC_CHROMA` (Annex K.3) |
+| `huffman` | `encode_symbol(&mut BitWriter, &HuffTable, sym)` / `decode_symbol(&mut BitReader, &HuffDecoder)` | `count_frequencies`; `optimal_lengths(&[u32; 256]) -> HuffSpec` (Annex K.2, codes ≤ 16 bits, all-ones code reserved); `HuffSpec { bits: [u8;16], vals: Vec<u8> }` (the DHT form); `canonical_codes(&HuffSpec) -> HuffTable`; `tree(&HuffSpec) -> Vec<TreeNode>` (nodes with depth, code, symbol, for drawing); `STD_DC_LUMA`, `STD_AC_LUMA`, `STD_DC_CHROMA`, `STD_AC_CHROMA` (Annex K.3) |
 | `bits` | `BitWriter` (MSB-first, 0xFF → 0xFF 0x00 stuffing, pad with 1s) / `BitReader` (unstuffs, stops at markers) | `mark()` / `span_since(mark) -> BitSpan { start_bit, len }` so every block records its exact range |
-| `jfif` | `write_segments(&Frame) -> Vec<u8>` / `parse_segments(&[u8]) -> Vec<Segment>` | `Segment { marker, offset, len, kind }` for SOI, APP0, DQT, SOF0, DHT, SOS (+ scan data), EOI; unknown APPn/COM skipped and listed |
-| `codec` | `encode(&Rgb8Image, &Options) -> Encoded` / `decode(&[u8]) -> Result<Decoded, JpegError>` | `Options { quality, subsampling, huffman: Optimized \| Standard, tables: Option<[Table;2]> }`; `Encoded { bytes, trace }`; `Trace` holds every intermediate: the three planes, subsampled chroma, per-block raw / shifted / DCT / quantized / zigzag / DC diff / AC tokens / bit span, the tables used, Huffman specs and frequencies, segment list. `Decoded { image, planes, trace }` |
+| `jfif` | `write_segments(&Frame) -> Vec<u8>` / `parse_segments(&[u8]) -> Vec<Segment>` | `Segment { marker, kind, offset, header_len, len }` for SOI, APP0, DQT, SOF0, DHT, SOS (+ scan data), EOI; unknown APPn/COM skipped and listed |
+| `codec` | `encode(&Rgb8Image, &Options) -> Encoded` / `decode(&[u8]) -> Result<Decoded, JpegError>` | `Options { quality, subsampling, huffman: Optimized \| Standard, tables: Option<[Table;2]> }`; `Encoded { bytes, trace }`; `Trace` holds every intermediate: the three planes, subsampled chroma, per-block raw / shifted / DCT / quantized / zigzag / DC diff / AC tokens / bit span, the tables used, Huffman specs and frequencies, segment list. `Decoded { image, planes }` (the encoder's `Trace` already holds every intermediate). The decoder rounds and clamps each IDCT sample to 0–255 before upsampling and colour conversion, as libjpeg does, and refuses frames over 16 MP |
 | `metrics` | — | `mse`, `psnr` (on RGB), `error_plane(a, b) -> Plane` (per-pixel mean \|Δ\|), `entropy_bits(&[u32]) -> f64` (Shannon bound for a symbol histogram) |
 
 The codec supports 1 or 3 components (grayscale input is encoded as one component); the lab always uses 3.
@@ -86,7 +90,7 @@ The codec supports 1 or 3 components (grayscale input is encoded as one componen
 
 ### The kit (`viz-core/src/jpeg_kit.rs`, wrapped by `web/src/lib/jpeg/kit.ts`)
 
-Stateless `#[wasm_bindgen]` free functions mirroring the crate one-to-one with typed arrays: `fdct`, `idct`, `idct_partial`, `basis`, `dct_1d`, `dft_1d`, `quantize`, `dequantize`, `scale_table`, `std_table`, `to_zigzag`, `from_zigzag`, `ac_symbols`, `size_category`, `amplitude_bits`, `optimal_lengths`, `huffman_tree`, `rgb_to_ycbcr`, `builtin_image(id, w, h)`, `encode_stats(rgba, w, h, opts) -> { bytes, psnr }` and `encode_decode(rgba, w, h, opts) -> rgba` (for the R–D sweep and generation loss). Each checks argument lengths and returns a `JsError` rather than panicking. The TypeScript wrapper gives each a typed signature.
+Stateless `#[wasm_bindgen]` free functions mirroring the crate one-to-one with typed arrays: `fdct`, `idct`, `idct_partial`, `basis`, `dct_1d`, `dft_1d`, `quantize`, `dequantize`, `scale_table`, `std_table`, `to_zigzag`, `from_zigzag`, `ac_symbols`, `size_category`, `amplitude_bits`, `optimal_lengths`, `huffman_tree`, `rgb_to_ycbcr`, `builtin_image(id, w, h)`, `encode_stats(rgba, w, h, opts) -> { bytes, psnr }` and `encode_decode(rgba, w, h, opts) -> rgba` (for the R–D sweep and generation loss). Each checks argument lengths (and amplitudes within ±32767) and returns a `JsError` rather than panicking. The TypeScript wrapper `kit.ts` gives each a typed signature; it lands in slice 2 with its first consumer.
 
 ### The visualization (`JpegViz`)
 
@@ -142,7 +146,7 @@ Numeric 8×8 grids, the KaTeX formula panel (KaTeX is already a dependency, lazi
   - golden values: the classic textbook 8×8 block (Wikipedia "JPEG" example) with its published DCT coefficients and quantized values at q = 50; the Annex K standard Huffman tables rebuilt from BITS/HUFFVAL match the published codes.
   - end to end: PSNR non-decreasing in quality across q ∈ {10, 30, 50, 70, 90}; q = 100 with 4:4:4 gives PSNR > 45 dB; `parse_segments(encode(..))` lists SOI, APP0, DQT, SOF0, DHT, SOS, EOI in order; decode(encode(img)) for 1 and 3 components, every subsampling, odd sizes; malformed inputs (truncated, bad marker, progressive SOF2) return the right `JpegError`.
   - randomized blocks and images use the repo's deterministic `splitmix64` approach; no new test dependencies.
-- **WASM browser (`crates/viz-core/tests/wasm.rs`):** the **browser-decoder oracle**: for the three generated built-ins × every subsampling × q ∈ {10, 50, 90}, decode our bytes with `createImageBitmap` and compare with our `decode`: 4:4:4 max \|Δ\| ≤ 2; 4:2:2 / 4:2:0 max \|Δ\| ≤ 4 and mean \|Δ\| ≤ 0.5 per channel. Plus: lab construction, `update_rule_config_with_image`, actions keep `n`, `rule_inspect` keys, `rule_bytes`, rendering every stage without GL errors.
+- **WASM browser (`crates/viz-core/tests/wasm.rs`):** the **browser-decoder oracle**: for the three generated built-ins × every subsampling × q ∈ {10, 50, 90}, decode our bytes with `createImageBitmap` and compare with our `decode`: max \|Δ\| ≤ 3 and mean \|Δ\| ≤ 0.5 per channel in every mode (measured on Chrome 155: max 3, mean ≤ 0.37; the 128×128 and 99×61 sizes are both checked). Plus: lab construction, `update_rule_config_with_image`, actions keep `n`, `rule_inspect` keys, `rule_bytes`, rendering every stage without GL errors.
 - **Web (Vitest):** `kit.ts` wrapper, URL params, `layout.ts`, summary/inspect parsing, upload downscale maths, and a `JpegLab` component test against `FakeEngine` (stage switching, rail keyboard, bezel controls dispatch the right actions); `App`, `Home` and router tests updated for five labs.
 - **Browser:** every stage in light and dark at 1440 and 375 px via the capture script, plus the home tile.
 
