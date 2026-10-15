@@ -6,7 +6,12 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JpegError {
     /// A slice had the wrong number of elements.
-    BadLength { expected: usize, got: usize },
+    BadLength {
+        /// How many elements were required.
+        expected: usize,
+        /// How many were given.
+        got: usize,
+    },
     /// Width/height are zero, too large, or disagree between inputs.
     BadDimensions,
     /// The byte stream ended early.

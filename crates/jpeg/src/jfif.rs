@@ -9,21 +9,28 @@ use crate::zigzag::to_zigzag_u16;
 /// One frame component as SOF0 declares it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameComponent {
+    /// Component id, referenced by the scan header.
     pub id: u8,
+    /// Horizontal sampling factor (1–4).
     pub h: u8,
+    /// Vertical sampling factor (1–4).
     pub v: u8,
     /// Quantization table id.
     pub tq: u8,
-    /// DC and AC Huffman table ids used in the scan.
+    /// DC Huffman table id used in the scan.
     pub td: u8,
+    /// AC table id.
     pub ta: u8,
 }
 
 /// Everything `write_segments` needs.
 #[derive(Debug, Clone)]
 pub struct Frame<'a> {
+    /// Image width in pixels.
     pub width: u16,
+    /// Image height in pixels.
     pub height: u16,
+    /// The frame components, in scan order.
     pub components: Vec<FrameComponent>,
     /// `(id, table)`, tables row-major (written in zigzag order).
     pub qtables: Vec<(u8, Table)>,
@@ -36,18 +43,29 @@ pub struct Frame<'a> {
 /// What a segment is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentKind {
+    /// Start of image.
     Soi,
+    /// The JFIF application segment.
     App0,
+    /// Any other application segment (APP1–APP15).
     AppN,
+    /// Define quantization tables.
     Dqt,
+    /// Start of frame, baseline DCT.
     Sof0,
     /// Any other start-of-frame (progressive, arithmetic, lossless, …).
     SofOther,
+    /// Define Huffman tables.
     Dht,
+    /// Define restart interval.
     Dri,
+    /// Start of scan (followed by entropy-coded data).
     Sos,
+    /// Comment.
     Com,
+    /// End of image.
     Eoi,
+    /// Any marker not listed above.
     Other,
 }
 
@@ -55,10 +73,15 @@ pub enum SegmentKind {
 /// declared segment; `len` adds the scan data for SOS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Segment {
+    /// The marker byte after `0xFF`.
     pub marker: u8,
+    /// What the marker is.
     pub kind: SegmentKind,
+    /// Byte offset of the `0xFF` that starts the segment.
     pub offset: usize,
+    /// Bytes from `offset` through the segment header.
     pub header_len: usize,
+    /// Bytes from `offset` through the segment (and, for SOS, its scan data).
     pub len: usize,
 }
 
@@ -100,7 +123,9 @@ fn push_segment(out: &mut Vec<u8>, marker: u8, body: &[u8]) {
     out.extend_from_slice(body);
 }
 
-/// A complete baseline JFIF file.
+/// A complete baseline JFIF file. The caller guarantees the frame is
+/// writable: quantization table entries fit in 8 bits (1–255), and component
+/// ids/factors, table ids and classes fit in a nibble (0–15).
 pub fn write_segments(f: &Frame) -> Vec<u8> {
     let mut out = vec![0xFF, 0xD8];
     // APP0: "JFIF\0", version 1.01, no units, 1:1 density, no thumbnail.

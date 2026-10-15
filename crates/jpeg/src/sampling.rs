@@ -34,7 +34,8 @@ pub fn downsample(p: &Plane, s: Subsampling) -> Plane {
     out
 }
 
-/// Stretches a plane subsampled with `s` back to `w × h`.
+/// Stretches a plane subsampled with `s` back to `w × h`. The plane must be
+/// non-empty.
 pub fn upsample(p: &Plane, s: Subsampling, mode: Upsample, w: usize, h: usize) -> Plane {
     let (fh, fv) = s.factors();
     match mode {
