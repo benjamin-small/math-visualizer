@@ -91,7 +91,7 @@ cargo test --workspace
 # JS / Svelte component tests
 cd web && npm run test
 
-# WASM browser tests (headless Chrome) — flag must precede the path
+# WASM browser tests (headless Chrome) — flag must precede the path; includes the JPEG kit and browser-decoder oracle
 wasm-pack test --chrome --headless crates/viz-core
 ```
 
@@ -131,9 +131,14 @@ Outputs a static SPA to `web/dist/`.
 
 ```
 math-visualizer/
+├── crates/jpeg/                      # Pure-Rust baseline JPEG, one module per stage (no deps)
+│   └── src/                          # color, sampling, blocks, dct, quant, zigzag, rle,
+│                                     # huffman, bits, jfif, codec (encode + trace, decode), metrics
 ├── crates/viz-core/                  # Rust crate compiled to WebAssembly
 │   ├── src/
 │   │   ├── lib.rs                    # wasm-bindgen entry point
+│   │   ├── jpeg_images.rs            # Generated JPEG lab test images (gradient, text, bars)
+│   │   ├── jpeg_kit.rs               # Stateless wasm-bindgen wrappers over the jpeg crate
 │   │   ├── traits.rs                 # SceneState, Rule, Visualization, Capabilities, InputEvent
 │   │   ├── config/                   # ConfigSchema trait + JSON Schema helpers
 │   │   ├── engine/
@@ -170,7 +175,7 @@ math-visualizer/
 │   │       ├── notes.rs              # Notes lab viz: bars, Lissajous trail, wave strip, 3D cube
 │   │       ├── dots_on_circle.rs     # Alternative viz (paired with midpoint)
 │   │       └── color_cycle.rs        # Phase 2 demo viz
-│   └── tests/wasm.rs                 # Browser smoke tests (Engine + dispatch round-trip)
+│   └── tests/                        # Browser tests: wasm.rs (engine), jpeg_kit.rs, jpeg_oracle.rs
 └── web/                              # Vite + Svelte 5 app
     ├── public/fonts/                 # Space Mono (SIL OFL 1.1) + OFL.txt, for the Fourier lab
     ├── src/
