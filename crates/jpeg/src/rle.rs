@@ -10,13 +10,14 @@ pub fn size_category(v: i32) -> u8 {
 
 /// The `size` low bits that encode `v`: `v` itself when positive,
 /// `v − 1` (one's complement) when negative. Returns `(bits, size)`.
+/// Precondition: `|v| ≤ 32767` (size ≤ 15), so the bits fit a `u16`.
 pub fn amplitude_bits(v: i32) -> (u16, u8) {
     let size = size_category(v);
     let bits = if v >= 0 { v } else { v + (1 << size) - 1 };
     (bits as u16, size)
 }
 
-/// Inverse of `amplitude_bits`.
+/// Inverse of `amplitude_bits`. `size` must be at most 15 (so `|v| ≤ 32767`).
 pub fn from_amplitude_bits(bits: u16, size: u8) -> i32 {
     if size == 0 {
         return 0;
@@ -45,8 +46,11 @@ pub fn dc_undiff(prev: i32, diff: i32) -> i32 {
 /// `size` 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcToken {
+    /// Zeros before the coefficient (0–15).
     pub run: u8,
+    /// Bits needed for `amp` (0 for ZRL and EOB).
     pub size: u8,
+    /// The coefficient value (0 for ZRL and EOB).
     pub amp: i32,
 }
 

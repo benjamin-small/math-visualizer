@@ -132,8 +132,8 @@ Outputs a static SPA to `web/dist/`.
 ```
 math-visualizer/
 ├── crates/jpeg/                      # Pure-Rust baseline JPEG, one module per stage (no deps)
-│   └── src/                          # color, sampling, blocks, dct, quant, zigzag, rle,
-│                                     # huffman, bits, jfif, codec (encode + trace, decode), metrics
+│   └── src/                          # error, image, color, sampling, blocks, dct, quant, zigzag,
+│                                     # rle, huffman, bits, jfif, codec (encode + trace, decode), metrics
 ├── crates/viz-core/                  # Rust crate compiled to WebAssembly
 │   ├── src/
 │   │   ├── lib.rs                    # wasm-bindgen entry point

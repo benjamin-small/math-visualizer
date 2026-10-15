@@ -5,7 +5,7 @@ use crate::error::JpegError;
 use crate::image::{Block, Plane, Subsampling};
 
 /// Grows a plane to the next multiple of `mw × mh` by repeating its last
-/// column and row.
+/// column and row. The plane must be non-empty and `mw`, `mh` greater than 0.
 pub fn pad(p: &Plane, mw: usize, mh: usize) -> Plane {
     let (w, h) = (p.w.div_ceil(mw) * mw, p.h.div_ceil(mh) * mh);
     let mut out = Plane::new(w, h);
@@ -88,7 +88,9 @@ pub fn unshift(b: &Block) -> Block {
 /// component's raster-order block list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Unit {
+    /// Index of the component (0 = Y).
     pub component: usize,
+    /// Index in that component's raster-order block list.
     pub block: usize,
 }
 
@@ -97,9 +99,11 @@ pub struct Unit {
 pub struct McuLayout {
     /// MCUs across and down.
     pub cols: usize,
+    /// MCU rows down.
     pub rows: usize,
     /// MCU size in image pixels.
     pub mcu_w: usize,
+    /// MCU height in image pixels.
     pub mcu_h: usize,
     /// Block grid `(cols, rows)` of each component's coded plane.
     pub grids: Vec<(usize, usize)>,
@@ -107,7 +111,8 @@ pub struct McuLayout {
     pub units: Vec<Vec<Unit>>,
 }
 
-/// The MCU layout for a `w × h` image with `components` (1 or 3).
+/// The MCU layout for a `w × h` image with `components` (which must be 1 or
+/// 3).
 /// Three components interleave: the luma blocks of an MCU (left-to-right,
 /// top-to-bottom), then one Cb and one Cr block. One component has 8×8
 /// MCUs of a single block, whatever `s` says.

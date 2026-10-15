@@ -59,7 +59,7 @@ fn gradient_px(x: usize, y: usize, w: usize, h: usize) -> [u8; 3] {
 }
 
 /// Black strokes on white: a grid of blocky pseudo-glyphs, a ring and a
-/// one-pixel diagonal. Sharp edges everywhere, so quantization rings.
+/// repeating sawtooth diagonal. Sharp edges everywhere, so quantization rings.
 fn text_px(x: usize, y: usize, w: usize, h: usize) -> [u8; 3] {
     const INK: [u8; 3] = [20, 20, 24];
     const PAPER: [u8; 3] = [246, 244, 238];

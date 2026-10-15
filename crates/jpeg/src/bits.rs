@@ -6,7 +6,9 @@ use crate::error::JpegError;
 /// A run of payload bits (stuffing excluded) inside the scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BitSpan {
+    /// First bit of the span, counted from the start of the payload.
     pub start_bit: u64,
+    /// Number of bits in the span.
     pub len: u64,
 }
 
@@ -21,6 +23,7 @@ pub struct BitWriter {
 }
 
 impl BitWriter {
+    /// An empty writer.
     pub fn new() -> Self {
         Self::default()
     }
@@ -101,6 +104,7 @@ pub struct BitReader<'a> {
 }
 
 impl<'a> BitReader<'a> {
+    /// A reader over the stuffed scan bytes.
     pub fn new(data: &'a [u8]) -> Self {
         Self {
             data,

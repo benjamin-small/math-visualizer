@@ -38,7 +38,7 @@ pub fn from_zigzag(z: &[i32; 64]) -> QBlock {
     out
 }
 
-/// Row-major → scan order for any per-coefficient values (tables included).
+/// Row-major → scan order for a `[u16; 64]`, e.g. a quantization table.
 pub fn to_zigzag_u16(t: &[u16; 64]) -> [u16; 64] {
     ZIGZAG.map(|i| t[i as usize])
 }
