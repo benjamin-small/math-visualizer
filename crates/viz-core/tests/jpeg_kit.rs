@@ -37,6 +37,11 @@ fn wrong_lengths_are_errors_not_panics() {
     assert!(jpeg_builtin_image("gradient", 100_000, 100_000).is_err());
     // wasm32: 32768 * 32768 * 4 wraps to 0 without the checked multiply.
     assert!(jpeg_encode_stats(&[], 32768, 32768, 50, "420", "optimized").is_err());
+    // Over the 16-megapixel decode cap: refused up front, though the buffer
+    // is the right size, rather than encoded and then failing to decode.
+    let big = vec![0u8; 4097 * 4097 * 4];
+    assert!(jpeg_encode_stats(&big, 4097, 4097, 50, "420", "optimized").is_err());
+    assert!(jpeg_encode_decode(&big, 4097, 4097, 50, "420", "optimized").is_err());
 }
 
 #[wasm_bindgen_test]
