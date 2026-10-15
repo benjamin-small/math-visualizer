@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/viz-core"]
+members = ["crates/jpeg", "crates/viz-core"]
 
 [workspace.package]
 edition = "2021"
