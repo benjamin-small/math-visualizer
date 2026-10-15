@@ -9,6 +9,7 @@ pub mod dct;
 pub mod error;
 pub mod image;
 pub mod quant;
+pub mod rle;
 pub mod sampling;
 pub mod zigzag;
 
