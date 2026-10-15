@@ -3,8 +3,10 @@
 //! else is usable on its own for small experiments (one block, one table, one
 //! Huffman code).
 
+pub mod color;
 pub mod error;
 pub mod image;
+pub mod sampling;
 
 pub use error::JpegError;
 pub use image::{Block, Component, Plane, QBlock, Rgb8Image, Subsampling, Table};
