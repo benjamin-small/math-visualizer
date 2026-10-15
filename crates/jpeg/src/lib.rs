@@ -3,6 +3,7 @@
 //! else is usable on its own for small experiments (one block, one table, one
 //! Huffman code).
 
+pub mod blocks;
 pub mod color;
 pub mod error;
 pub mod image;
