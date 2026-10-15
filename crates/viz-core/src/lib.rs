@@ -3,6 +3,7 @@ use wasm_bindgen::prelude::*;
 pub mod config;
 pub mod engine;
 pub mod jpeg_images;
+pub mod jpeg_kit;
 pub mod render;
 pub mod rules;
 pub mod traits;
