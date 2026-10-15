@@ -8,6 +8,7 @@ pub mod blocks;
 pub mod color;
 pub mod dct;
 pub mod error;
+pub mod huffman;
 pub mod image;
 pub mod quant;
 pub mod rle;
