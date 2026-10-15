@@ -60,7 +60,11 @@ impl Rgb8Image {
         if w == 0 || h == 0 || w > MAX_DIMENSION || h > MAX_DIMENSION {
             return Err(JpegError::BadDimensions);
         }
-        check_len(w * h * 4, rgba.len())?;
+        let expected = w
+            .checked_mul(h)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or(JpegError::BadDimensions)?;
+        check_len(expected, rgba.len())?;
         Ok(Self { w, h, rgba })
     }
 }
@@ -127,6 +131,25 @@ mod tests {
             })
         );
         assert_eq!(Rgb8Image::new(0, 2, vec![]), Err(JpegError::BadDimensions));
+    }
+
+    #[test]
+    fn rgb8image_refuses_sizes_whose_buffer_length_overflows() {
+        // On 64-bit the product fits, so the empty buffer is a length error;
+        // on wasm32 (usize is 32 bits) it overflows and is a dimension error.
+        // Either way the image is refused rather than accepted empty.
+        assert!(Rgb8Image::new(65_535, 65_535, vec![]).is_err());
+        assert_eq!(
+            Rgb8Image::new(65_535, 65_535, vec![]),
+            if usize::BITS >= 64 {
+                Err(JpegError::BadLength {
+                    expected: (65_535u64 * 65_535 * 4) as usize,
+                    got: 0,
+                })
+            } else {
+                Err(JpegError::BadDimensions)
+            }
+        );
     }
 
     #[test]

@@ -34,6 +34,9 @@ fn wrong_lengths_are_errors_not_panics() {
     assert!(jpeg_encode_stats(&[0; 15], 2, 2, 50, "420", "optimized").is_err());
     assert!(jpeg_encode_stats(&[0; 16], 2, 2, 50, "411", "optimized").is_err());
     assert!(jpeg_builtin_image("nope", 8, 8).is_err());
+    assert!(jpeg_builtin_image("gradient", 100_000, 100_000).is_err());
+    // wasm32: 32768 * 32768 * 4 wraps to 0 without the checked multiply.
+    assert!(jpeg_encode_stats(&[], 32768, 32768, 50, "420", "optimized").is_err());
 }
 
 #[wasm_bindgen_test]
@@ -99,6 +102,7 @@ fn whole_image_helpers() {
 #[wasm_bindgen_test]
 fn out_of_range_numbers_are_refused_or_clamped() {
     assert!(jpeg_amplitude_bits(40_000).is_err());
+    assert!(jpeg_dequantize(&[100_000; 64], &[65_535; 64]).is_err());
     assert!(jpeg_amplitude_bits(i32::MIN).is_err());
     assert_eq!(jpeg_amplitude_bits(-5).unwrap(), vec![2, 3]);
     let mut z = vec![0i32; 64];
