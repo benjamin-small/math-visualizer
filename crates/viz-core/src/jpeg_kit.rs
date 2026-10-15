@@ -97,10 +97,10 @@ pub fn jpeg_quantize(coeffs: &[f32], q_table: &[u16]) -> Result<Vec<i32>, JsErro
     Ok(quant::quantize(&block(coeffs)?, &table(q_table)?).to_vec())
 }
 
-/// `q · Q` for 64 quantized values and a row-major table.
+/// `q · Q` for 64 quantized values (|q| ≤ 32767) and a row-major table.
 #[wasm_bindgen]
 pub fn jpeg_dequantize(q: &[i32], q_table: &[u16]) -> Result<Vec<f32>, JsError> {
-    Ok(quant::dequantize(&qblock(q)?, &table(q_table)?).to_vec())
+    Ok(quant::dequantize(&amplitudes(q)?, &table(q_table)?).to_vec())
 }
 
 /// A table scaled to `quality` (IJG formula).

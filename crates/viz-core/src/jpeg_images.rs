@@ -8,10 +8,14 @@ use crate::rules::rng::splitmix64;
 /// Ids accepted by `builtin_image`, in picker order.
 pub const GENERATED_IMAGES: &[&str] = &["gradient", "text", "bars"];
 
-/// The generated image `id` at `w × h`, or `None` for an unknown id or a zero
-/// size.
+/// Largest width or height `builtin_image` will generate (guards against
+/// enormous allocations requested from JavaScript).
+pub const MAX_BUILTIN_SIDE: usize = 4096;
+
+/// The generated image `id` at `w × h`, or `None` for an unknown id, a zero
+/// size, or a side above `MAX_BUILTIN_SIDE`.
 pub fn builtin_image(id: &str, w: usize, h: usize) -> Option<Rgb8Image> {
-    if w == 0 || h == 0 {
+    if w == 0 || h == 0 || w > MAX_BUILTIN_SIDE || h > MAX_BUILTIN_SIDE {
         return None;
     }
     let pixel: fn(usize, usize, usize, usize) -> [u8; 3] = match id {
@@ -158,6 +162,8 @@ mod tests {
         }
         assert!(builtin_image("nope", 8, 8).is_none());
         assert!(builtin_image("text", 0, 8).is_none());
+        assert!(builtin_image("gradient", MAX_BUILTIN_SIDE + 1, 8).is_none());
+        assert!(builtin_image("gradient", 8, MAX_BUILTIN_SIDE + 1).is_none());
     }
 
     #[test]
