@@ -10,6 +10,7 @@ pub mod dct;
 pub mod error;
 pub mod huffman;
 pub mod image;
+pub mod jfif;
 pub mod quant;
 pub mod rle;
 pub mod sampling;
