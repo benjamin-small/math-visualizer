@@ -146,6 +146,11 @@ fn slots(c: usize) -> (usize, usize) {
 
 /// Encodes `img` as a baseline JFIF file.
 pub fn encode(img: &Rgb8Image, opts: &Options) -> Result<Encoded, JpegError> {
+    if let Some(tables) = &opts.tables {
+        if tables.iter().flatten().any(|&q| !(1..=255).contains(&q)) {
+            return Err(JpegError::Corrupt("quantization table entry outside 1–255"));
+        }
+    }
     let ncomp = if opts.grayscale { 1 } else { 3 };
     let layout = mcu_layout(opts.subsampling, img.w, img.h, ncomp);
     let planes: Vec<Plane> = split_planes(img).into_iter().take(ncomp).collect();
@@ -380,6 +385,9 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, JpegError> {
                 }
             }
             SegmentKind::Sof0 => {
+                if frame.is_some() || scan.is_some() {
+                    return Err(JpegError::Unsupported("multiple frames"));
+                }
                 if byte(p, 0)? != 8 {
                     return Err(JpegError::Unsupported("12-bit samples"));
                 }
@@ -720,6 +728,55 @@ mod tests {
         assert_eq!(y[0].dc_prev, 0);
         assert_eq!(y[1].dc_prev, y[0].quant[0]);
         assert_eq!(y[1].dc_diff, y[1].quant[0] - y[0].quant[0]);
+    }
+
+    #[test]
+    fn custom_tables_outside_one_to_255_are_refused() {
+        for bad in [0u16, 256] {
+            let mut t = [[8u16; 64]; 2];
+            t[1][63] = bad;
+            let o = Options {
+                tables: Some(t),
+                ..Options::default()
+            };
+            assert_eq!(
+                encode(&test_image(16, 16), &o).err(),
+                Some(JpegError::Corrupt("quantization table entry outside 1–255"))
+            );
+        }
+    }
+
+    #[test]
+    fn a_second_frame_header_is_refused() {
+        // Splice a copy of the SOF0 segment in just before the final EOI.
+        fn splice(into: &Encoded, sof_from: &Encoded) -> Vec<u8> {
+            let sof = sof_from
+                .trace
+                .segments
+                .iter()
+                .find(|s| s.kind == SegmentKind::Sof0)
+                .unwrap();
+            let mut bytes = into.bytes.clone();
+            let at = bytes.len() - 2;
+            let seg = sof_from.bytes[sof.offset..sof.offset + sof.len].to_vec();
+            bytes.splice(at..at, seg);
+            bytes
+        }
+        let color = encode(&test_image(16, 16), &Options::default()).unwrap();
+        assert_eq!(
+            decode(&splice(&color, &color)).err(),
+            Some(JpegError::Unsupported("multiple frames"))
+        );
+        let gray = encode(
+            &test_image(16, 16),
+            &Options {
+                grayscale: true,
+                ..Options::default()
+            },
+        )
+        .unwrap();
+        assert!(decode(&splice(&color, &gray)).is_err());
+        assert!(decode(&splice(&gray, &color)).is_err());
     }
 
     #[test]
