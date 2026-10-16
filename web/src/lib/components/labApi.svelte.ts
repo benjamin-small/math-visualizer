@@ -39,6 +39,19 @@ export class LabApi {
     }
   }
 
+  /**
+   * Replace the rule config with scalar fields as JSON plus an RGBA image as a
+   * typed array (`w × h × 4` bytes) — zero-copy across the WASM boundary. Only
+   * rules with an image (the JPEG lab) accept this.
+   */
+  setRuleConfigWithImage(cfg: object, w: number, h: number, rgba: Uint8Array) {
+    try {
+      this.engine?.update_rule_config_with_image(cfg, w, h, rgba);
+    } catch (err) {
+      console.warn('update_rule_config_with_image failed:', err);
+    }
+  }
+
   /** Replace the rule config wholesale (use this when the config is large, e.g. a 2000-point path). */
   setRuleConfig(cfg: object) {
     try {

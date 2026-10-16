@@ -1,11 +1,11 @@
 // Pure hash-route parsing. Kept free of runes/DOM so it's trivially testable;
 // the reactive `route` object lives in router.svelte.ts.
 
-export type LabId = 'sierpinski' | 'fourier' | 'sorting' | 'notes';
+export type LabId = 'sierpinski' | 'fourier' | 'sorting' | 'notes' | 'jpeg';
 /** Every page: the gallery home, or one lab. */
 export type RouteId = 'home' | LabId;
 
-export const LAB_IDS: readonly LabId[] = ['sierpinski', 'fourier', 'sorting', 'notes'];
+export const LAB_IDS: readonly LabId[] = ['sierpinski', 'fourier', 'sorting', 'notes', 'jpeg'];
 
 /** `#/fourier` → 'fourier'; anything else (empty, `#`, `#/`, unknown) → 'home'. */
 export function parseHash(hash: string): RouteId {
