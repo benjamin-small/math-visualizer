@@ -87,6 +87,28 @@ pub trait Rule {
     ) -> Result<bool, String> {
         Ok(false)
     }
+
+    /// Optional bulk-image hook: install a `w × h` RGBA image (4 bytes per
+    /// pixel) into the config. Rules without an image keep the default and
+    /// return `false`. Backs `Engine::update_rule_config_with_image`, which
+    /// lets the pixels cross the WASM boundary as a typed-array view instead
+    /// of JSON.
+    fn apply_image(&self, _cfg: &mut Self::Config, _w: u32, _h: u32, _rgba: &[u8]) -> bool {
+        false
+    }
+
+    /// Optional on-demand view of the state for the UI, selected by `key`
+    /// (e.g. the JPEG lab's quantization tables). For data too large or too
+    /// rarely needed for the per-frame `summary`. Default: `null`.
+    fn inspect(&self, _state: &Self::State, _key: &str) -> serde_json::Value {
+        serde_json::Value::Null
+    }
+
+    /// Optional binary product of the state (e.g. the JPEG lab's file
+    /// bytes). Default: `None`.
+    fn bytes(&self, _state: &Self::State) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// A visualization renders a rule's state to a WebGL2 context.

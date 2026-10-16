@@ -31,6 +31,8 @@ pub enum ErasedError {
     PathUnsupported,
     /// `Rule::apply_action` rejected the action as malformed.
     Action(String),
+    /// The active rule's config has no image (`Rule::apply_image` returned false).
+    ImageUnsupported,
 }
 
 impl std::fmt::Display for ErasedError {
@@ -40,6 +42,7 @@ impl std::fmt::Display for ErasedError {
             ErasedError::ConfigParse(e) => write!(f, "config parse error: {e}"),
             ErasedError::PathUnsupported => f.write_str("this rule does not accept a path"),
             ErasedError::Action(msg) => write!(f, "action rejected: {msg}"),
+            ErasedError::ImageUnsupported => f.write_str("this rule does not accept an image"),
         }
     }
 }
@@ -65,6 +68,15 @@ pub trait ErasedRule {
         xy: &[f32],
         pen: &[u8],
     ) -> Result<(), ErasedError>;
+    /// Parse the scalar fields from `cfg`, then install the `w × h` RGBA
+    /// image via `Rule::apply_image`. Atomic: the old config survives any error.
+    fn set_config_with_image(
+        &mut self,
+        cfg: &Value,
+        w: u32,
+        h: u32,
+        rgba: &[u8],
+    ) -> Result<(), ErasedError>;
     /// The current typed config, serialized on demand (large paths included —
     /// callers that only need scalars should avoid calling this per frame).
     fn config_json(&self) -> Value;
@@ -76,6 +88,10 @@ pub trait ErasedRule {
 
     /// Mutate live state without resetting playback. See `Rule::apply_action`.
     fn action(&self, state: &mut dyn Any, action: &Value) -> Result<bool, ErasedError>;
+    /// On-demand view selected by `key`. See `Rule::inspect`.
+    fn inspect(&self, state: &dyn Any, key: &str) -> Result<Value, ErasedError>;
+    /// Binary product of the state. See `Rule::bytes`.
+    fn bytes(&self, state: &dyn Any) -> Result<Option<Vec<u8>>, ErasedError>;
 }
 
 /// A concrete `Rule` together with its deserialized config.
@@ -136,6 +152,22 @@ where
         Ok(())
     }
 
+    fn set_config_with_image(
+        &mut self,
+        cfg: &Value,
+        w: u32,
+        h: u32,
+        rgba: &[u8],
+    ) -> Result<(), ErasedError> {
+        let mut typed: R::Config =
+            serde_json::from_value(cfg.clone()).map_err(ErasedError::ConfigParse)?;
+        if !self.rule.apply_image(&mut typed, w, h, rgba) {
+            return Err(ErasedError::ImageUnsupported);
+        }
+        self.cfg = typed;
+        Ok(())
+    }
+
     fn config_json(&self) -> Value {
         serde_json::to_value(&self.cfg).unwrap_or(Value::Null)
     }
@@ -174,6 +206,20 @@ where
         self.rule
             .apply_action(typed_state, &self.cfg, action)
             .map_err(ErasedError::Action)
+    }
+
+    fn inspect(&self, state: &dyn Any, key: &str) -> Result<Value, ErasedError> {
+        let typed = state
+            .downcast_ref::<R::State>()
+            .ok_or(ErasedError::StateDowncastFailed)?;
+        Ok(self.rule.inspect(typed, key))
+    }
+
+    fn bytes(&self, state: &dyn Any) -> Result<Option<Vec<u8>>, ErasedError> {
+        let typed = state
+            .downcast_ref::<R::State>()
+            .ok_or(ErasedError::StateDowncastFailed)?;
+        Ok(self.rule.bytes(typed))
     }
 }
 
@@ -348,6 +394,20 @@ mod tests {
             rule.summary(&wrong),
             Err(ErasedError::StateDowncastFailed)
         ));
+    }
+
+    #[test]
+    fn rules_without_an_image_refuse_one_and_keep_their_config() {
+        let mut rule = TypedRule::new(SierpinskiChaos);
+        let before = rule.config_json();
+        let err = rule
+            .set_config_with_image(&before, 1, 1, &[0, 0, 0, 255])
+            .unwrap_err();
+        assert!(matches!(err, ErasedError::ImageUnsupported));
+        assert_eq!(rule.config_json(), before);
+        let state = rule.init(0);
+        assert_eq!(rule.inspect(&*state, "tables").unwrap(), Value::Null);
+        assert_eq!(rule.bytes(&*state).unwrap(), None);
     }
 }
 

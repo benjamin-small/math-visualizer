@@ -269,7 +269,48 @@ impl Engine {
         Ok(())
     }
 
-    /// Shared tail of the two rule-config setters: rewind, pause, adopt the
+    /// Like `update_rule_config`, but the rule's image arrives as a typed
+    /// array: `rgba` is `w × h` pixels, 4 bytes each (JS passes a
+    /// Uint8Array or Uint8ClampedArray view, so a 1 MB image skips JSON).
+    /// `cfg` carries the scalar fields. Errors if the active rule has no
+    /// image or rejects the pixels.
+    pub fn update_rule_config_with_image(
+        &mut self,
+        cfg: JsValue,
+        w: u32,
+        h: u32,
+        rgba: &[u8],
+    ) -> Result<(), JsValue> {
+        let parsed: Value = serde_wasm_bindgen::from_value(cfg)
+            .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
+        self.rule
+            .set_config_with_image(&parsed, w, h, rgba)
+            .map_err(|e| JsValue::from_str(&format!("bad rule config: {e}")))?;
+        let new_max = registry::max_iterations_of(&parsed, self.playback.max_iterations);
+        self.rule_cfg = parsed;
+        self.reset_playback_after_rule_config(new_max);
+        Ok(())
+    }
+
+    /// The rule's on-demand view for `key` (see `Rule::inspect`);
+    /// `undefined` in JS (a JSON null) for keys or rules without one.
+    pub fn rule_inspect(&self, key: &str) -> JsValue {
+        match self.rule.inspect(self.state.as_ref(), key) {
+            Ok(v) => to_js(&v),
+            Err(e) => {
+                warn(&format!("rule.inspect failed: {e}"));
+                JsValue::NULL
+            }
+        }
+    }
+
+    /// The rule's binary product (see `Rule::bytes`), e.g. the JPEG lab's
+    /// file; `undefined` when it has none.
+    pub fn rule_bytes(&self) -> Option<Vec<u8>> {
+        self.rule.bytes(self.state.as_ref()).ok().flatten()
+    }
+
+    /// Shared tail of the rule-config setters: rewind, pause, adopt the
     /// new step count, drop the stale frame timestamp, rebuild state.
     fn reset_playback_after_rule_config(&mut self, new_max: u32) {
         self.playback.iteration = 0;
