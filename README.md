@@ -182,6 +182,7 @@ math-visualizer/
 │   └── tests/                        # Browser tests: wasm.rs (engine), jpeg_kit.rs, jpeg_lab.rs, jpeg_oracle.rs
 └── web/                              # Vite + Svelte 5 app
     ├── public/fonts/                 # Space Mono (SIL OFL 1.1) + OFL.txt, for the Fourier lab
+    ├── public/jpeg/                  # JPEG lab gallery pictures (PNG) + CREDITS.md
     ├── src/
     │   ├── App.svelte                # Top nav + hash-route switch between labs
     │   ├── main.ts                   # Svelte 5 mount entry
@@ -209,3 +210,13 @@ math-visualizer/
 See [docs/superpowers/specs/2026-05-23-math-visualizer-foundation-design.md](docs/superpowers/specs/2026-05-23-math-visualizer-foundation-design.md) for the full design — including the planned Rule/Visualization/Engine abstractions that land in Phase 2+.
 
 See [docs/configuration.md](docs/configuration.md) for build-time configuration, [docs/testing.md](docs/testing.md) for measured coverage and test scope, and [docs/licensing.md](docs/licensing.md) for the workspace's declared license.
+
+## Image credits
+
+The JPEG lab's gallery pictures are bundled in `web/public/jpeg/`. spring and shuttle are cropped from their Commons originals, and all four Commons-based pictures are scaled. Full credits and crop boxes are in [`web/public/jpeg/CREDITS.md`](web/public/jpeg/CREDITS.md); the scripts that regenerate the pictures are in [`scripts/jpeg-gallery/`](scripts/jpeg-gallery/).
+
+- spring: "Grand Prismatic Spring, Yellowstone" · Jim Peaco, National Park Service · Public domain · https://commons.wikimedia.org/wiki/File:Grand_prismatic_spring.jpg
+- shuttle: "Atlantis (STS-135) on pad 39A" · Bill Ingalls, NASA · Public domain · https://commons.wikimedia.org/wiki/File:Brightly_lit_STS-135_on_launch_pad_39a.jpg
+- doge: "Doge (homemade)" · Euterpia, after a photo by Roberto Vasarri · CC0 · https://commons.wikimedia.org/wiki/File:Doge_homemade_meme.jpg
+- honest-work: "It ain't much, but it's honest work" · Cakelot1, photo by Dianne Johnson, USDA NRCS · Public domain · https://commons.wikimedia.org/wiki/File:Farmer_meme_with_apostrophe.jpg
+- cartoon: "Needs more JPEG" · made for this project · CC0
