@@ -71,11 +71,13 @@
 </div>
 
 <style>
-  .gallery { display: flex; flex-wrap: wrap; gap: 14px 22px; margin: 4px 0 28px; }
+  /* One row of tiles per group, stacked tightly (a group wraps only when the column is narrower than its tiles). */
+  .gallery { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 28px; }
   section { min-width: 0; }
-  h3 { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--stone); }
-  ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
-  li { margin: 0; }
+  /* Prefixed with .gallery so they outrank the story column's :global(h3), :global(ul) and :global(li) margins. */
+  .gallery h3 { margin: 0 0 4px; font-size: 13px; font-weight: 500; color: var(--stone); }
+  .gallery ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .gallery li { margin: 0; }
   .tile {
     display: flex;
     flex-direction: column;

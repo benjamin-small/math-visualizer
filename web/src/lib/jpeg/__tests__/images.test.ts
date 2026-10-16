@@ -101,7 +101,8 @@ describe('picture catalog', () => {
     expect(await thumbnail('doge', 64)).toBe('/math-visualizer/jpeg/doge.png');
   });
 
-  it('draws a generated thumbnail by scaling the full-size picture', async () => {
+  /** Run `thumbnail(id, side)` against a recording canvas; returns the source and output canvases' contexts. */
+  async function drawThumbnail(id: Parameters<typeof thumbnail>[0], side: number) {
     const builtin = vi.fn((_id: string, w: number, h: number) => new Uint8Array(w * h * 4));
     vi.mocked(loadVizCore).mockResolvedValueOnce({ jpeg_builtin_image: builtin } as never);
     const drawn: { canvas: HTMLCanvasElement; ctx: Record<string, ReturnType<typeof vi.fn>> }[] = [];
@@ -117,16 +118,35 @@ describe('picture catalog', () => {
       return ctx as unknown as CanvasRenderingContext2D;
     } as never);
     const toDataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,AAAA');
-    expect(await thumbnail('noise', 32)).toBe('data:image/png;base64,AAAA');
+    expect(await thumbnail(id, side)).toBe('data:image/png;base64,AAAA');
     // The kit is asked for the picture the reader gets, not one at thumbnail size.
-    expect(builtin).toHaveBeenCalledWith('noise', 256, 256);
+    expect(builtin).toHaveBeenCalledWith(id, 256, 256);
     const source = drawn.find((d) => d.canvas.width === 256);
-    const out = drawn.find((d) => d.canvas.width === 32);
+    const out = drawn.find((d) => d.canvas.width === side);
     expect(source?.ctx.putImageData).toHaveBeenCalledTimes(1);
-    expect(out?.canvas.height).toBe(32);
-    expect(out?.ctx.drawImage).toHaveBeenCalledWith(source?.canvas, 0, 0, 32, 32);
-    expect(toDataURL).toHaveBeenCalledTimes(1);
+    expect(out?.canvas.height).toBe(side);
     expect(toDataURL.mock.contexts[0]).toBe(out?.canvas);
+    return { source, out };
+  }
+
+  it('draws a smooth generated thumbnail by scaling the full-size picture', async () => {
+    const { source, out } = await drawThumbnail('gradient', 32);
+    expect(out?.ctx.drawImage).toHaveBeenCalledWith(source?.canvas, 0, 0, 32, 32);
+    expect(out?.ctx.imageSmoothingEnabled).toBe(true);
+  });
+
+  it('cuts a pattern thumbnail 1:1 from the centre instead of scaling it', async () => {
+    const { source, out } = await drawThumbnail('cosines-shifted', 64);
+    expect(out?.ctx.drawImage).toHaveBeenCalledWith(source?.canvas, 96, 96, 64, 64, 0, 0, 64, 64);
+    expect(out?.ctx.imageSmoothingEnabled).toBe(false);
+  });
+
+  it('crops the fine-pattern pictures and scales the smooth ones', () => {
+    const crop = IMAGES.filter((i) => i.thumb === 'crop').map((i) => i.id);
+    expect(crop).toEqual(['cosines', 'cosines-shifted', 'noise', 'text']);
+    expect(IMAGES.filter((i) => i.thumb === 'scale').map((i) => i.id)).toEqual(['gradient', 'bars']);
+    // Bundled pictures use their own file and need neither.
+    expect(IMAGES.filter((i) => i.file && i.thumb)).toEqual([]);
   });
 
   it('says so when a bundled picture arrives but is not a readable image', async () => {

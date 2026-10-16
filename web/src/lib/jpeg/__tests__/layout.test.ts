@@ -120,6 +120,24 @@ describe('jpegLayout', () => {
     expect(phone.slots.stats!.y).toBeGreaterThanOrEqual(o2.y + o2.h);
   });
 
+  it('overview gives a phone room for its statistics instead of padding the picture band', () => {
+    const l = jpegLayout('overview', 343, 520, 256, 256);
+    expect(l.slots.stats!.h).toBeGreaterThanOrEqual(280);
+    // The band is as tall as the pictures need (caption included), no taller.
+    const original = l.panels.find((p) => p.kind === 'original')!.rect;
+    expect(l.slots.stats!.y).toBeLessThanOrEqual(original.y + original.h + MARGIN + 1);
+  });
+
+  it('overview keeps its desktop panels at 58% of the height', () => {
+    const l = jpegLayout('overview', 1134, 585, 256, 256);
+    const expected = (585 - 2 * MARGIN) * 0.58 - LABEL;
+    for (const kind of ['original', 'decoded']) {
+      const r = l.panels.find((p) => p.kind === kind)!.rect;
+      expect(Math.abs(r.h - expected)).toBeLessThan(2);
+      expect(Math.abs(r.w - expected)).toBeLessThan(2);
+    }
+  });
+
   it('overview fits a non-square picture without distortion', () => {
     const l = jpegLayout('overview', 1134, 585, 320, 203);
     for (const kind of ['original', 'decoded']) {

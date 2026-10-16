@@ -55,6 +55,8 @@ export const IMAGES: readonly {
   group: PictureGroup;
   file?: { w: number; h: number };
   credit?: Credit;
+  /** For a generated picture: how its gallery thumbnail is made, `scale`d down or a 1:1 `crop` of its centre (fine patterns alias when scaled). */
+  thumb?: 'scale' | 'crop';
 }[] = [
   {
     id: 'spring',
@@ -116,17 +118,24 @@ export const IMAGES: readonly {
     file: { w: 320, h: 240 },
     credit: { title: 'Needs more JPEG', author: 'made for this project', licence: 'CC0' },
   },
-  { id: 'cosines', label: 'Cosines', title: 'Pure DCT basis patterns: each lands in one coefficient', group: 'maths' },
+  {
+    id: 'cosines',
+    label: 'Made of cosines',
+    title: 'Pure DCT basis patterns: each lands in one coefficient',
+    group: 'maths',
+    thumb: 'crop',
+  },
   {
     id: 'cosines-shifted',
     label: 'Cosines, shifted 4 px',
     title: 'Same detail, off the 8 × 8 grid',
     group: 'maths',
+    thumb: 'crop',
   },
-  { id: 'noise', label: 'Noise', title: 'Random pixels: nothing to compress', group: 'maths' },
-  { id: 'gradient', label: 'Gradient', title: 'A smooth sky: low quality shows blocks', group: 'tests' },
-  { id: 'text', label: 'Text', title: 'Hard black-on-white edges: low quality rings', group: 'tests' },
-  { id: 'bars', label: 'Bars', title: 'Saturated colour: subsampling bleeds', group: 'tests' },
+  { id: 'noise', label: 'Noise', title: 'Random pixels: nothing to compress', group: 'maths', thumb: 'crop' },
+  { id: 'gradient', label: 'Gradient', title: 'A smooth sky: low quality shows blocks', group: 'tests', thumb: 'scale' },
+  { id: 'text', label: 'Text', title: 'Hard black-on-white edges: low quality rings', group: 'tests', thumb: 'crop' },
+  { id: 'bars', label: 'Bars', title: 'Saturated colour: subsampling bleeds', group: 'tests', thumb: 'scale' },
 ];
 
 /** The URL a bundled picture is served from; carries the site's base path, as the Fourier font does. */
@@ -166,9 +175,10 @@ export async function loadPicture(id: ImageId): Promise<RgbaImage> {
 /**
  * A thumbnail `side` pixels square for the gallery: a bundled picture's own
  * file URL, or a PNG data URL for a generated one. The generated picture is
- * made at `BUILTIN_SIDE²`, the size the reader gets, then scaled down, because
- * several generators (text cells, 8 × 8 cosine blocks, the noise hash) do not
- * scale with the size asked for.
+ * made at `BUILTIN_SIDE²`, the size the reader gets, because several generators
+ * (text cells, 8 × 8 cosine blocks, the noise hash) do not scale with the size
+ * asked for. Smooth pictures are then scaled down; fine patterns would alias to
+ * a flat tint, so those show a 1:1 window cut from the centre instead.
  */
 export async function thumbnail(id: ImageId, side: number): Promise<string> {
   if (entry(id)?.file) return pictureUrl(id);
@@ -185,9 +195,15 @@ export async function thumbnail(id: ImageId, side: number): Promise<string> {
   const pixels = fullCtx.createImageData(BUILTIN_SIDE, BUILTIN_SIDE);
   pixels.data.set(viz.jpeg_builtin_image(id, BUILTIN_SIDE, BUILTIN_SIDE));
   fullCtx.putImageData(pixels, 0, 0);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(full, 0, 0, side, side);
+  if (entry(id)?.thumb === 'crop') {
+    const from = Math.max(0, Math.floor((BUILTIN_SIDE - side) / 2));
+    const span = Math.min(side, BUILTIN_SIDE);
+    ctx.drawImage(full, from, from, span, span, 0, 0, side, side);
+  } else {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(full, 0, 0, side, side);
+  }
   return canvas.toDataURL('image/png');
 }
 

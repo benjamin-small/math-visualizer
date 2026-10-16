@@ -102,6 +102,7 @@
 
   function currentQuery(): string {
     return buildParams({
+      // A share link cannot carry an uploaded picture, so it names the gradient instead.
       img: imageId === 'upload' ? 'gradient' : imageId,
       quality,
       subsampling,
@@ -270,21 +271,36 @@
    * (a slow decode must not overwrite a newer choice); a failure leaves the
    * current image in place and says why. `block` is the luma block to select
    * once it is in (a shared link names one); otherwise the encoder's default.
+   * With no picture yet (the first load failed, say offline) the generated
+   * gradient stands in, so the lab still opens, with the error shown.
    */
   async function loadImage(load: () => Promise<RgbaImage>, id: ImageId | 'upload', block?: [number, number]) {
     const ticket = ++loadTicket;
     let img: RgbaImage;
+    let message: string | null = null;
     try {
       img = await load();
     } catch (err) {
       if (ticket !== loadTicket) return;
-      loadError = err instanceof Error ? err.message : 'That picture could not be loaded.';
-      // The select shows the option the reader chose; put it back on the picture in use.
-      if (pictureSelect) pictureSelect.value = imageId;
-      return;
+      message = err instanceof Error ? err.message : 'That picture could not be loaded.';
+      if (image) {
+        loadError = message;
+        // The select shows the option the reader chose; put it back on the picture in use.
+        if (pictureSelect) pictureSelect.value = imageId;
+        return;
+      }
+      try {
+        img = await loadPicture('gradient');
+      } catch {
+        loadError = message;
+        return;
+      }
+      if (ticket !== loadTicket) return;
+      id = 'gradient';
+      block = undefined;
     }
     if (ticket !== loadTicket) return;
-    loadError = null;
+    loadError = message;
     image = img;
     imageId = id;
     imageTag = id === 'upload' ? `upload-${++uploads}` : id;
@@ -743,7 +759,7 @@
       {/if}
 
       {#if loadError}
-        <p class="error" role="alert">{loadError}</p>
+        <p class="error" class:top={stage === 'overview'} role="alert">{loadError}</p>
       {/if}
       {#if summary?.error}
         <p class="error" role="alert">This image could not be encoded: {summary.error}</p>
@@ -865,6 +881,8 @@
     font-size: 13px;
     pointer-events: auto;
   }
+  /* On the overview the bottom of the canvas holds the credit and the axes: the alert goes on top instead. */
+  .error.top { top: 8px; right: 16px; bottom: auto; }
   .stage-card { margin-bottom: 36px; }
   .stage-card h2 { display: flex; align-items: center; gap: 10px; }
   .stage-card .mark {
