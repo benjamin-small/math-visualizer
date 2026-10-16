@@ -31,7 +31,8 @@ pub enum ErasedError {
     PathUnsupported,
     /// `Rule::apply_action` rejected the action as malformed.
     Action(String),
-    /// The active rule's config has no image (`Rule::apply_image` returned false).
+    /// The active rule refused the image (`Rule::apply_image` returned false):
+    /// it takes none, or the buffer is not `w × h × 4` bytes.
     ImageUnsupported,
 }
 
@@ -42,7 +43,7 @@ impl std::fmt::Display for ErasedError {
             ErasedError::ConfigParse(e) => write!(f, "config parse error: {e}"),
             ErasedError::PathUnsupported => f.write_str("this rule does not accept a path"),
             ErasedError::Action(msg) => write!(f, "action rejected: {msg}"),
-            ErasedError::ImageUnsupported => f.write_str("this rule does not accept an image"),
+            ErasedError::ImageUnsupported => f.write_str("this rule does not accept this image"),
         }
     }
 }
@@ -404,6 +405,8 @@ mod tests {
             .set_config_with_image(&before, 1, 1, &[0, 0, 0, 255])
             .unwrap_err();
         assert!(matches!(err, ErasedError::ImageUnsupported));
+        // It is also what a wrong-length buffer gets, so the message names the image, not the rule's kind.
+        assert_eq!(err.to_string(), "this rule does not accept this image");
         assert_eq!(rule.config_json(), before);
         let state = rule.init(0);
         assert_eq!(rule.inspect(&*state, "tables").unwrap(), Value::Null);

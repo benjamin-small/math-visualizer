@@ -65,6 +65,7 @@ fn default_auto_rotate() -> f32 {
 /// Look and layout. Every field defaults, so a partial push is fine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JpegVizConfig {
+    /// Clear colour behind the panels, RGBA in 0–1.
     #[serde(default = "default_background")]
     pub background: [f32; 4],
     /// Outlines: the selected block, the scan front, hover.

@@ -42,7 +42,11 @@ fn default_max_iterations() -> u32 {
 }
 
 /// What to encode and how. `pixels` never crosses as JSON: it arrives
-/// through `apply_image` and lasts until the next config push.
+/// through `apply_image` and lasts until the next config push. Any plain
+/// rule-config push (`update_rule_config` and the page's `patchRuleConfig`)
+/// drops the image (`pixels` is `#[serde(skip)]`) and re-encodes the generated
+/// fallback, so a page that has its own pixels must push every change with
+/// `update_rule_config_with_image`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JpegConfig {
     /// Which picture this is ("gradient", "text", "bars", "photo", "upload").
@@ -153,8 +157,11 @@ pub fn options_of(cfg: &JpegConfig) -> Options {
 /// position in that component's block grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Selection {
+    /// 0 = Y, 1 = Cb, 2 = Cr.
     pub component: usize,
+    /// Block column in that component's grid.
     pub bx: usize,
+    /// Block row in that component's grid.
     pub by: usize,
 }
 
@@ -171,6 +178,7 @@ pub struct JpegState {
     pub psnr: f64,
     /// MCUs scanned (the engine clock).
     pub n: u32,
+    /// The block the stages follow.
     pub selection: Selection,
     /// Changes on every re-encode, so views know to re-upload textures.
     pub version: u32,
@@ -398,7 +406,8 @@ impl Rule for JpegRule {
             action
                 .get(name)
                 .and_then(Value::as_u64)
-                .map(|v| v as usize)
+                // `as usize` would wrap a big index into the grid on wasm32.
+                .and_then(|v| usize::try_from(v).ok())
                 .ok_or_else(|| format!("jpeg action: missing integer field {name:?}"))
         };
         let sel = Selection {
@@ -569,6 +578,17 @@ mod tests {
                 &json!({"kind": "select_block", "component": 3, "bx": 0, "by": 0})
             )
             .is_err());
+        // Indices too big for a usize (on wasm32 they would wrap into the grid) are refused, not wrapped.
+        for big in [u64::MAX, (1u64 << 32) + 3] {
+            let huge = json!({"kind": "select_block", "component": 0, "bx": big, "by": 0});
+            assert!(JpegRule.apply_action(&mut s, &c, &huge).is_err());
+            let huge = json!({"kind": "select_block", "component": 0, "bx": 0, "by": big});
+            assert!(JpegRule.apply_action(&mut s, &c, &huge).is_err());
+        }
+        assert_eq!(
+            s.selection.bx, 3,
+            "a refused action leaves the selection alone"
+        );
         assert_eq!(
             JpegRule.apply_action(&mut s, &c, &json!({"kind": "other"})),
             Ok(false)
