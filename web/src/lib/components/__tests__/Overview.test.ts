@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/svelte';
 import Overview from '../jpeg/Overview.svelte';
 import { IMAGES } from '../../jpeg/images';
@@ -28,20 +28,60 @@ describe('Overview.svelte', () => {
     expect(c.querySelector('.bar.file')).toBeTruthy();
   });
 
-  it('stacks the histograms on a phone and still has room for the caption and the credit', () => {
-    const c = show(311, 302);
-    expect(c.querySelector('.overview')?.classList.contains('narrow')).toBe(true);
-    expect(c.querySelector('.caption')).toBeTruthy();
-    expect(c.querySelector('.credit')).toBeTruthy();
+  it('stacks the histograms on a narrow slot', () => {
+    expect(show(311, 302).querySelector('.overview')?.classList.contains('narrow')).toBe(true);
   });
 
-  it('drops the caption first, then the credit, as the slot gets shorter', () => {
-    const noCaption = show(311, 250);
-    expect(noCaption.querySelector('.caption')).toBeNull();
+  it('shows messages as the first row of the stats', () => {
+    const c = render(Overview, { rect: { x: 0, y: 0, w: 600, h: 260 }, image, jpeg, quality: 50, errors: ['Could not load the picture "Doge".'] }).container;
+    const alert = c.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain('Could not load');
+    expect(c.querySelector('.overview')!.firstElementChild).toBe(alert);
+  });
+});
+
+// jsdom does no layout, so stand in for it: the content is 50 px of charts, 50 for the sizes, 60 for the caption and 40 for the credit.
+describe('Overview.svelte text budget', () => {
+  const saved = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+  let slot = 200;
+  beforeAll(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (!this.classList.contains('overview')) return 0;
+        return 50 + (this.querySelector('.sizes') ? 50 : 0) + (this.querySelector('.caption') ? 60 : 0) + (this.querySelector('.credit') ? 40 : 0);
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains('overview') ? slot : 0;
+      },
+    });
+  });
+  afterAll(() => {
+    if (saved) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', saved);
+    else delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
+  });
+
+  it('keeps the text while it fits, then drops the caption, the credit and the size bars in that order', async () => {
+    slot = 200;
+    const full = show(311, 302);
+    await vi.waitFor(() => expect(full.querySelector('.caption') && full.querySelector('.credit')).toBeTruthy());
+    slot = 150;
+    const noCaption = show(311, 302);
+    await vi.waitFor(() => expect(noCaption.querySelector('.caption')).toBeNull());
     expect(noCaption.querySelector('.credit')).toBeTruthy();
-    const bare = show(311, 205);
+    slot = 120;
+    const bare = show(311, 302);
+    await vi.waitFor(() => expect(bare.querySelector('.credit')).toBeNull());
     expect(bare.querySelector('.caption')).toBeNull();
-    expect(bare.querySelector('.credit')).toBeNull();
     expect(bare.querySelectorAll('svg')).toHaveLength(3);
+    expect(bare.querySelector('.sizes')).toBeTruthy();
+    slot = 70;
+    const charts = show(311, 302);
+    await vi.waitFor(() => expect(charts.querySelector('.sizes')).toBeNull());
+    expect(charts.querySelectorAll('svg')).toHaveLength(3);
   });
 });

@@ -164,8 +164,9 @@ describe('JpegLab.svelte', () => {
     expect((getByLabelText('Picture') as HTMLSelectElement).value).toBe('gradient');
     // The shared link now names what is on screen, and the block that belonged to the lost picture is not carried over.
     expect(route.query).toBe('img=gradient');
-    // On the overview the alert sits at the top, clear of the credit and the axes.
-    expect(container.querySelector('.error')?.classList.contains('top')).toBe(true);
+    // On the overview the alert is the first row of its stats, where it hides nothing.
+    expect(container.querySelector('.overview [role="alert"]')).toBeTruthy();
+    expect(container.querySelector('.error')).toBeNull();
   });
 
   it('picks a picture from the gallery', async () => {
