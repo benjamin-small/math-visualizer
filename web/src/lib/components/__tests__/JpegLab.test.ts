@@ -216,6 +216,37 @@ describe('JpegLab.svelte', () => {
     expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 0, bx: 22, by: 18 });
   });
 
+  it('restores the block of a shared link and keeps it in the URL', async () => {
+    await renderLab('stage=blocks&b=12,7');
+    await vi.waitFor(() =>
+      expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 12, by: 7 }),
+    );
+    expect(route.query).toContain('b=12,7');
+  });
+
+  it('clamps a shared block that is off the grid to the last block', async () => {
+    await renderLab('stage=blocks&b=50,50');
+    await vi.waitFor(() =>
+      expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 31, by: 31 }),
+    );
+    expect(route.query).toContain('b=31,31');
+    expect(route.query).not.toContain('b=50');
+  });
+
+  it('follows a tap on the coefficients with the formula (touch has no hover)', async () => {
+    const { container } = await renderLab('stage=dct');
+    const area = await vi.waitFor(() => {
+      const a = container.querySelector('.hover-area');
+      expect(a).toBeTruthy();
+      return a!;
+    });
+    const el = area as HTMLElement;
+    const at = { clientX: parseFloat(el.style.left) + 6, clientY: parseFloat(el.style.top) + 6 };
+    // jsdom has no PointerEvent; a MouseEvent of that type carries the coordinates.
+    await fireEvent(area, new MouseEvent('pointerdown', { ...at, bubbles: true }));
+    await vi.waitFor(() => expect(updateVizConfigSpy.mock.calls.some(([c]) => (c as { hover?: unknown }).hover != null)).toBe(true));
+  });
+
   it('leaves arrow keys with a modifier to the browser', async () => {
     await renderLab('stage=dct');
     await fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true });

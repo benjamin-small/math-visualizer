@@ -101,9 +101,12 @@
       quality = p.quality;
       subsampling = p.subsampling;
       huffman = p.huffman;
-      if (p.img !== imageId) void chooseImage(p.img);
+      if (p.img !== imageId) void chooseImage(p.img, p.block);
       else if (encodeChanged) encode();
-      else selectAnchor();
+      else {
+        selectAnchor();
+        if (currentQuery() !== q) syncUrl(); // the block was off the grid and has been clamped
+      }
       pushLayout();
     });
   });
@@ -117,9 +120,22 @@
     summary = readSummary(a.readSummary());
   });
 
-  /** Send the selection to the engine (the anchor scaled into the chosen plane's block grid). */
+  /** `b` limited to the current image's luma block grid (the engine refuses blocks outside it). */
+  function clampBlock(b: [number, number]): [number, number] {
+    if (!image) return b;
+    const cols = Math.ceil(image.w / 8);
+    const rows = Math.ceil(image.h / 8);
+    return [Math.min(cols - 1, Math.max(0, b[0])), Math.min(rows - 1, Math.max(0, b[1]))];
+  }
+
+  /**
+   * Send the selection to the engine (the anchor scaled into the chosen
+   * plane's block grid). An anchor off the grid is pulled onto it first, so
+   * the engine, the zoom window and the link all name the same block.
+   */
   function selectAnchor() {
     if (!api || !anchor) return;
+    anchor = clampBlock(anchor);
     const [fh, fv] = component === 0 ? [1, 1] : subsampling === '444' ? [1, 1] : subsampling === '422' ? [2, 1] : [2, 2];
     api.ruleAction({ kind: 'select_block', component, bx: Math.floor(anchor[0] / fh), by: Math.floor(anchor[1] / fv) });
     summary = readSummary(api.readSummary());
@@ -164,9 +180,10 @@
   /**
    * Make `load()`'s picture the current one. Only the latest request is applied
    * (a slow decode must not overwrite a newer choice); a failure leaves the
-   * current image in place and says why.
+   * current image in place and says why. `block` is the luma block to select
+   * once it is in (a shared link names one); otherwise the encoder's default.
    */
-  async function loadImage(load: () => Promise<RgbaImage>, id: ImageId | 'upload') {
+  async function loadImage(load: () => Promise<RgbaImage>, id: ImageId | 'upload', block?: [number, number]) {
     const ticket = ++loadTicket;
     let img: RgbaImage;
     try {
@@ -184,14 +201,14 @@
     loadError = null;
     image = img;
     imageId = id;
-    anchor = null;
+    anchor = block ?? null;
     component = 0;
     first = true;
     encode();
     pushLayout();
   }
 
-  const chooseImage = (id: ImageId) => loadImage(() => loadBuiltin(id), id);
+  const chooseImage = (id: ImageId, block?: [number, number]) => loadImage(() => loadBuiltin(id), id, block);
 
   async function onUpload(file: File | null | undefined) {
     if (!file) return;
@@ -264,9 +281,7 @@
     e.stopPropagation(); // not also a stage switch
     const sel = summary?.selected;
     const [bx, by] = anchor ?? (sel && sel.component === 0 ? [sel.bx, sel.by] : [0, 0]);
-    const cols = Math.ceil(image.w / 8);
-    const rows = Math.ceil(image.h / 8);
-    anchor = [Math.min(cols - 1, Math.max(0, bx + d[0])), Math.min(rows - 1, Math.max(0, by + d[1]))];
+    anchor = clampBlock([bx + d[0], by + d[1]]);
     selectAnchor();
     pushLayout();
     syncUrl();
@@ -342,7 +357,7 @@
     window.addEventListener('resize', pushLayout);
     window.addEventListener('keydown', onKey);
     const start = imageId === 'upload' ? 'gradient' : imageId;
-    await loadImage(() => loadBuiltin(start), start);
+    await loadImage(() => loadBuiltin(start), start, linked.block);
     if (route.query !== currentQuery()) syncUrl();
   }
 
@@ -474,6 +489,7 @@
               style:width="{r.w}px"
               style:height="{r.h}px"
               onpointermove={(e) => onCellHover(e, r)}
+              onpointerdown={(e) => onCellHover(e, r)}
               onpointerleave={clearHover}
             ></div>
           {/if}
