@@ -141,6 +141,27 @@ describe('picture catalog', () => {
     expect(out?.ctx.imageSmoothingEnabled).toBe(false);
   });
 
+  it('labels the noise picture "Pure noise"', () => {
+    expect(IMAGES.find((i) => i.id === 'noise')?.label).toBe('Pure noise');
+  });
+
+  it('makes a generated thumbnail once per picture and size, however often the gallery opens', async () => {
+    await drawThumbnail('bars', 40);
+    const loads = vi.mocked(loadVizCore).mock.calls.length;
+    // The second visit is answered from memory: the kit is not asked again and nothing is drawn.
+    expect(await thumbnail('bars', 40)).toBe('data:image/png;base64,AAAA');
+    expect(vi.mocked(loadVizCore).mock.calls.length).toBe(loads);
+    // Another size is another thumbnail.
+    await drawThumbnail('bars', 48);
+    expect(vi.mocked(loadVizCore).mock.calls.length).toBe(loads + 1);
+  });
+
+  it('does not cache a thumbnail that failed to draw', async () => {
+    vi.mocked(loadVizCore).mockRejectedValueOnce(new Error('wasm down'));
+    await expect(thumbnail('cosines', 24)).rejects.toThrow('wasm down');
+    await drawThumbnail('cosines', 24);
+  });
+
   it('crops the fine-pattern pictures and scales the smooth ones', () => {
     const crop = IMAGES.filter((i) => i.thumb === 'crop').map((i) => i.id);
     expect(crop).toEqual(['cosines', 'cosines-shifted', 'noise', 'text']);

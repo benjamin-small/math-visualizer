@@ -290,6 +290,13 @@ export function jpegLayout(
   return { image, panels, slots };
 }
 
+/**
+ * What the viz is given before the first picture is in: a list that is not
+ * empty (an empty list means "fit the image", which would show the viz's own
+ * stand-in gradient) but whose only panel has no area, so nothing is drawn.
+ */
+export const BLANK_PANELS: Panel[] = [{ kind: 'image', rect: { x: 0, y: 0, w: 0, h: 0 }, label: '' }];
+
 /** Panels as the viz config wants them: `[x, y, w, h]` in device pixels. */
 export function toDevicePanels(
   panels: Panel[],

@@ -22,6 +22,16 @@ describe('Overview.svelte', () => {
     expect(c.querySelector('[role="group"]')?.getAttribute('aria-label')).toContain('File size');
   });
 
+  it('hedges the claim about the middle histogram, and says custom tables when they are in use', () => {
+    const plain = show(1102, 216).textContent!;
+    expect(plain).toContain('At quality 50 the file is');
+    expect(plain).toContain('can peak at both edges');
+    expect(plain).not.toContain('peaks at both edges');
+    const custom = render(Overview, { rect: { x: 0, y: 0, w: 1102, h: 216 }, image, jpeg, quality: 50, custom: true, credit }).container.textContent!;
+    expect(custom).toContain('With custom tables the file is');
+    expect(custom).not.toContain('At quality');
+  });
+
   it('keeps the labels beside the size bars, never inside them', () => {
     const c = show(1102, 216);
     for (const bar of c.querySelectorAll('.bar')) expect(bar.textContent).toBe('');

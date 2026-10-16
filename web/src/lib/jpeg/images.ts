@@ -132,7 +132,7 @@ export const IMAGES: readonly {
     group: 'maths',
     thumb: 'crop',
   },
-  { id: 'noise', label: 'Noise', title: 'Random pixels: nothing to compress', group: 'maths', thumb: 'crop' },
+  { id: 'noise', label: 'Pure noise', title: 'Random pixels: nothing to compress', group: 'maths', thumb: 'crop' },
   { id: 'gradient', label: 'Gradient', title: 'A smooth sky: low quality shows blocks', group: 'tests', thumb: 'scale' },
   { id: 'text', label: 'Text', title: 'Hard black-on-white edges: low quality rings', group: 'tests', thumb: 'crop' },
   { id: 'bars', label: 'Bars', title: 'Saturated colour: subsampling bleeds', group: 'tests', thumb: 'scale' },
@@ -180,8 +180,24 @@ export async function loadPicture(id: ImageId): Promise<RgbaImage> {
  * asked for. Smooth pictures are then scaled down; fine patterns would alias to
  * a flat tint, so those show a 1:1 window cut from the centre instead.
  */
-export async function thumbnail(id: ImageId, side: number): Promise<string> {
-  if (entry(id)?.file) return pictureUrl(id);
+export function thumbnail(id: ImageId, side: number): Promise<string> {
+  if (entry(id)?.file) return Promise.resolve(pictureUrl(id));
+  // The overview is visited again and again; a generated thumbnail is made once per picture and size.
+  const key = `${id}@${side}`;
+  let made = thumbnails.get(key);
+  if (!made) {
+    made = drawThumbnail(id, side);
+    thumbnails.set(key, made);
+    made.catch(() => thumbnails.delete(key)); // a failure is not remembered: the next visit tries again
+  }
+  return made;
+}
+
+/** Generated thumbnails already made (or being made), by `id@side`. */
+const thumbnails = new Map<string, Promise<string>>();
+
+/** Draw the thumbnail `thumbnail` caches. */
+async function drawThumbnail(id: ImageId, side: number): Promise<string> {
   const viz = await loadVizCore();
   const full = document.createElement('canvas');
   full.width = BUILTIN_SIDE;

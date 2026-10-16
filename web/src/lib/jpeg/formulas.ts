@@ -126,7 +126,7 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
 /** What to look for on each stage. */
 export const NOTICE: Record<StageId, string> = {
   overview:
-    'Raw pixel bytes look almost random, so the first histogram tells you little. Subtract each sample from its left neighbour and the pattern gives itself away: the differences pile up near zero. The JPEG file looks random again, which is what good compression leaves behind, but there are far fewer bytes of it.',
+    'For a photo, raw pixel bytes look almost random, so the first histogram tells you little. Subtract each sample from its left neighbour and the pattern gives itself away: the differences pile up near zero. The JPEG file looks random again, which is what good compression leaves behind, but there are far fewer bytes of it.',
   color:
     'Y looks like the picture itself; Cb and Cr are flat and soft. Turn the cube: the grey diagonal becomes the Y axis, and most pixels huddle close to it.',
   subsample:

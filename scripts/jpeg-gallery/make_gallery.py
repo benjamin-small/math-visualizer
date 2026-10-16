@@ -17,6 +17,4 @@ for f, id_, box, size in JOBS:
         size = (round(im.size[0] * s), round(im.size[1] * s))
     im = im.resize(size, Image.LANCZOS)
     im.save(f"{out}/{id_}.png", optimize=True)
-    rgba = im.convert("RGBA").tobytes()
-    open(f"{out}/{id_}.rgba", "wb").write(rgba)
     print(id_, im.size)
