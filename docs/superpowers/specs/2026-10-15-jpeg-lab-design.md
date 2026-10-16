@@ -1,7 +1,7 @@
 # JPEG Compression lab — Design
 
 **Date:** 2026-10-15
-**Status:** Approved (2026-10-15); amended by Plans 1, 2 and 3 (see notes)
+**Status:** Approved (2026-10-15); amended by Plans 1, 2, 3 and 4 (see notes)
 **Scope:** a fifth lab, `#/jpeg`: a new pure-Rust workspace crate `crates/jpeg` (a granular library of JPEG's parts plus a baseline codec built from them), stateless WASM bindings for those parts ("the kit"), a `jpeg` rule + WebGL2 visualization in `crates/viz-core`, two small generic engine additions, a Svelte lab page with a nine-stage stepper, a home tile, docs.
 
 ## Amendment (Plan 1, 2026-10-15)
@@ -38,6 +38,19 @@ Building stages 5–9 settled these, folded into the text below:
 9. Custom tables last until "Standard" is pressed, across pictures and settings, and are not in the share link. While they are in use a "Custom Q tables" chip with a "Standard" button shows in the readout row on every stage, Re-save is disabled (it re-encodes with the quality-scaled tables) with a note to press Standard first, and Save .jpg names the file `jpeg-lab-custom-<subsampling>.jpg`.
 10. Stage contents: Quantize shows the decoder's rebuilt block, and the zero count lives on the Zigzag stage ("then N zeros"). The Huffman stage shows each symbol's code in the histogram's tooltips and on the tree's leaves instead of a separate code table. On a phone-width stage the Q-table editor is hidden (its column is under 120 px); the hover formula still names each entry. The Decode tools fit short stages and scroll, and the zigzag strip scrolls rather than clipping its zero tail. Mobile polish moves to Plan 4.
 
+## Amendment (Plan 4, 2026-10-16)
+
+The gallery and overview are specified in [`2026-10-16-jpeg-lab-gallery-design.md`](2026-10-16-jpeg-lab-gallery-design.md) and implemented on the `jpeg-lab-gallery` branch. These decisions are folded into the text below:
+11. **The overview is stage 0.** The rail reads "0 · Overview" before Color, `overview` is the default `stage`, and the arrow keys reach it. It shows the original and the decoded JPEG side by side (live with quality, subsampling and Huffman), raw against JPEG bytes as two bars to scale with a ratio, three byte histograms with their Shannon entropy, the picture gallery with Upload, credits for bundled pictures, and a way into stage 1. The encode is shown finished: no scan animation or dimming. On narrow stages the three histograms stack one per row. The load alert sits at the top of the stats area rather than over the canvas.
+12. **Eleven pictures**, ids used verbatim in Rust, TypeScript and the share link, in gallery order: photos `spring`, `shuttle`; memes `doge`, `honest-work`, `cartoon`; maths `cosines`, `cosines-shifted`, `noise`; tests `gradient`, `text`, `bars`. The default is `spring` (it replaces the gradient). `img` and `stage` are omitted from the link when they are the defaults. A link without `img=` opens the spring; a link naming any id, including `gradient`, is unchanged. An uploaded picture is written to the link as `gradient`. If the very first picture fails to load, the lab falls back to the generated gradient and shows the alert.
+13. **Picture select.** A compact "Picture" select in the bezel, on every stage including the overview, replaces the row of image buttons, with Upload beside it. The full thumbnail gallery, with the credits, is on the overview. Changing picture keeps the current stage, re-encodes and writes `img=` into the link. A bundled picture that fails to load leaves the current one in place with an inline error, and the select keeps showing the picture in use. A shared `b=` block is clamped to the new picture's own block grid.
+14. **Three histograms**, each with its entropy in bits per byte: the raw RGB samples (`w·h·3`, no alpha); the neighbour differences (each sample minus the same channel of its left neighbour, mod 256); and the whole JPEG file, headers included. The maths is in `web/src/lib/jpeg/bytes.ts`. At q50 the spring reads about 7.77 / 5.66 / 7.95.
+15. **New panel kinds `original` and `decoded`**: the picture and its decoded JPEG drawn undimmed, for the overview.
+16. **Three maths pictures**, generated in Rust and deterministic (the noise uses a fixed seed), 256 × 256. *Made of cosines* is one DCT basis pattern per 8 × 8 block, aligned to the grid (about 2.5 KB at q50). *Cosines, shifted 4 px* is the same pattern offset by 4 px in x and y (about 17 KB, roughly 7 times larger). *Pure noise* has PSNR near 12 dB at every quality. The picture label is "Made of cosines".
+17. **Bundled PNGs** live in `web/public/jpeg/` (spring, shuttle, doge, honest-work, cartoon, each at most 150 KB, with `CREDITS.md`). They load from `${import.meta.env.BASE_URL}jpeg/<id>.png`, so they work under the GitHub Pages base path, and are never fetched from Wikimedia at run time. spring and shuttle are 256 × 256, doge 272 × 320, honest-work 320 × 203 and cartoon 320 × 240. Credits are on the overview and in the README. The scripts that regenerate them are in `scripts/jpeg-gallery/`.
+18. **Gallery thumbnails.** Bundled pictures are the PNGs scaled in CSS. For generated pictures the pattern ones (cosines, cosines-shifted, noise, text) show a 1:1 centre window, because fine patterns alias when scaled; gradient and bars are scaled. Only the default picture loads up front; thumbnails load lazily.
+19. **Delivery item 4 is split.** This gallery is the first part (the photo becomes a gallery). The home tile, nav link, README lab entry, the Color stage's Y-only and chroma-only toggles, the five-tile home grid and mobile polish move to the next plan. The home tile keeps the gradient until then.
+
 ## Summary
 
 A learning tool that follows one image, and one 8×8 block of it, through every step of baseline JPEG and back: colour transform, chroma subsampling, blocking, the 2D DCT, quantization, zigzag, run-length coding, Huffman coding, and decoding. The maths is the point: every stage shows its formula with live numbers for the selected block, and every stage's visual is the maths made visible (a rotating colour cube, the 64 cosine basis patterns, a block rebuilt term by term, a rate–distortion curve, a Huffman code tree, the exact bits a block became).
@@ -48,16 +61,16 @@ The codec is not a black box. `crates/jpeg` is a **library of parts**: every sta
 
 1. A granular, natively tested Rust library covering every baseline JPEG stage in both directions, exposing its constants and intermediate values.
 2. A baseline JFIF encoder/decoder composed from it, whose output the browser's own decoder accepts and agrees with (the test oracle).
-3. A lab page with a pipeline rail of nine stages (1 Color · 2 Subsample · 3 Blocks · 4 DCT · 5 Quantize · 6 Zigzag · 7 Run-length · 8 Huffman · ⟲ Decode); the image and a selected block carry across every stage.
+3. A lab page with a pipeline rail of an overview and nine stages (0 Overview · 1 Color · 2 Subsample · 3 Blocks · 4 DCT · 5 Quantize · 6 Zigzag · 7 Run-length · 8 Huffman · ⟲ Decode); the image and a selected block carry across every stage.
 4. Live controls: quality 1–100, subsampling 4:4:4 / 4:2:2 / 4:2:0, Huffman tables optimized / standard; changes reshape every view without restarting the scan.
-5. Four built-in images chosen to provoke one artifact each, plus upload of your own image.
+5. A gallery of eleven pictures (two photos, three memes, three maths pictures and the three artifact tests), each chosen to teach something about compression, plus upload of your own image (amendment 12).
 6. A home tile, a share link, a Save .jpg button.
 
 ## Non-goals
 
 - Progressive JPEG, arithmetic coding, restart intervals (DRI/RSTn), 12-bit precision, CMYK, EXIF/ICC handling. The decoder reports these as `Unsupported(kind)`. Each is a clean follow-up on the same modules.
 - An animated, stage-by-stage decoder walk. Decode is one screen; each inverse is already shown in the stage that owns it.
-- Sharing uploaded images through the link (the link falls back to the default built-in).
+- Sharing uploaded images through the link (the link names the generated gradient instead).
 - Changing other labs' behaviour. Shared-code changes are limited to the two generic engine hooks below, a new `render/texture_quad.rs`, and the home grid growing to five tiles.
 
 ## Decisions
@@ -69,7 +82,7 @@ The codec is not a black box. `crates/jpeg` is a **library of parts**: every sta
 - **Stage stepper** (user choice) rather than a dashboard or scroll story.
 - **Built-ins + upload** (user choice); no paintable block.
 - **The engine clock counts MCUs scanned.** Play walks the scan across the image; views fill in behind it; the clock line completes when the bitstream does.
-- Images are 256×256 for built-ins; uploads are downscaled to fit 512×512.
+- Generated pictures are 256×256; bundled pictures are 256×256 (photos) or up to 320 px on the long side (memes); uploads are downscaled to fit 512×512.
 
 ## Part 1 — `crates/jpeg`: the library of parts
 
@@ -116,7 +129,7 @@ The codec supports 1 or 3 components (grayscale input is encoded as one componen
 - **Actions (`rule_action`, no playback reset):** settings arrive in rule-config pushes; `select_block` is the only action.
 - **`rule_summary()`** (read every frame, kept small): `{ version, n, total, width, height, bytes, raw_bytes, bits_so_far, payload_bits, entropy_bits, psnr, quality, subsampling, mcu: [mcu_w, mcu_h, cols, rows], grids: [[cols, rows] per component], error, selected: { component, bx, by, mcu, pixels[64], shifted[64], dct[64], quant[64], table[64], zigzag[64], dc_prev, dc_diff, tokens[{ run, size, amp, symbol, code, amp_bits }], dc_size, dc_code, dc_amp_bits, bit_span, bits: String }, hints: { blocking, ringing | null, bleed } }`. `quality` and `subsampling` echo the encoded options, `psnr` is `null` when infinite, and `error` carries the encode failure message if any. JS parses with loose `== null` checks (wasm-bindgen sends `None` as `undefined`).
 - **`rule_inspect(key)`**, called when a stage opens or `version` changes. `"huffman"` → four tables in the order `dc_luma`, `ac_luma`, `dc_chroma`, `ac_chroma`, each `{ name, bits, vals, codes: [{symbol, code}], counts: [[symbol, count]], entropy_bits, actual_bits }` (the tree is drawn from `bits`/`vals` with the kit's `jpeg_huffman_tree`); `"segments"` → `[{ marker, kind, offset, len }]`; `"tables"` → both scaled Q tables.
-- **Built-in generators** (Rust, `viz-core/src/jpeg_images.rs`, shared by the rule, the kit and the tests): `gradient` (smooth sky → shows blocking), `text` (sharp black-on-white lines and glyph-like strokes → shows ringing), `bars` (saturated colour bars and a colour wheel → shows chroma bleed). A fourth, `photo`, is a bundled public-domain photograph (e.g. NASA), cropped to 256×256 and stored as a PNG under 150 KB in `web/public/jpeg/`, chosen in slice 4 and credited in the story; it is loaded by JS and pushed through `apply_image`.
+- **Built-in generators** (Rust, `viz-core/src/jpeg_images.rs`, shared by the rule, the kit and the tests): `gradient` (smooth sky → shows blocking), `text` (sharp black-on-white lines and glyph-like strokes → shows ringing), `bars` (saturated colour bars and a colour wheel → shows chroma bleed). Plan 4 adds the maths pictures `cosines`, `cosines-shifted` and `noise` (amendment 16). The photos and memes are bundled PNGs under 150 KB in `web/public/jpeg/` (amendment 17), loaded by JS and pushed through `apply_image`.
 
 ### The kit (`viz-core/src/jpeg_kit.rs`; the `web/src/lib/jpeg/kit.ts` wrapper is deferred)
 
@@ -138,8 +151,8 @@ Numeric 8×8 grids, the KaTeX formula panel (KaTeX is already a dependency, lazi
 
 ### Frame
 
-- `LabShell labId="jpeg" title="JPEG Compression"`. Bezel, in order: image picker (Gradient, Text, Bars, Upload…; Photo joins in Plan 4), Quality linear slider 1–100 with mono readout, Subsampling radio (real `type="radio"` inputs drawn as pills, Notes-lab pattern), Huffman radio (Optimized / Standard), scan Play/Pause + Reset, Save .jpg.
-- **Pipeline rail** under the bezel: nine numbered steps, the current one marked (`aria-current="step"`); click or ←/→ (when focus is not in a text field). Each step has a one-line subtitle.
+- `LabShell labId="jpeg" title="JPEG Compression"`. Bezel, in order: Picture select (all eleven pictures, with Upload, amendment 13), Quality linear slider 1–100 with mono readout, Subsampling radio (real `type="radio"` inputs drawn as pills, Notes-lab pattern), Huffman radio (Optimized / Standard), scan Play/Pause + Reset, Save .jpg.
+- **Pipeline rail** under the bezel: the overview (step 0) and nine numbered steps, the current one marked (`aria-current="step"`); click or ←/→ (when focus is not in a text field). Each step has a one-line subtitle.
 - **Readout strip:** `18.4 KB of 192 KB · 10.4 : 1 · 2.30 bits/px · PSNR 34.1 dB`.
 - **Stage area:** landscape (canvas at least 640 px wide, `PORTRAIT_BELOW` in `web/src/lib/jpeg/layout.ts`) → the image at the left (up to 45% of the width), the stage's focus panels to its right; narrower → the image on top (42% of the height), focus below. The page turns this into the viz's `panels` list; the rects come from `web/src/lib/jpeg/layout.ts` and are pushed like the Notes lab's (`ResizeObserver` + window-resize fallback + once in `onReady`). Clicking the image selects a block in every stage.
 - **Formula panel** per stage with live numbers for the selected block or hovered cell, and a short "Notice" paragraph. The article below holds "How it works" for the whole pipeline.
@@ -158,7 +171,7 @@ Numeric 8×8 grids, the KaTeX formula panel (KaTeX is already a dependency, lazi
 
 ### Share link, tile, download, upload
 
-- **Link:** `#/jpeg?img=gradient&q=50&s=420&h=opt&stage=dct&b=12,7` (sanitised; canonical rewrite on load; uploads fall back to `gradient`; `buildQuery` keeps raw commas as in the Notes lab).
+- **Link:** `#/jpeg?img=gradient&q=50&s=420&h=opt&stage=dct&b=12,7` (sanitised; canonical rewrite on load; `img` defaults to `spring` and `stage` to `overview` and are omitted when default; uploads still fall back to `gradient`; `buildQuery` keeps raw commas as in the Notes lab).
 - **Home tile:** `gradient` at q = 50 scanning; readout "41 % scanned · 18.4 KB"; `done` when `n == total`; `progress = n / total`. The home grid grows to five tiles (layout set in slice 4).
 - **Save .jpg:** `engine.rule_bytes()` → Blob → download `jpeg-lab-q50-420.jpg`.
 - **Upload:** file input and drag-and-drop on the stage; decoded with `createImageBitmap`, downscaled to fit 512×512 on a DOM canvas (painted white first, so transparent areas are not black; no `OffscreenCanvas`), pushed through `update_rule_config_with_image`. A failure shows an inline message and keeps the current image.
@@ -187,6 +200,6 @@ Four PRs into protected `main`, each green on `cargo fmt --all --check`, `cargo 
 1. **`crates/jpeg` + the kit + the oracle test.** The library is complete and proven before any UI exists.
 2. **The engine lab + stages 1–4:** the generic engine hooks, the rule, `JpegViz`, `texture_quad`, the page frame (bezel, rail, readout, layout) and Color, Subsample, Blocks, DCT.
 3. **Stages 5–8 + Decode:** quantization with editable tables and the R–D curve, zigzag, run-length, Huffman tree and byte bar, decode with wipe, error map and generation loss.
-4. **Home tile, nav link, the photo, the Color stage's Y-only and chroma-only toggles, share links, README, story and the five-tile home grid.**
+4. **The photo, the Color stage's Y-only and chroma-only toggles, home tile, nav link, share links, README, story and the five-tile home grid.** Split by Plan 4 (amendment 19): the gallery (overview, eleven pictures, Picture select, share-link defaults) ships first; the home tile, nav link, README lab entry, Color toggles, five-tile grid and mobile polish follow in the next plan.
 
 Within slices 2 and 3, Rust and web pieces run as parallel subagents on disjoint files.

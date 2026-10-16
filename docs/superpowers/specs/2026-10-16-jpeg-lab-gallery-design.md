@@ -1,6 +1,6 @@
 # JPEG lab: overview screen and picture gallery — Design
 
-Status: approved, 2026-10-16 (amended with prototype measurements below). Extends `2026-10-15-jpeg-lab-design.md`, whose Delivery item 4 listed "the photo"; this design replaces that item. The rest of item 4 (home tile, nav link, README lab entry, the Color stage's Y-only/chroma-only toggles, the five-tile home grid, mobile polish) moves to the plan after this one.
+Status: implemented, 2026-10-16 (Plan 4, branch `jpeg-lab-gallery`; amended with prototype measurements below). Execution decisions are recorded as Plan 4 amendments 11–19 in the main spec. Extends `2026-10-15-jpeg-lab-design.md`, whose Delivery item 4 listed "the photo"; this design replaces that item. The rest of item 4 (home tile, nav link, README lab entry, the Color stage's Y-only/chroma-only toggles, the five-tile home grid, mobile polish) moves to the plan after this one.
 
 ## Intent
 
