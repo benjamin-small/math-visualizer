@@ -1,12 +1,27 @@
 # JPEG Compression lab — Design
 
 **Date:** 2026-10-15
-**Status:** Approved (2026-10-15); amended by Plan 1 (see note)
+**Status:** Approved (2026-10-15); amended by Plans 1 and 2 (see notes)
 **Scope:** a fifth lab, `#/jpeg`: a new pure-Rust workspace crate `crates/jpeg` (a granular library of JPEG's parts plus a baseline codec built from them), stateless WASM bindings for those parts ("the kit"), a `jpeg` rule + WebGL2 visualization in `crates/viz-core`, two small generic engine additions, a Svelte lab page with a nine-stage stepper, a home tile, docs.
 
 ## Amendment (Plan 1, 2026-10-15)
 
 Prototyping the library before planning refined a few details, folded into the text below: `JpegError::Corrupt`; a pure `level_shift`; `HuffSpec`; `Segment.header_len`; `Decoded` without a trace; the decoder's per-sample clamp (without it the browser oracle's worst pixel was 23 levels off); a 16 MP decode cap; kit amplitude limits; `kit.ts` moving to slice 2; and the oracle tolerance set from measurement (max 3, mean 0.5).
+
+## Amendment (Plan 2, 2026-10-16)
+
+Building the engine lab and stages 1–4 settled these, folded into the text below:
+
+1. Quality, subsampling and Huffman changes re-encode through a rule-config push with the image (`update_rule_config_with_image`); the page then restores the scan position (`JumpTo` the same share) and resumes playing if it was playing. Only `select_block` is a rule action, which keeps the engine's state from drifting away from its config (the engine re-inits state from the config on every push).
+2. The rule's capabilities are scrubbable but not cheap to recompute, so Reset, Back and scrubbing move the cursor without re-encoding.
+3. The viz config is panels-based: `panels: [{ kind, rect, crop? }]` in device pixels, drawn in order; the `image_rect` / `focus_rect` / `aux_rect` / `stage` fields are dropped and the page decides what goes where.
+4. Plane panels take an optional `crop` (image pixels); the Subsample stage magnifies a 32 px window around the selected block so chroma's blocks are visible at all.
+5. The first selection is the luma block with the most AC energy, so every stage opens on a block with detail.
+6. The bundled public-domain photo and the home tile, nav link and README lab entry move to Plan 4; `#/jpeg` works but is unlinked until then.
+7. The rail shows all nine stages; 5–9 are disabled until their plans land.
+8. The Color stage's formula is the static matrix, because the summary carries only the selected component's samples and there is no per-pixel RGB to plug in.
+9. `kit.ts` is still deferred: the DCT stage calls the three kit functions it needs (`jpeg_zigzag_order`, `jpeg_dct_1d`, `jpeg_dft_1d`) through `loadVizCore()` directly, and a wrapper lands when more stages need the kit.
+10. Review decisions: the lab's image panel takes arrow keys to move the selected block (keyboard access), and quality changes coalesce to one re-encode per animation frame, with the share link written when the slider is released.
 
 ## Summary
 
@@ -82,11 +97,11 @@ The codec supports 1 or 3 components (grayscale input is encoded as one componen
 
 - **Rule config** (a push re-encodes and resets playback, existing behaviour): `{ image_id: String, quality: u8 (1–100, default 50), subsampling: "444" | "422" | "420" (default "420"), huffman: "optimized" | "standard" (default "optimized"), max_iterations }`, every field `#[serde(default)]`. The pixels arrive through `apply_image`; without them the rule encodes a built-in generated in Rust (so the home tile and wasm tests need no JS).
 - **State:** the `Encoded` trace, `n` (MCUs scanned), the selection `{ component, bx, by }`, and a `version: u32` bumped on every re-encode.
-- **Clock:** `advance_to(n)` stores `n`; capabilities `cheap_scrubbable()`; `max_iterations` = MCU count, so playback auto-pauses at the end and the clock line reads scan progress.
-- **Actions (`rule_action`, no playback reset):** `set_quality`, `set_subsampling`, `set_huffman`, `set_tables` (custom Q tables; `null` restores the standard scaled ones), `select_block { component, bx, by }`. A subsampling change remaps `n` proportionally to the new MCU count.
+- **Clock:** `advance_to(n)` stores `n`; capabilities scrubbable but not cheap to recompute (Reset, Back and scrubbing move the cursor without re-encoding); `max_iterations` = MCU count, so playback auto-pauses at the end and the clock line reads scan progress.
+- **Actions (`rule_action`, no playback reset):** settings arrive in rule-config pushes; `select_block` is the only action.
 - **`rule_summary()`** (read every frame, kept small): `{ version, n, total, width, height, bytes, raw_bytes, bits_so_far, psnr, entropy_bits, selected: { component, bx, by, pixels[64], shifted[64], dct[64], quant[64], table[64], zigzag[64], dc_prev, dc_diff, tokens[], bit_span, bits: String } }`. JS parses with loose `== null` checks (wasm-bindgen sends `None` as `undefined`).
 - **`rule_inspect(key)`**, called when a stage opens or `version` changes: `"huffman"` → four `{ spec, frequencies, tree, entropy_bits, actual_bits }`; `"segments"` → the JFIF segment list; `"tables"` → both scaled Q tables; `"histogram"` → coefficient magnitude statistics for the energy view.
-- **Built-in generators** (Rust, `viz-core/src/jpeg_images.rs`, shared by the rule, the kit and the tests): `gradient` (smooth sky → shows blocking), `text` (sharp black-on-white lines and glyph-like strokes → shows ringing), `bars` (saturated colour bars and a colour wheel → shows chroma bleed). A fourth, `photo`, is a bundled public-domain photograph (e.g. NASA), cropped to 256×256 and stored as a PNG under 150 KB in `web/public/jpeg/`, chosen in slice 2 and credited in the story; it is loaded by JS and pushed through `apply_image`.
+- **Built-in generators** (Rust, `viz-core/src/jpeg_images.rs`, shared by the rule, the kit and the tests): `gradient` (smooth sky → shows blocking), `text` (sharp black-on-white lines and glyph-like strokes → shows ringing), `bars` (saturated colour bars and a colour wheel → shows chroma bleed). A fourth, `photo`, is a bundled public-domain photograph (e.g. NASA), cropped to 256×256 and stored as a PNG under 150 KB in `web/public/jpeg/`, chosen in slice 4 and credited in the story; it is loaded by JS and pushed through `apply_image`.
 
 ### The kit (`viz-core/src/jpeg_kit.rs`, wrapped by `web/src/lib/jpeg/kit.ts`)
 
@@ -94,8 +109,8 @@ Stateless `#[wasm_bindgen]` free functions mirroring the crate one-to-one with t
 
 ### The visualization (`JpegViz`)
 
-- Draws into device-pixel rects pushed by JS (`image_rect`, `focus_rect`, `aux_rect`), all `#[serde(default)]` (all-zero → the viz fits the image to the canvas itself; the home tile and wasm tests rely on this). Reads `gl.drawing_buffer_width()/height()` every frame.
-- **Viz config:** the rects plus `stage` (`"color" | "subsample" | "blocks" | "dct" | "quantize" | "zigzag" | "rle" | "huffman" | "decode"`), `cube_mix` (0 = RGB axes … 1 = YCbCr axes), `dct_k` (0–64), `hover: Option<[u8;2]>`, `wipe` (0–1), `error_gain`, colours, `background`. `init` only (re)creates resources; it never resets the camera.
+- Draws a `panels` list pushed by JS: `[{ kind, rect, crop? }]` in device pixels, drawn in order, `#[serde(default)]` (empty → the viz fits the image to the canvas itself; the home tile and wasm tests rely on this). Plane panels take an optional `crop` in image pixels. Reads `gl.drawing_buffer_width()/height()` every frame.
+- **Viz config:** the `panels` list (with `crop`), `cube_mix` (0 = RGB axes … 1 = YCbCr axes), `dct_k` (0–64), `hover: Option<[u8;2]>`, `wipe` (0–1), `error_gain`, colours, `background`. `init` only (re)creates resources; it never resets the camera.
 - **New renderer** `render/texture_quad.rs`: draws an R8 or RGBA8 texture into a pixel rect with nearest or linear filtering and an optional colour map (grayscale, diverging for signed coefficients, heat for error). Textures re-upload only when the summary `version` (or the selection) changes.
 - **Reused renderers:** `InstancedQuads` (8×8 cell grids, heatmaps, the basis atlas cells), `LineBatch` (block grid, MCU outlines, scan front, zigzag snake), `Camera3D` + `LineBatch3D` + `InstancedPoints3D` (the colour cube: up to 16 384 sampled pixels as a point cloud, cube edges and axes interpolated from RGB to YCbCr by `cube_mix`; auto-rotate and drag-to-orbit as in Sierpinski).
 - Scan progress: blocks beyond MCU `n` are drawn dimmed in every image view; the current MCU gets the terracotta outline.
@@ -108,10 +123,10 @@ Numeric 8×8 grids, the KaTeX formula panel (KaTeX is already a dependency, lazi
 
 ### Frame
 
-- `LabShell labId="jpeg" title="JPEG Compression"`. Bezel, in order: image picker (Gradient, Text, Bars, Photo, Upload…), Quality linear slider 1–100 with mono readout, Subsampling radio (real `type="radio"` inputs drawn as pills, Notes-lab pattern), Huffman radio (Optimized / Standard), scan Play/Pause + Reset, Save .jpg.
+- `LabShell labId="jpeg" title="JPEG Compression"`. Bezel, in order: image picker (Gradient, Text, Bars, Upload…; Photo joins in Plan 4), Quality linear slider 1–100 with mono readout, Subsampling radio (real `type="radio"` inputs drawn as pills, Notes-lab pattern), Huffman radio (Optimized / Standard), scan Play/Pause + Reset, Save .jpg.
 - **Pipeline rail** under the bezel: nine numbered steps, the current one marked (`aria-current="step"`); click or ←/→ (when focus is not in a text field). Each step has a one-line subtitle.
 - **Readout strip:** `18.4 KB of 192 KB · 10.4 : 1 · 2.30 bits/px · PSNR 34.1 dB`.
-- **Stage area:** landscape → the image on the left (`image_rect`), the stage's focus view on the right (`focus_rect`), an auxiliary strip below (`aux_rect`); portrait (≤ 900 px) → stacked. Rects come from `web/src/lib/jpeg/layout.ts` and are pushed like the Notes lab's (`ResizeObserver` + window-resize fallback + once in `onReady`). Clicking the image selects a block in every stage.
+- **Stage area:** landscape → the image on the left, the stage's focus view on the right, an auxiliary strip below; portrait (≤ 900 px) → stacked. The page turns this into the viz's `panels` list; the rects come from `web/src/lib/jpeg/layout.ts` and are pushed like the Notes lab's (`ResizeObserver` + window-resize fallback + once in `onReady`). Clicking the image selects a block in every stage.
 - **Formula panel** per stage with live numbers for the selected block or hovered cell, and a short "Notice" paragraph. The article below holds "How it works" for the whole pipeline.
 
 ### Stages
@@ -157,6 +172,6 @@ Four PRs into protected `main`, each green on `cargo fmt --all --check`, `cargo 
 1. **`crates/jpeg` + the kit + the oracle test.** The library is complete and proven before any UI exists.
 2. **The engine lab + stages 1–4:** the generic engine hooks, the rule, `JpegViz`, `texture_quad`, the page frame (bezel, rail, readout, layout) and Color, Subsample, Blocks, DCT.
 3. **Stages 5–8 + Decode:** quantization with editable tables and the R–D curve, zigzag, run-length, Huffman tree and byte bar, decode with wipe, error map and generation loss.
-4. **Home tile, share links, README, story and the five-tile home grid.**
+4. **Home tile, nav link, the photo, share links, README, story and the five-tile home grid.**
 
 Within slices 2 and 3, Rust and web pieces run as parallel subagents on disjoint files.

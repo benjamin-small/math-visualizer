@@ -156,7 +156,8 @@ math-visualizer/
 │   │   │   ├── instanced_quads.rs    # Batched filled axis-aligned rects (sorting bars)
 │   │   │   ├── sdf_circle.rs         # Single-quad antialiased stroked circle
 │   │   │   ├── line_batch.rs         # 2D colored line segment batch
-│   │   │   └── line_batch_3d.rs      # 3D colored line segment batch
+│   │   │   ├── line_batch_3d.rs      # 3D colored line segment batch
+│   │   │   └── texture_quad.rs       # RGBA texture drawn into a pixel rect
 │   │   ├── rules/
 │   │   │   ├── sierpinski_chaos.rs   # Default flagship rule (3D Chaos Game)
 │   │   │   ├── fourier_epicycles.rs  # Fourier lab rule: DFT of a pen-tagged closed path
@@ -165,6 +166,7 @@ math-visualizer/
 │   │   │   │   ├── algorithms.rs     # 7 algorithms recorded as compare/write/swap traces
 │   │   │   │   └── datasets.rs       # 4 seeded initial-array generators
 │   │   │   ├── notes.rs              # Notes lab rule: oscillators in just or equal temperament
+│   │   │   ├── jpeg.rs               # JPEG lab rule: one encode per config, a scan cursor, the selected block
 │   │   │   ├── rng.rs                # Shared deterministic SplitMix64 RNG helpers
 │   │   │   ├── midpoint_on_circle.rs # Alternative rule (still works)
 │   │   │   └── color_cycle.rs        # Phase 2 demo rule
@@ -173,9 +175,10 @@ math-visualizer/
 │   │       ├── fourier_epicycles.rs  # Fourier lab viz: rings + arms + pen-lifted trail
 │   │       ├── sorting.rs            # Sorting lab viz: bars drawn via InstancedQuads
 │   │       ├── notes.rs              # Notes lab viz: bars, Lissajous trail, wave strip, 3D cube
+│   │       ├── jpeg.rs               # JPEG lab viz: panels the page lays out (image, planes, cube, cells)
 │   │       ├── dots_on_circle.rs     # Alternative viz (paired with midpoint)
 │   │       └── color_cycle.rs        # Phase 2 demo viz
-│   └── tests/                        # Browser tests: wasm.rs (engine), jpeg_kit.rs, jpeg_oracle.rs
+│   └── tests/                        # Browser tests: wasm.rs (engine), jpeg_kit.rs, jpeg_lab.rs, jpeg_oracle.rs
 └── web/                              # Vite + Svelte 5 app
     ├── public/fonts/                 # Space Mono (SIL OFL 1.1) + OFL.txt, for the Fourier lab
     ├── src/
