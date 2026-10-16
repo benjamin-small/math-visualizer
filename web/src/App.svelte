@@ -8,6 +8,7 @@
   import FourierLab from './lib/components/labs/FourierLab.svelte';
   import SortingLab from './lib/components/labs/SortingLab.svelte';
   import NotesLab from './lib/components/labs/NotesLab.svelte';
+  import JpegLab from './lib/components/labs/JpegLab.svelte';
 
   onMount(installRouter);
 </script>
@@ -39,6 +40,8 @@
       <SortingLab />
     {:else if route.id === 'notes'}
       <NotesLab />
+    {:else if route.id === 'jpeg'}
+      <JpegLab />
     {:else}
       <SierpinskiLab />
     {/if}
