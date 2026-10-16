@@ -155,24 +155,39 @@ export async function loadPicture(id: ImageId): Promise<RgbaImage> {
     throw new Error(`Could not load the picture "${name}". Check your connection and try again.`);
   }
   if (!res.ok) throw new Error(`Could not load the picture "${name}" (the server answered ${res.status}).`);
-  return decodeUpload(await res.blob());
+  try {
+    return await decodeUpload(await res.blob());
+  } catch {
+    // A wrong base path can answer 200 with the site's index page, and a file can be corrupt.
+    throw new Error(`Could not load the picture "${name}" (the file is not a readable image).`);
+  }
 }
 
 /**
  * A thumbnail `side` pixels square for the gallery: a bundled picture's own
- * file URL, or a PNG data URL drawn from the kit's pixels for a generated one.
+ * file URL, or a PNG data URL for a generated one. The generated picture is
+ * made at `BUILTIN_SIDE²`, the size the reader gets, then scaled down, because
+ * several generators (text cells, 8 × 8 cosine blocks, the noise hash) do not
+ * scale with the size asked for.
  */
 export async function thumbnail(id: ImageId, side: number): Promise<string> {
   if (entry(id)?.file) return pictureUrl(id);
   const viz = await loadVizCore();
+  const full = document.createElement('canvas');
+  full.width = BUILTIN_SIDE;
+  full.height = BUILTIN_SIDE;
+  const fullCtx = full.getContext('2d');
   const canvas = document.createElement('canvas');
   canvas.width = side;
   canvas.height = side;
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('This browser cannot draw thumbnails.');
-  const pixels = ctx.createImageData(side, side);
-  pixels.data.set(viz.jpeg_builtin_image(id, side, side));
-  ctx.putImageData(pixels, 0, 0);
+  if (!fullCtx || !ctx) throw new Error('This browser cannot draw thumbnails.');
+  const pixels = fullCtx.createImageData(BUILTIN_SIDE, BUILTIN_SIDE);
+  pixels.data.set(viz.jpeg_builtin_image(id, BUILTIN_SIDE, BUILTIN_SIDE));
+  fullCtx.putImageData(pixels, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(full, 0, 0, side, side);
   return canvas.toDataURL('image/png');
 }
 
