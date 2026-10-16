@@ -6,6 +6,8 @@ describe('params', () => {
   it('reads an empty link as the defaults and writes the defaults as an empty link', () => {
     expect(parseParams('')).toEqual(DEFAULTS);
     expect(buildParams(DEFAULTS)).toBe('');
+    expect(parseParams('').img).toBe('spring');
+    expect(parseParams('').stage).toBe('overview');
   });
 
   it('round-trips every field', () => {
@@ -51,16 +53,18 @@ describe('params', () => {
 });
 
 describe('stages', () => {
-  it('lists nine stages, all ready', () => {
-    expect(STAGES.map((s) => s.id)).toEqual(['color', 'subsample', 'blocks', 'dct', 'quantize', 'zigzag', 'rle', 'huffman', 'decode']);
+  it('lists ten stages, the overview first, all ready', () => {
+    expect(STAGES.map((s) => s.id)).toEqual(['overview', 'color', 'subsample', 'blocks', 'dct', 'quantize', 'zigzag', 'rle', 'huffman', 'decode']);
     expect(STAGES.every((s) => s.ready)).toBe(true);
   });
 
-  it('lands on a named stage and steps through all nine, stopping at the ends', () => {
+  it('lands on a named stage and steps through all ten, stopping at the ends', () => {
     expect(readyStage('huffman')).toBe('huffman');
-    expect(readyStage('nope')).toBe('color');
-    expect(readyStage(undefined)).toBe('color');
-    expect(stepStage('color', -1)).toBe('color');
+    expect(readyStage('nope')).toBe('overview');
+    expect(readyStage(undefined)).toBe('overview');
+    expect(stepStage('color', -1)).toBe('overview');
+    expect(stepStage('overview', -1)).toBe('overview');
+    expect(stepStage('overview', 1)).toBe('color');
     expect(stepStage('dct', 1)).toBe('quantize');
     expect(stepStage('huffman', 1)).toBe('decode');
     expect(stepStage('decode', 1)).toBe('decode');

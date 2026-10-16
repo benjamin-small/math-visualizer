@@ -10,13 +10,26 @@ import {
   jpegSummaryFixture,
 } from '../../test/fakeViz';
 import { navigate, route } from '../../router.svelte';
-import { loadVizCore } from '../../wasm/loader';
+import { loadPicture } from '../../jpeg/images';
 
 installRafPolyfill();
 
 vi.mock('../../wasm/loader', async () => {
   const { makeVizMock } = await import('../../test/fakeViz');
   return { loadVizCore: vi.fn(() => Promise.resolve(makeVizMock())) };
+});
+
+// The real catalog, but every picture loads as a solid image of its catalog size (no network, no canvas).
+vi.mock('../../jpeg/images', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../jpeg/images')>();
+  return {
+    ...real,
+    loadPicture: vi.fn(async (id: string) => {
+      const { w, h } = real.IMAGES.find((im) => im.id === id)?.file ?? { w: 256, h: 256 };
+      return { w, h, rgba: new Uint8Array(w * h * 4).fill(128) };
+    }),
+    thumbnail: vi.fn(async (id: string) => `data:image/png;base64,${id}`),
+  };
 });
 
 // App also imports the Fourier lab, which fetches a font; jsdom has no origin to fetch from.
@@ -67,13 +80,95 @@ describe('JpegLab.svelte', () => {
     updateVizConfigSpy.mockClear();
   });
 
-  it('encodes the default gradient as a typed array and plays the scan', async () => {
-    await renderLab();
+  it('encodes a picture as a typed array and plays the scan', async () => {
+    await renderLab('img=gradient');
     const [cfg, w, h, rgba] = lastPush();
     expect(cfg).toEqual({ image_id: 'gradient', quality: 50, subsampling: '420', huffman: 'optimized', max_iterations: 256, tables: null });
     expect([w, h, rgba.length]).toEqual([256, 256, 256 * 256 * 4]);
     expect(kinds()).toContain('Play');
     expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'SetSpeed', value: 64 });
+  });
+
+  it('opens the spring overview by default', async () => {
+    const { container } = await renderLab();
+    const [cfg, w, h] = pushes()[0];
+    expect([cfg.image_id, w, h]).toEqual(['spring', 256, 256]);
+    expect(route.query).toBe('');
+    await vi.waitFor(() => {
+      const panels = (lastViz().panels as { kind: string }[]).map((p) => p.kind);
+      expect(panels).toContain('original');
+      expect(panels).toContain('decoded');
+    });
+    const stats = await vi.waitFor(() => {
+      const el = container.querySelector('.overview');
+      expect(el).toBeTruthy();
+      return el!.textContent!;
+    });
+    for (const heading of ['Raw bytes', 'Neighbour differences', 'JPEG file']) expect(stats).toContain(heading);
+    expect(stats.match(/bits \/ byte/g)).toHaveLength(3);
+    expect(stats).toContain(' : 1');
+    expect(stats).toContain('Grand Prismatic Spring, Yellowstone');
+    expect(container.querySelector('.overview a')?.getAttribute('href')).toContain('commons.wikimedia.org');
+    expect(container.querySelector('.stage-card h2')?.textContent).toContain('Overview');
+    const gallery = container.querySelector('.gallery')!;
+    expect(gallery.querySelectorAll('button[aria-pressed]')).toHaveLength(11);
+    expect(gallery.querySelectorAll('button')).toHaveLength(12);
+    expect(gallery.querySelector('button[aria-pressed="true"]')?.textContent).toContain('Grand Prismatic Spring');
+  });
+
+  it('still opens an old gradient link', async () => {
+    const { container } = await renderLab('img=gradient&stage=dct&b=12,7');
+    expect(lastPush()[0].image_id).toBe('gradient');
+    await vi.waitFor(() =>
+      expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 12, by: 7 }),
+    );
+    expect(route.query).toBe('img=gradient&stage=dct&b=12,7');
+    expect(container.querySelector('.stage-card h2')?.textContent).toContain('DCT');
+  });
+
+  it('changes picture from the Huffman stage', async () => {
+    const { container, getByLabelText } = await renderLab('stage=huffman');
+    await fireEvent.change(getByLabelText('Picture'), { target: { value: 'doge' } });
+    await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('doge'));
+    expect(lastPush().slice(1, 3)).toEqual([272, 320]);
+    expect(container.querySelector('.stage-card h2')?.textContent).toContain('Huffman');
+    expect(route.query).toBe('img=doge&stage=huffman');
+  });
+
+  it('clamps a shared block to the honest-work grid', async () => {
+    await renderLab('img=honest-work&stage=blocks&b=50,50');
+    await vi.waitFor(() =>
+      expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 39, by: 25 }),
+    );
+    expect(route.query).toContain('b=39,25');
+  });
+
+  it('keeps the current picture when a bundled one fails to load', async () => {
+    const { getByLabelText, findByRole } = await renderLab();
+    const before = pushes().length;
+    vi.mocked(loadPicture).mockImplementationOnce(() => Promise.reject(new Error('Could not load the picture "Doge" (the server answered 404).')));
+    const select = getByLabelText('Picture') as HTMLSelectElement;
+    await fireEvent.change(select, { target: { value: 'doge' } });
+    expect((await findByRole('alert')).textContent).toContain('the server answered 404');
+    expect(pushes().length).toBe(before);
+    expect(select.value).toBe('spring');
+  });
+
+  it('picks a picture from the gallery', async () => {
+    const { getByRole } = await renderLab();
+    await fireEvent.click(getByRole('button', { name: 'Cosines' }));
+    await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('cosines'));
+    expect(route.query).toBe('img=cosines');
+  });
+
+  it('steps from the overview into the pipeline', async () => {
+    const { getByRole, container } = await renderLab();
+    await fireEvent.click(getByRole('button', { name: 'Step 1: Color' }));
+    expect(route.query).toBe('stage=color');
+    expect(container.querySelector('.stage-card h2')?.textContent).toContain('Color');
+    await fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(route.query).toBe('');
+    expect(container.querySelector('.stage-card h2')?.textContent).toContain('Overview');
   });
 
   it('shows the readout from the summary', async () => {
@@ -133,7 +228,7 @@ describe('JpegLab.svelte', () => {
   });
 
   it('moves between ready stages with the rail and the arrow keys', async () => {
-    const { getByRole, container } = await renderLab();
+    const { getByRole, container } = await renderLab('stage=color');
     expect(getByRole('button', { name: /Color/ }).getAttribute('aria-current')).toBe('step');
     expect((getByRole('button', { name: /Huffman/ }) as HTMLButtonElement).disabled).toBe(false);
     await fireEvent.click(getByRole('button', { name: /DCT/ }));
@@ -156,7 +251,7 @@ describe('JpegLab.svelte', () => {
   });
 
   it('turns the cube and sets k through the viz config', async () => {
-    const { getByLabelText } = await renderLab();
+    const { getByLabelText } = await renderLab('stage=color');
     await vi.waitFor(() => expect(getByLabelText('RGB axes to YCbCr axes')).toBeTruthy());
     await fireEvent.input(getByLabelText('RGB axes to YCbCr axes'), { target: { value: '1' } });
     expect(lastViz().cube_mix).toBe(1);
@@ -207,7 +302,7 @@ describe('JpegLab.svelte', () => {
     const { getByRole, getByLabelText } = await renderLab('stage=blocks');
     await fireEvent.click(getByRole('button', { name: 'Cb' }));
     expect(getByRole('button', { name: 'Cb' }).getAttribute('aria-pressed')).toBe('true');
-    await fireEvent.click(getByLabelText('Text'));
+    await fireEvent.change(getByLabelText('Picture'), { target: { value: 'text' } });
     await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('text'));
     await vi.waitFor(() => expect(getByRole('button', { name: 'Y' }).getAttribute('aria-pressed')).toBe('true'));
   });
@@ -287,15 +382,12 @@ describe('JpegLab.svelte', () => {
   it('keeps the current image and says why when a built-in cannot be made', async () => {
     const { getByLabelText, findByRole } = await renderLab();
     const before = pushes().length;
-    vi.mocked(loadVizCore).mockImplementationOnce(() => Promise.reject(new Error('wasm down')));
-    try {
-      await fireEvent.click(getByLabelText('Bars'));
-      expect((await findByRole('alert')).textContent).toContain('wasm down');
-      expect(pushes().length).toBe(before);
-    } finally {
-      vi.mocked(loadVizCore).mockClear();
-    }
+    vi.mocked(loadPicture).mockImplementationOnce(() => Promise.reject(new Error('wasm down')));
+    await fireEvent.change(getByLabelText('Picture'), { target: { value: 'bars' } });
+    expect((await findByRole('alert')).textContent).toContain('wasm down');
+    expect(pushes().length).toBe(before);
   });
+
   it('applies an edited Q table to the selected plane and goes back to the standard tables', async () => {
     const { getByLabelText, getByRole, container } = await renderLab('stage=quantize');
     const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);

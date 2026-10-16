@@ -18,6 +18,8 @@
   import TokenChips from '../jpeg/TokenChips.svelte';
   import HuffmanView from '../jpeg/HuffmanView.svelte';
   import DecodeTools from '../jpeg/DecodeTools.svelte';
+  import Overview from '../jpeg/Overview.svelte';
+  import Gallery from '../jpeg/Gallery.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
   import { route, replaceQuery } from '../../router.svelte';
@@ -31,7 +33,7 @@
     type ImageId,
     type SubsamplingId,
   } from '../../jpeg/params';
-  import { IMAGES, decodeUpload, loadBuiltin, type RgbaImage } from '../../jpeg/images';
+  import { GROUP_LABELS, IMAGES, decodeUpload, loadPicture, type PictureGroup, type RgbaImage } from '../../jpeg/images';
   import { CAPTION_MIN, blockAt, cellAt, jpegLayout, toDevicePanels, type Panel, type StageLayout } from '../../jpeg/layout';
   import { readSummary, readoutOf, type JpegSummary } from '../../jpeg/summary';
   import { NOTICE, stageTex } from '../../jpeg/formulas';
@@ -66,12 +68,14 @@
   /** The file size with the other Huffman mode (null while unknown or with custom tables). */
   let otherBytes = $state<number | null>(null);
   /** Names the picture in the R–D cache: the image id, or one tag per upload. */
-  let imageTag = $state('gradient');
+  let imageTag = $state('spring');
   let uploads = 0;
   /** Zigzag stage: how many cells the viz's scan path has reached. */
   let zigReached = $state(0);
 
   let image = $state<RgbaImage | null>(null);
+  /** The encoded file, for the overview's size bars and histogram (null until the first encode). */
+  let jpegBytes = $state.raw<Uint8Array | null>(null);
   /** Why the last picture could not be loaded (the current image stays). */
   let loadError = $state<string | null>(null);
   let summary = $state<JpegSummary | null>(null);
@@ -80,7 +84,7 @@
   let appliedQuery = route.query;
   let overlayEl: HTMLDivElement | null = null;
   let fileInput: HTMLInputElement | null = null;
-  let imageGroup: HTMLDivElement | null = null;
+  let pictureSelect: HTMLSelectElement | null = null;
   let ro: ResizeObserver | null = null;
   /** True until the first encode has started playing. */
   let first = true;
@@ -91,6 +95,9 @@
 
   const stageInfo = $derived(STAGES.find((s) => s.id === stage)!);
   const readout = $derived(summary ? readoutOf(summary) : null);
+  /** Who made the picture in use, when it is a bundled one. */
+  const credit = $derived(IMAGES.find((im) => im.id === imageId)?.credit);
+  const GROUPS = Object.keys(GROUP_LABELS) as PictureGroup[];
   const panel = (kind: Panel['kind']) => layout.panels.find((p) => p.kind === kind)?.rect;
 
   function currentQuery(): string {
@@ -161,6 +168,15 @@
     if (stage !== 'huffman' || !engine) return;
     huffTables = readTables(engine.rule_inspect('huffman'));
     segments = readSegments(engine.rule_inspect('segments'));
+  });
+
+  // The overview reads the finished file once per encode (a new picture is a new encode too).
+  $effect(() => {
+    void version;
+    void image;
+    const engine = api?.engine;
+    if (stage !== 'overview' || !engine) return;
+    jpegBytes = engine.rule_bytes() ?? null;
   });
 
   // ...and what the other Huffman mode would cost (the kit encodes with quality-scaled tables only).
@@ -263,10 +279,8 @@
     } catch (err) {
       if (ticket !== loadTicket) return;
       loadError = err instanceof Error ? err.message : 'That picture could not be loaded.';
-      // The radio the reader clicked is checked in the page; put it back on the image in use.
-      for (const r of imageGroup?.querySelectorAll<HTMLInputElement>('input[name="jpeg-image"]') ?? []) {
-        r.checked = r.value === imageId;
-      }
+      // The select shows the option the reader chose; put it back on the picture in use.
+      if (pictureSelect) pictureSelect.value = imageId;
       return;
     }
     if (ticket !== loadTicket) return;
@@ -281,11 +295,17 @@
     pushLayout();
   }
 
-  const chooseImage = (id: ImageId, block?: [number, number]) => loadImage(() => loadBuiltin(id), id, block);
+  const chooseImage = (id: ImageId, block?: [number, number]) => loadImage(() => loadPicture(id), id, block);
 
   async function onUpload(file: File | null | undefined) {
     if (!file) return;
     await loadImage(() => decodeUpload(file), 'upload');
+  }
+
+  function onPicture(e: Event) {
+    const id = (e.currentTarget as HTMLSelectElement).value;
+    if (id === imageId || id === 'upload') return;
+    void chooseImage(id as ImageId);
   }
 
   function onQuality(e: Event) {
@@ -470,7 +490,7 @@
     window.addEventListener('resize', pushLayout);
     window.addEventListener('keydown', onKey);
     const start = imageId === 'upload' ? 'gradient' : imageId;
-    await loadImage(() => loadBuiltin(start), start, linked.block);
+    await loadImage(() => loadPicture(start), start, linked.block);
     if (route.query !== currentQuery()) syncUrl();
   }
 
@@ -498,13 +518,18 @@
   {onReady}
 >
   {#snippet controls()}
-    <div class="group" role="radiogroup" aria-labelledby="jpeg-image-name" bind:this={imageGroup}>
-      <span class="name" id="jpeg-image-name">Image</span>
-      {#each IMAGES as im (im.id)}
-        <label class="btn pill" title={im.title}>
-          <input type="radio" name="jpeg-image" value={im.id} checked={imageId === im.id} onchange={() => void chooseImage(im.id)} />{im.label}
-        </label>
-      {/each}
+    <div class="group">
+      <span class="name">Picture</span>
+      <select class="picture" aria-label="Picture" value={imageId} onchange={onPicture} bind:this={pictureSelect}>
+        {#each GROUPS as group (group)}
+          <optgroup label={GROUP_LABELS[group]}>
+            {#each IMAGES.filter((im) => im.group === group) as im (im.id)}
+              <option value={im.id} title={im.title}>{im.label}</option>
+            {/each}
+          </optgroup>
+        {/each}
+        {#if imageId === 'upload'}<option value="upload">Uploaded picture</option>{/if}
+      </select>
       <button class="btn" onclick={() => fileInput?.click()} title="Use your own picture (scaled to fit 512 px); or drop one on the stage">
         <Icon name="upload" />Upload
       </button>
@@ -574,6 +599,10 @@
           onclick={onImageClick}
           onkeydown={onImageKey}
         ></button>
+      {/if}
+
+      {#if stage === 'overview' && layout.slots.stats && image}
+        <Overview rect={layout.slots.stats} {image} jpeg={jpegBytes} {quality} {credit} />
       {/if}
 
       {#if stage === 'color' && panel('cube')}
@@ -730,7 +759,15 @@
         <Tex {tex} />
       {/each}
       <p class="tip">{NOTICE[stage]}</p>
+      {#if stage === 'overview'}
+        <button class="step-btn" onclick={() => setStage('color')}>Step 1: Color</button>
+      {/if}
     </section>
+
+    {#if stage === 'overview'}
+      <h2>Pictures</h2>
+      <Gallery current={imageId} onpick={(id) => void chooseImage(id)} onupload={() => fileInput?.click()} />
+    {/if}
 
     <h2>How it works</h2>
     <p>
@@ -752,6 +789,18 @@
   .quality input { width: 140px; }
   .quality .value { width: 3ch; text-align: right; color: var(--ink); }
   .name { color: var(--stone); font-size: 14px; }
+  .picture {
+    height: 36px;
+    max-width: 220px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-button);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .picture:hover { border-color: var(--stone); }
   /* Radio inputs drawn as pills, as in the Notes lab. */
   .pill input { position: absolute; opacity: 0; pointer-events: none; }
   .pill:has(input:checked) { border-color: var(--accent); background: var(--tint); }
@@ -829,4 +878,17 @@
     font-size: 14px;
   }
   .sub { color: var(--stone); margin-top: -4px; }
+  .step-btn {
+    height: 40px;
+    padding: 0 18px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-button);
+    background: var(--accent);
+    color: var(--paper);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .step-btn:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+  .step-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { formatBytes, readSummary, readoutOf } from '../summary';
 import { busiestLine, cumulativeEnergy, mirrored, periodic, psnrOf, termsFor } from '../math';
-import { chromaKept, lastNonZero, samplesKept, stageTex, NOTICE } from '../formulas';
+import { ENTROPY_TEX, chromaKept, lastNonZero, samplesKept, stageTex, NOTICE } from '../formulas';
 import { STAGES } from '../stages';
 import { decodeUpload, fitWithin } from '../images';
 import { jpegSummaryFixture } from '../../test/fakeViz';
@@ -118,6 +118,11 @@ describe('formulas', () => {
     const line = stageTex('zigzag', empty, null)[1];
     expect(line).toBe(String.raw`\text{all 64 are zero}`);
     expect(line).not.toContain('#0');
+  });
+
+  it('explains entropy on the overview', () => {
+    expect(stageTex('overview', null, null)[0]).toBe(ENTROPY_TEX);
+    expect(stageTex('overview', readSummary(jpegSummaryFixture), null)).toEqual([ENTROPY_TEX]);
   });
 
   it('has a notice for every stage', () => {

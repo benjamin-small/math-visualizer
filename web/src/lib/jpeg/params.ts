@@ -56,7 +56,7 @@ export interface JpegParams {
 
 /** The settings an empty link means; they are left out of written links. */
 export const DEFAULTS: JpegParams = {
-  img: 'gradient',
+  img: 'spring',
   quality: 50,
   subsampling: '420',
   huffman: 'optimized',

@@ -7,6 +7,9 @@ const COMPONENT = ['Y', 'C_b', 'C_r'];
 
 const fmt = (v: number, digits = 0) => (Math.abs(v) < 1e-9 ? '0' : v.toFixed(digits));
 
+/** The overview's formula: Shannon entropy of a byte histogram, in bits per byte (8 means no better than random). */
+export const ENTROPY_TEX = String.raw`H = -\sum_{b=0}^{255} p_b \log_2 p_b \;\text{bits per byte}`;
+
 /** The Color stage's formula: RGB to YCbCr as the standard matrix plus offset (static; no per-pixel RGB is available). */
 export const COLOR_TEX = String.raw`\begin{bmatrix} Y \\ C_b \\ C_r \end{bmatrix} =
 \begin{bmatrix} 0.299 & 0.587 & 0.114 \\ -0.1687 & -0.3313 & 0.5 \\ 0.5 & -0.4187 & -0.0813 \end{bmatrix}
@@ -47,6 +50,8 @@ export function samplesKept(subsampling: string | null): number {
 export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, number] | null): string[] {
   const sel = s?.selected ?? null;
   switch (stage) {
+    case 'overview':
+      return [ENTROPY_TEX];
     case 'color':
       return [COLOR_TEX];
     case 'subsample': {
@@ -120,6 +125,8 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
 
 /** What to look for on each stage. */
 export const NOTICE: Record<StageId, string> = {
+  overview:
+    'Raw pixel bytes look almost random, so the first histogram tells you little. Subtract each sample from its left neighbour and the pattern gives itself away: the differences pile up near zero. The JPEG file looks random again, which is what good compression leaves behind, but there are far fewer bytes of it.',
   color:
     'Y looks like the picture itself; Cb and Cr are flat and soft. Turn the cube: the grey diagonal becomes the Y axis, and most pixels huddle close to it.',
   subsample:

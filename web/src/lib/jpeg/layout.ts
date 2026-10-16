@@ -19,6 +19,8 @@ export interface Rect {
 
 /** Panel kinds the Rust viz draws (see `visualizations/jpeg.rs`). */
 export type PanelKind =
+  | 'original'
+  | 'decoded'
   | 'image'
   | 'image_grid'
   | 'plane_y'
@@ -41,7 +43,7 @@ export type PanelKind =
  * Named areas the page fills with DOM content (tables, charts, chips) rather
  * than viz panels. Each rect includes room for its own heading at the top.
  */
-export type SlotName = 'charts' | 'qtable' | 'rd' | 'sequence' | 'tokens' | 'huffman' | 'resave';
+export type SlotName = 'stats' | 'charts' | 'qtable' | 'rd' | 'sequence' | 'tokens' | 'huffman' | 'resave';
 
 /** One thing the viz draws, and where, with the caption the overlay prints above it. */
 export interface Panel {
@@ -119,6 +121,29 @@ function columns(r: Rect, n: number, gap: number): Rect[] {
 }
 
 /**
+ * The overview: the picture before and after JPEG side by side in a top band
+ * (58% of the height after margins), the stats slot across the full width
+ * below. The same structure serves phones. Clicks pick a block on the original.
+ */
+function overviewLayout(cssW: number, cssH: number, imgW: number, imgH: number): StageLayout {
+  const m = MARGIN;
+  const area: Rect = { x: m, y: m, w: cssW - 2 * m, h: cssH - 2 * m };
+  const topH = area.h * 0.58;
+  const [left, right] = columns({ x: area.x, y: area.y, w: area.w, h: topH }, 2, m);
+  const original = fit(belowLabel(left), imgW, imgH);
+  const decoded = fit(belowLabel(right), imgW, imgH);
+  const y = area.y + topH + m;
+  return {
+    image: original,
+    panels: [
+      { kind: 'original', rect: original, label: 'Original' },
+      { kind: 'decoded', rect: decoded, label: 'After JPEG' },
+    ],
+    slots: { stats: { x: area.x, y, w: area.w, h: Math.max(0, area.y + area.h - y) } },
+  };
+}
+
+/**
  * The stage's panels. Landscape: the image at the left (up to 45% of the
  * width), the stage's focus panels to its right. Portrait (narrower than
  * `PORTRAIT_BELOW`): the image on top (42% of the height), focus below.
@@ -148,6 +173,7 @@ export function jpegLayout(
     imageArea = { x: m, y: m, w: cssW - 2 * m, h: rowH };
     focus = { x: m, y: 2 * m + rowH, w: cssW - 2 * m, h: cssH - 3 * m - rowH };
   }
+  if (stage === 'overview') return overviewLayout(cssW, cssH, imgW, imgH);
   const image = fit(belowLabel(imageArea), imgW, imgH);
   const panels: Panel[] = [
     { kind: stage === 'blocks' ? 'image_grid' : 'image', rect: image, label: 'The image — click a block' },
