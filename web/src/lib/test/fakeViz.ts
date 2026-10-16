@@ -21,6 +21,8 @@ export const dispatchSpy = vi.fn();
 export const updateRuleConfigSpy = vi.fn();
 /** Records every `Engine.update_rule_config_with_path(cfg, xy, pen)` — the Fourier lab's typed-array push. */
 export const updateRuleConfigWithPathSpy = vi.fn();
+/** Records every `Engine.update_rule_config_with_image(cfg, w, h, rgba)` — the JPEG lab's typed-array push. */
+export const updateRuleConfigWithImageSpy = vi.fn();
 /** Records every `Engine.update_viz_config(cfg)` call. */
 export const updateVizConfigSpy = vi.fn();
 /** Records every `Engine.rule_action(action)` call; the fake always accepts (returns true). */
@@ -85,6 +87,53 @@ export const notesSummaryFixture: NotesSummary = {
   ],
 };
 
+/** A JPEG summary's selected block: a soft ramp, so every stage has numbers to show. */
+const jpegBlock = Array.from({ length: 64 }, (_, i) => 100 + (i % 8) * 4 + Math.floor(i / 8) * 2);
+
+/**
+ * What the fake's `rule_summary()` returns on the JPEG lab: the 256² gradient
+ * at quality 50, 4:2:0, a quarter scanned. Mutable so a test can reshape it.
+ */
+export const jpegSummaryFixture = {
+  version: 1,
+  n: 64,
+  total: 256,
+  width: 256,
+  height: 256,
+  bytes: 4096,
+  raw_bytes: 196608,
+  bits_so_far: 8000,
+  payload_bits: 30000,
+  entropy_bits: 28000,
+  psnr: 36.5,
+  quality: 50,
+  subsampling: '420',
+  mcu: [16, 16, 16, 16],
+  grids: [
+    [32, 32],
+    [16, 16],
+    [16, 16],
+  ],
+  selected: {
+    component: 0,
+    bx: 21,
+    by: 17,
+    mcu: 136,
+    pixels: jpegBlock,
+    shifted: jpegBlock.map((v) => v - 128),
+    dct: jpegBlock.map((_, i) => (i === 0 ? 120 : i < 3 ? -20 : 0)),
+    quant: jpegBlock.map((_, i) => (i === 0 ? 8 : 0)),
+    table: Array.from({ length: 64 }, () => 16),
+    zigzag: jpegBlock.map((_, i) => (i === 0 ? 8 : 0)),
+    dc_prev: 6,
+    dc_diff: 2,
+    tokens: [{ run: 0, size: 0, amp: 0, symbol: 0 }],
+    bit_span: [100, 6],
+    bits: '010101',
+  },
+  error: undefined as string | undefined,
+};
+
 /** What the fake's `viz_readout()` returns on the notes lab (null elsewhere). Mutable so a test can move the 4D angle. */
 export const notesVizReadout = { angle_4d: 0 };
 
@@ -115,12 +164,18 @@ export class FakeEngine {
     if (this._lab === 'fourier') return ruleSummaryFixture;
     if (this._lab === 'sorting') return sortingSummaryFixture;
     if (this._lab === 'notes') return notesSummaryFixture;
+    if (this._lab === 'jpeg') return jpegSummaryFixture;
     return null;
   }
   viz_readout() { return this._lab === 'notes' ? notesVizReadout : null; }
   viz_config() { return {}; }
   update_rule_config(cfg: unknown) { updateRuleConfigSpy(cfg); }
   update_rule_config_with_path(cfg: unknown, xy: Float32Array, pen: Uint8Array) { updateRuleConfigWithPathSpy(cfg, xy, pen); }
+  update_rule_config_with_image(cfg: unknown, w: number, h: number, rgba: Uint8Array) {
+    updateRuleConfigWithImageSpy(cfg, w, h, rgba);
+  }
+  rule_inspect(_key: string) { return undefined; }
+  rule_bytes() { return this._lab === 'jpeg' ? new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) : undefined; }
   update_viz_config(cfg: unknown) { updateVizConfigSpy(cfg); }
   rule_action(action: unknown) { ruleActionSpy(action); return true; }
   capabilities() { return { supports_scrub: true, cheap_recompute: true, checkpoint_every: null }; }
@@ -132,5 +187,12 @@ export class FakeEngine {
 
 /** Shaped like the resolved `viz-core` module, which is all `loadVizCore()` callers touch. */
 export function makeVizMock() {
-  return { Engine: FakeEngine } as unknown as typeof import('viz-core');
+  return {
+    Engine: FakeEngine,
+    // The few kit functions the JPEG lab calls: shaped like the real ones, values are placeholders.
+    jpeg_builtin_image: (_id: string, w: number, h: number) => new Uint8Array(w * h * 4).fill(128),
+    jpeg_zigzag_order: () => Uint8Array.from({ length: 64 }, (_, i) => i),
+    jpeg_dct_1d: (x: Float32Array) => Float32Array.from(x, (_, i) => (i === 0 ? 10 : 0)),
+    jpeg_dft_1d: (x: Float32Array) => new Float32Array(x.length * 2).fill(1),
+  } as unknown as typeof import('viz-core');
 }
