@@ -32,7 +32,8 @@
     points = [...cachedCurve(key)];
     cancelAnimationFrame(frame);
     let alive = true;
-    void loadVizCore().then((viz) => {
+    loadVizCore().then((viz) => {
+      if (!alive) return;
       const step = () => {
         if (!alive) return;
         const todo = missing(key).slice(0, RD_PER_FRAME);
@@ -48,7 +49,7 @@
         if (missing(key).length > 0) frame = requestAnimationFrame(step);
       };
       frame = requestAnimationFrame(step);
-    });
+    }).catch(() => {});
     return () => {
       alive = false;
       cancelAnimationFrame(frame);

@@ -3,6 +3,7 @@
   // cells. Edits stay local until "Apply to image" sends them (as this
   // plane's table) for a re-encode; "Standard" goes back to the
   // quality-scaled tables.
+  import { untrack } from 'svelte';
   import type { Rect } from '../../jpeg/layout';
 
   interface Props {
@@ -22,17 +23,31 @@
 
   let { rect, table, which, custom, onapply, onstandard }: Props = $props();
 
-  /** Local edits, reset whenever the table in use changes. */
+  /** Local edits, reset only when the table in use changes in content (a fresh array with the same numbers keeps them). */
   let draft = $state<number[]>([]);
+  const key = $derived(table.join(','));
   $effect(() => {
-    draft = [...table];
+    void key;
+    draft = [...untrack(() => table)];
   });
   const dirty = $derived(draft.some((v, i) => v !== table[i]));
 
-  /** A cell's value: a whole number in 1–255 (the last valid one when the input is junk). */
-  function setCell(i: number, raw: string) {
-    const v = Math.round(Number(raw));
-    if (Number.isFinite(v)) draft[i] = Math.min(255, Math.max(1, v));
+  /**
+   * Take a cell's text as its value: a whole number clamped to 1–255. Empty or
+   * non-numeric text keeps the previous value. While typing (`final` false) the
+   * box is only rewritten when the number was clamped; on commit it always
+   * shows exactly what the draft holds.
+   */
+  function setCell(i: number, el: HTMLInputElement, final: boolean) {
+    const raw = el.value;
+    const n = Math.round(Number(raw));
+    if (raw.trim() !== '' && Number.isFinite(n)) {
+      const v = Math.min(255, Math.max(1, n));
+      draft[i] = v;
+      if (String(v) !== raw && (final || v !== n)) el.value = String(v);
+    } else if (final) {
+      el.value = String(draft[i]);
+    }
   }
 </script>
 
@@ -50,7 +65,8 @@
           max="255"
           value={v}
           aria-label="Q({i % 8}, {Math.floor(i / 8)})"
-          onchange={(e) => setCell(i, (e.currentTarget as HTMLInputElement).value)}
+          oninput={(e) => setCell(i, e.currentTarget as HTMLInputElement, false)}
+          onchange={(e) => setCell(i, e.currentTarget as HTMLInputElement, true)}
         />
       {/each}
     </div>

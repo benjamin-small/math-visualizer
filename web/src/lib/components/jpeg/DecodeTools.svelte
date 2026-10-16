@@ -46,7 +46,13 @@
 
   async function resave() {
     if (running) return;
-    const viz = await loadVizCore();
+    let viz: Awaited<ReturnType<typeof loadVizCore>>;
+    try {
+      viz = await loadVizCore();
+    } catch {
+      running = false;
+      return;
+    }
     running = true;
     history = [];
     let current = image.rgba;
@@ -80,7 +86,7 @@
   );
 </script>
 
-{#if rect.w > 160 && rect.h > 160}
+{#if rect.w > 120 && rect.h > 60}
   <div class="tools" style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
     <label class="ctl">
       <span>Wipe</span>
@@ -103,15 +109,17 @@
         <span>gen {history.length}: <span class="mono">{Number.isFinite(history[history.length - 1]) ? history[history.length - 1].toFixed(2) : '∞'} dB</span></span>
       {/if}
     </div>
-    <svg width={W} height={H} aria-label="PSNR per generation">
-      <line class="axis" x1="0" y1={H} x2={W} y2={H} />
-      <polyline class="curve" points={points} />
-    </svg>
+    {#if H > 40}
+      <svg width={W} height={H} aria-label="PSNR per generation">
+        <line class="axis" x1="0" y1={H} x2={W} y2={H} />
+        <polyline class="curve" points={points} />
+      </svg>
+    {/if}
   </div>
 {/if}
 
 <style>
-  .tools { position: absolute; display: flex; flex-direction: column; gap: 8px; color: rgba(255, 255, 255, 0.8); font-size: 12px; pointer-events: auto; }
+  .tools { position: absolute; display: flex; flex-direction: column; gap: 8px; color: rgba(255, 255, 255, 0.8); font-size: 12px; pointer-events: auto; overflow: auto; }
   .ctl { display: flex; align-items: center; gap: 8px; }
   .ctl > span { width: 70px; flex: none; }
   .ctl input { flex: 1; accent-color: var(--accent); }

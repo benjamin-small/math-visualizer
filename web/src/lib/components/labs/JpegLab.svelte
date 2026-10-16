@@ -144,11 +144,11 @@
   });
 
   // The viz animates the zigzag path itself; read how far it has got each frame.
-  const frameSnap = $derived(api?.snapshot);
   $effect(() => {
-    void frameSnap;
+    if (stage !== 'zigzag') return; // other stages must not subscribe to the per-frame snapshot
+    void api?.snapshot;
     const a = api;
-    if (stage !== 'zigzag' || !a) return;
+    if (!a) return;
     const r = a.readVizReadout() as { zigzag?: unknown } | null;
     zigReached = typeof r?.zigzag === 'number' ? Math.min(64, Math.ceil(r.zigzag)) : 64;
   });
@@ -164,22 +164,29 @@
   });
 
   // ...and what the other Huffman mode would cost (the kit encodes with quality-scaled tables only).
+  // Runs once per encode (`version`), not once per setting that fed it.
   $effect(() => {
     void version;
-    const img = image;
-    const other = huffman === 'optimized' ? 'standard' : 'optimized';
-    const [q, s] = [quality, subsampling];
+    const img = image; // a new picture is a new encode; quality, subsampling and mode are read untracked
+    const on = stage === 'huffman' && !customTables;
     otherBytes = null;
-    if (stage !== 'huffman' || !img || customTables) return;
+    if (!on || !img) return;
+    const { q, s, other } = untrack(() => ({
+      q: quality,
+      s: subsampling,
+      other: huffman === 'optimized' ? 'standard' : 'optimized',
+    }));
     let alive = true;
-    void loadVizCore().then((v) => {
-      if (!alive) return;
-      try {
-        otherBytes = (v.jpeg_encode_stats(img.rgba, img.w, img.h, q, s, other) as { bytes: number }).bytes;
-      } catch {
-        otherBytes = null;
-      }
-    });
+    loadVizCore()
+      .then((v) => {
+        if (!alive) return;
+        try {
+          otherBytes = (v.jpeg_encode_stats(img.rgba, img.w, img.h, q, s, other) as { bytes: number }).bytes;
+        } catch {
+          otherBytes = null;
+        }
+      })
+      .catch(() => {});
     return () => {
       alive = false;
     };

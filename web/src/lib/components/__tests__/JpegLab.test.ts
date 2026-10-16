@@ -7,6 +7,7 @@ import {
   updateRuleConfigWithImageSpy,
   updateVizConfigSpy,
   snapshotFixture,
+  jpegSummaryFixture,
 } from '../../test/fakeViz';
 import { navigate, route } from '../../router.svelte';
 import { loadVizCore } from '../../wasm/loader';
@@ -342,5 +343,50 @@ describe('JpegLab.svelte', () => {
     await vi.waitFor(() => expect(container.querySelector('.resave')?.textContent).toContain('gen 20'), { timeout: 3000 });
     // Each fake generation drifts one level further, so generation 20 is off by 20 in every channel.
     expect(container.querySelector('.resave')?.textContent).toContain(`${(20 * Math.log10(255 / 20)).toFixed(2)} dB`);
+  });
+
+  it('keeps an unapplied Q-table edit while the scan ticks', async () => {
+    const { getByLabelText, getByRole } = await renderLab('stage=quantize');
+    const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
+    await fireEvent.input(cell, { target: { value: '99' } });
+    expect((getByRole('button', { name: 'Apply to image' }) as HTMLButtonElement).disabled).toBe(false);
+    Object.assign(snapshotFixture, { iteration: 128, max_iterations: 256 });
+    try {
+      // Wait for the page to read the new tick (it re-reads the summary on the same change).
+      await vi.waitFor(() => expect(document.querySelector('.readout')?.textContent).toContain('128'));
+      await new Promise((r) => setTimeout(r, 30));
+      expect((getByLabelText('Q(1, 0)') as HTMLInputElement).value).toBe('99');
+      expect((getByRole('button', { name: 'Apply to image' }) as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      Object.assign(snapshotFixture, { iteration: 0, max_iterations: 360, playing: false });
+    }
+  });
+
+  it('disables the Ringing hint when the picture has no hard edges', async () => {
+    const saved = jpegSummaryFixture.hints;
+    (jpegSummaryFixture as { hints: unknown }).hints = { blocking: [3, 4], ringing: undefined, bleed: [7, 8] };
+    try {
+      const { getByRole } = await renderLab('stage=decode');
+      const ringing = (await vi.waitFor(() => getByRole('button', { name: 'Ringing' }))) as HTMLButtonElement;
+      expect(ringing.disabled).toBe(true);
+      expect(ringing.title).toContain('no hard edges');
+      expect((getByRole('button', { name: 'Blocking' }) as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      jpegSummaryFixture.hints = saved;
+    }
+  });
+
+  it('keeps the Decode controls on a short laptop stage', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(800, 0));
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 420));
+    try {
+      const { getByLabelText, getByRole } = await renderLab('stage=decode');
+      await vi.waitFor(() => getByLabelText('Decoded share of the comparison'));
+      expect(getByRole('button', { name: /Re-save/ })).toBeTruthy();
+      expect(getByRole('button', { name: 'Blocking' })).toBeTruthy();
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1134, 0));
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 585));
+    }
   });
 });
