@@ -164,3 +164,47 @@ fn every_panel_kind_renders_without_a_gl_error() {
     engine.frame(16.0);
     assert_eq!(gl_of(&canvas).get_error(), WebGl2RenderingContext::NO_ERROR);
 }
+
+#[wasm_bindgen_test]
+fn panels_render_after_a_re_encode() {
+    let canvas = make_canvas("jpeg-reencode");
+    let mut engine = Engine::new("jpeg-reencode", Some("jpeg".into())).unwrap();
+    let rgba: Vec<u8> = (0..40 * 24 * 4).map(|i| (i * 7 % 256) as u8).collect();
+    let rule = |quality: u32| {
+        js(&format!(
+            r#"{{"image_id":"upload","quality":{quality},"subsampling":"444","huffman":"standard","max_iterations":15}}"#
+        ))
+    };
+    engine
+        .update_rule_config_with_image(rule(75), 40, 24, &rgba)
+        .expect("image accepted");
+    engine
+        .update_viz_config(js(r#"{"panels":[
+                {"kind":"image","rect":[0,0,100,60]},
+                {"kind":"image_grid","rect":[100,0,100,60]},
+                {"kind":"plane_y","rect":[200,0,40,40]},
+                {"kind":"plane_cb","rect":[240,0,40,40]},
+                {"kind":"plane_cr","rect":[280,0,40,40]},
+                {"kind":"coded_cb","rect":[200,40,40,40],"crop":[8,0,16,16]},
+                {"kind":"coded_cr","rect":[240,40,40,40]},
+                {"kind":"cube","rect":[0,100,100,100]},
+                {"kind":"block","rect":[100,100,50,50]},
+                {"kind":"atlas","rect":[150,100,50,50]},
+                {"kind":"coeffs","rect":[200,100,50,50]},
+                {"kind":"rebuild","rect":[250,100,50,50]}
+            ],"cube_mix":0.5,"dct_k":6,"hover":[1,2]}"#))
+        .expect("panels accepted");
+    engine
+        .dispatch(js(r#"{"kind":"JumpTo","iteration":7}"#))
+        .unwrap();
+    engine.frame(0.0);
+    engine.frame(16.0);
+    assert_eq!(gl_of(&canvas).get_error(), WebGl2RenderingContext::NO_ERROR);
+    // A new encode (a new version) rebuilds every texture and the cube cache.
+    engine
+        .update_rule_config_with_image(rule(90), 40, 24, &rgba)
+        .expect("image accepted");
+    engine.frame(32.0);
+    engine.frame(48.0);
+    assert_eq!(gl_of(&canvas).get_error(), WebGl2RenderingContext::NO_ERROR);
+}
