@@ -313,7 +313,7 @@ fn original_and_decoded_panels_ignore_the_scan() {
     assert_eq!(gl.get_error(), WebGl2RenderingContext::NO_ERROR);
 
     // The 256 × 256 gradient, sampled where the 64-pixel panel's centre lands:
-    // the linear filter averages the four texels around (128, 128).
+    // the textures are sampled with `Filter::Nearest`, so the mean of the four texels around (128, 128) stands in for the texel under the centre.
     let src = viz_core::jpeg_images::builtin_image("gradient", 256, 256).unwrap();
     let mean = |c: usize| {
         let sum: u32 = [(127, 127), (128, 127), (127, 128), (128, 128)]
@@ -347,7 +347,35 @@ fn original_and_decoded_panels_ignore_the_scan() {
             decoded[c]
         );
     }
-    web_sys::console::log_1(&JsValue::from_str(&format!(
-        "pixels decoded={decoded:?} original={original:?} image={image:?}"
-    )));
+}
+
+#[wasm_bindgen_test]
+fn a_zero_size_panel_draws_nothing_where_an_empty_list_fits_the_image() {
+    // The page sends one zero-size panel until its first picture is in: an
+    // empty list would make the viz fit (and show) its own stand-in gradient.
+    let canvas = make_canvas("jpeg-blank");
+    canvas.set_width(64);
+    canvas.set_height(64);
+    let mut engine = Engine::new("jpeg-blank", Some("jpeg".into())).unwrap();
+    let gl = gl_of(&canvas);
+    let render = |engine: &mut Engine, panels: &str| {
+        engine
+            .update_viz_config(js(&format!(r#"{{"panels":{panels}}}"#)))
+            .expect("panels accepted");
+        engine.frame(0.0);
+        engine.frame(16.0);
+        centre_pixel(&gl, 64)
+    };
+    let nothing = render(&mut engine, r#"[{"kind":"none","rect":[0,0,64,64]}]"#);
+    let blank = render(&mut engine, r#"[{"kind":"image","rect":[0,0,0,0]}]"#);
+    let fitted = render(&mut engine, "[]");
+    assert_eq!(gl.get_error(), WebGl2RenderingContext::NO_ERROR);
+    assert_eq!(
+        blank, nothing,
+        "a zero-size panel must leave the background"
+    );
+    assert_ne!(
+        fitted, nothing,
+        "an empty list fits the image over the background"
+    );
 }

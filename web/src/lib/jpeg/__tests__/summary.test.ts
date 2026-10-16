@@ -127,6 +127,8 @@ describe('formulas', () => {
 
   it('has a notice for every stage', () => {
     for (const { id } of STAGES) expect(NOTICE[id].length).toBeGreaterThan(20);
+    // Raw bytes are only random-looking for photographs (a gradient or a test card is not).
+    expect(NOTICE.overview).toContain('For a photo, raw pixel bytes look almost random');
   });
 
   it('finds the last non-zero coefficient (-1 when there is none)', () => {

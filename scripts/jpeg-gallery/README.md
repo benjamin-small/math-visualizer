@@ -19,7 +19,9 @@ Save these four files, under the same names, into one folder (`<src-dir>`). Each
 python3 make_gallery.py <src-dir> <out-dir>
 ```
 
-This writes `spring.png`, `shuttle.png`, `doge.png` and `honest-work.png` to `<out-dir>`. spring and shuttle are cropped and resized to 256 × 256; doge and honest-work are resized so the long side is 320 px. The script also writes a raw `.rgba` file beside each PNG. The app does not use these, so delete them rather than commit them.
+This writes `spring.png`, `shuttle.png`, `doge.png` and `honest-work.png` to `<out-dir>`. spring and shuttle are cropped and resized to 256 × 256; doge and honest-work are resized so the long side is 320 px.
+
+The originals' sizes are 1999 × 1277 (spring), 4015 × 2672 (shuttle), 2175 × 2563 (doge) and 3008 × 1911 (honest-work); the crop boxes in the script are in those pixels. Pillow 12.3.0 reproduces the committed PNGs byte for byte.
 
 ## 3. Draw the cartoon
 

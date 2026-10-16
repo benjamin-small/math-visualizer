@@ -10,7 +10,7 @@ import {
   jpegSummaryFixture,
 } from '../../test/fakeViz';
 import { navigate, route } from '../../router.svelte';
-import { loadPicture } from '../../jpeg/images';
+import { decodeUpload, loadPicture } from '../../jpeg/images';
 
 installRafPolyfill();
 
@@ -28,6 +28,7 @@ vi.mock('../../jpeg/images', async (importOriginal) => {
       const { w, h } = real.IMAGES.find((im) => im.id === id)?.file ?? { w: 256, h: 256 };
       return { w, h, rgba: new Uint8Array(w * h * 4).fill(128) };
     }),
+    decodeUpload: vi.fn(real.decodeUpload),
     thumbnail: vi.fn(async (id: string) => `data:image/png;base64,${id}`),
   };
 });
@@ -162,11 +163,95 @@ describe('JpegLab.svelte', () => {
     expect(lastPush()[0].image_id).toBe('gradient');
     expect((await findByRole('alert')).textContent).toContain('the server answered 404');
     expect((getByLabelText('Picture') as HTMLSelectElement).value).toBe('gradient');
-    // The shared link now names what is on screen, and the block that belonged to the lost picture is not carried over.
-    expect(route.query).toBe('img=gradient');
     // On the overview the alert is the first row of its stats, where it hides nothing.
     expect(container.querySelector('.overview [role="alert"]')).toBeTruthy();
     expect(container.querySelector('.error')).toBeNull();
+  });
+
+  it('keeps the link the reader opened when the first picture falls back to the gradient', async () => {
+    vi.mocked(loadPicture).mockImplementationOnce(() => Promise.reject(new Error('offline')));
+    await renderLab('img=shuttle&q=30&b=3,4');
+    expect(lastPush()[0].image_id).toBe('gradient');
+    await new Promise((r) => setTimeout(r, 30));
+    // The lost picture stays named in the address, so a reload (or a forward) can try it again.
+    expect(route.query).toBe('img=shuttle&q=30&b=3,4');
+  });
+
+  it('writes img=gradient into the link for an uploaded picture', async () => {
+    const { container, getByLabelText } = await renderLab('img=shuttle');
+    vi.mocked(decodeUpload).mockImplementationOnce(async () => ({ w: 64, h: 48, rgba: new Uint8Array(64 * 48 * 4).fill(90) }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await fireEvent.change(input, { target: { files: [new File(['x'], 'x.png', { type: 'image/png' })] } });
+    await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('upload'));
+    expect(lastPush().slice(1, 3)).toEqual([64, 48]);
+    expect((getByLabelText('Picture') as HTMLSelectElement).value).toBe('upload');
+    // The link cannot carry the pixels; it names the gradient, not the default spring a bare link would open.
+    expect(route.query).toBe('img=gradient');
+    await fireEvent.change(getByLabelText('Quality'));
+    expect(route.query).toBe('img=gradient');
+  });
+
+  it('shows the picture credit in the overview story, whatever the stage has room for', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(343, 0));
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 300));
+    try {
+      const { container } = await renderLab();
+      await vi.waitFor(() => expect(container.querySelector('.stage-card')).toBeTruthy());
+      const credit = container.querySelector('.stage-card .credit')!;
+      expect(credit.textContent).toContain('Grand Prismatic Spring, Yellowstone');
+      expect(credit.textContent).toContain('Jim Peaco, National Park Service');
+      expect(credit.textContent).toContain('Public domain');
+      expect(credit.querySelector('a')?.getAttribute('href')).toContain('commons.wikimedia.org');
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1134, 0));
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 585));
+    }
+  });
+
+  it('shows no credit for a generated picture, and none off the overview', async () => {
+    const { container } = await renderLab('img=text');
+    await vi.waitFor(() => expect(container.querySelector('.stage-card')).toBeTruthy());
+    expect(container.querySelector('.stage-card .credit')).toBeNull();
+    const spring = await renderLab('img=spring&stage=color');
+    expect(spring.container.querySelector('.stage-card .credit')).toBeNull();
+  });
+
+  it('draws nothing and shows no readout until the first picture is in', async () => {
+    let release!: () => void;
+    vi.mocked(loadPicture).mockImplementationOnce(
+      () => new Promise((resolve) => (release = () => resolve({ w: 256, h: 256, rgba: new Uint8Array(256 * 256 * 4).fill(128) }))),
+    );
+    navigate('jpeg', '');
+    const { container } = render(App);
+    // The engine is up but the picture is not: the viz must not fall back to its built-in gradient.
+    await vi.waitFor(() => expect(updateVizConfigSpy).toHaveBeenCalled());
+    const panels = lastViz().panels as { kind: string; rect: number[] }[];
+    expect(panels.length).toBeGreaterThan(0); // an empty list means "fit the image" to the viz
+    expect(panels.every((p) => p.rect[2] === 0 || p.rect[3] === 0)).toBe(true);
+    expect(pushes()).toHaveLength(0);
+    expect(container.querySelector('.stats')).toBeNull();
+    release();
+    await vi.waitFor(() => expect(container.querySelector('.stats')?.textContent).toContain('4.0 KB'));
+    const drawn = (lastViz().panels as { kind: string; rect: number[] }[]).filter((p) => p.rect[2] > 0 && p.rect[3] > 0).map((p) => p.kind);
+    expect(drawn).toEqual(expect.arrayContaining(['original', 'decoded']));
+  });
+
+  it('starts the first picture before the engine is ready', async () => {
+    const calls = vi.mocked(loadPicture).mock.calls.length;
+    navigate('jpeg', 'img=shuttle');
+    render(App);
+    // Synchronously after mount: the fetch has begun, while the WASM module is still loading.
+    expect(vi.mocked(loadPicture).mock.calls.slice(calls)).toEqual([['shuttle']]);
+    await vi.waitFor(() => expect(pushes().length).toBeGreaterThan(0));
+    expect(vi.mocked(loadPicture).mock.calls.slice(calls)).toEqual([['shuttle']]);
+  });
+
+  it('has no block-picking area on the overview, and the how-it-works tip says where clicking applies', async () => {
+    const { container, getByRole, queryByRole } = await renderLab();
+    expect(queryByRole('button', { name: /Pick a block/ })).toBeNull();
+    expect(container.textContent).toContain('On stages 1');
+    await fireEvent.click(getByRole('button', { name: 'Step 1: Color' }));
+    expect(getByRole('button', { name: /Pick a block/ })).toBeTruthy();
   });
 
   it('picks a picture from the gallery', async () => {
@@ -323,14 +408,13 @@ describe('JpegLab.svelte', () => {
   });
 
   it('moves the selected block with the arrow keys on the image, without changing stage', async () => {
-    const { getByRole } = await renderLab();
+    const { getByRole } = await renderLab('stage=blocks');
     const pick = getByRole('button', { name: /Pick a block/ });
     ruleActionSpy.mockClear();
     await fireEvent.keyDown(pick, { key: 'ArrowRight' });
     // The summary's luma block is (21, 17); one block right.
     expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 0, bx: 22, by: 17 });
-    expect(route.query).toContain('b=22,17');
-    expect(route.query).not.toContain('stage=');
+    expect(route.query).toBe('stage=blocks&b=22,17');
     await fireEvent.keyDown(pick, { key: 'ArrowDown' });
     expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 0, bx: 22, by: 18 });
   });

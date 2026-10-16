@@ -26,13 +26,15 @@
     jpeg: Uint8Array | null;
     /** The quality setting the file was made at. */
     quality: number;
+    /** Custom quantization tables are in use, so the quality setting no longer sizes the file. */
+    custom?: boolean;
     /** Who made the picture, for a bundled one. */
     credit?: Credit;
     /** Messages to show at the top (a picture that would not load, an encode that failed). */
     errors?: string[];
   }
 
-  let { rect, image, jpeg, quality, credit, errors = [] }: Props = $props();
+  let { rect, image, jpeg, quality, custom = false, credit, errors = [] }: Props = $props();
 
   /** Height of a histogram's drawing, in viewBox units; the bars scale to the tallest bin. */
   const H = 100;
@@ -56,8 +58,8 @@
   ]);
 
   const caption = $derived(
-    `At quality ${quality} the file is ${jpeg ? `${((100 * jpegBytes) / rawBytes).toFixed(1)}%` : 'a fraction'} of the raw size. ` +
-      'Small negative differences wrap round to 255, so the middle histogram peaks at both edges.',
+    `${custom ? 'With custom tables' : `At quality ${quality}`} the file is ${jpeg ? `${((100 * jpegBytes) / rawBytes).toFixed(1)}%` : 'a fraction'} of the raw size. ` +
+      'Small negative differences wrap round to 255, so the middle histogram can peak at both edges.',
   );
   const creditText = $derived(credit ? `${credit.title} · ${credit.author} · ${credit.licence}` : '');
 

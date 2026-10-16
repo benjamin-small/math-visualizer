@@ -9,6 +9,7 @@ import {
   cellAt,
   cells,
   fit,
+  BLANK_PANELS,
   jpegLayout,
   toDevicePanels,
   zoomWindow,
@@ -186,5 +187,13 @@ describe('geometry helpers', () => {
     expect(cellAt(0, 0, { x: 0, y: 0, w: 80, h: 80 })).toEqual([0, 0]);
     expect(cellAt(79.9, 15, { x: 0, y: 0, w: 80, h: 80 })).toEqual([7, 1]);
     expect(cellAt(80, 15, { x: 0, y: 0, w: 80, h: 80 })).toBeNull();
+  });
+});
+
+describe('BLANK_PANELS', () => {
+  it('is a non-empty list of zero-size panels (an empty list makes the viz fit the image)', () => {
+    const device = toDevicePanels(BLANK_PANELS, 2);
+    expect(device.length).toBeGreaterThan(0);
+    for (const p of device) expect(p.rect[2] * p.rect[3]).toBe(0);
   });
 });

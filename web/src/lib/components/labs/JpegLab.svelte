@@ -34,7 +34,7 @@
     type SubsamplingId,
   } from '../../jpeg/params';
   import { GROUP_LABELS, IMAGES, decodeUpload, loadPicture, type PictureGroup, type RgbaImage } from '../../jpeg/images';
-  import { CAPTION_MIN, blockAt, cellAt, jpegLayout, toDevicePanels, type Panel, type StageLayout } from '../../jpeg/layout';
+  import { BLANK_PANELS, CAPTION_MIN, blockAt, cellAt, jpegLayout, toDevicePanels, type Panel, type StageLayout } from '../../jpeg/layout';
   import { readSummary, readoutOf, type JpegSummary } from '../../jpeg/summary';
   import { NOTICE, stageTex } from '../../jpeg/formulas';
   import { readSegments, readTables, type HuffTableView, type SegmentView } from '../../jpeg/huffman';
@@ -44,6 +44,9 @@
   const DEFAULT_SPEED = 64;
 
   const linked = parseParams(route.query);
+  // The first picture starts loading now, not when the engine is ready, so the fetch overlaps the WASM load.
+  const firstPicture = loadPicture(linked.img);
+  firstPicture.catch(() => {}); // the failure is handled where it is awaited (the gradient fallback)
   let imageId = $state<ImageId | 'upload'>(linked.img);
   let quality = $state(linked.quality);
   let subsampling = $state<SubsamplingId>(linked.subsampling);
@@ -94,7 +97,8 @@
   let qualityFrame = 0;
 
   const stageInfo = $derived(STAGES.find((s) => s.id === stage)!);
-  const readout = $derived(summary ? readoutOf(summary) : null);
+  // Until the first picture is in, the summary is the engine's own stand-in gradient: show none of it.
+  const readout = $derived(image && summary ? readoutOf(summary) : null);
   /** Who made the picture in use, when it is a bundled one. */
   const credit = $derived(IMAGES.find((im) => im.id === imageId)?.credit);
   const GROUPS = Object.keys(GROUP_LABELS) as PictureGroup[];
@@ -106,7 +110,8 @@
 
   function currentQuery(): string {
     return buildParams({
-      // A share link cannot carry an uploaded picture, so it names the gradient instead.
+      // A share link cannot carry an uploaded picture, so it names the generated gradient outright
+      // (written even though it is not the default: a link with no `img=` opens the spring).
       img: imageId === 'upload' ? 'gradient' : imageId,
       quality,
       subsampling,
@@ -151,7 +156,7 @@
   $effect(() => {
     void iteration;
     const a = api;
-    if (!a) return;
+    if (!a || !image) return;
     summary = readSummary(a.readSummary());
   });
 
@@ -276,34 +281,38 @@
    * current image in place and says why. `block` is the luma block to select
    * once it is in (a shared link names one); otherwise the encoder's default.
    * With no picture yet (the first load failed, say offline) the generated
-   * gradient stands in, so the lab still opens, with the error shown.
+   * gradient stands in, so the lab still opens, with the error shown; the
+   * address keeps naming the picture that was asked for, so reloading (or
+   * sharing the link on) tries it again. Resolves true for that fallback.
    */
-  async function loadImage(load: () => Promise<RgbaImage>, id: ImageId | 'upload', block?: [number, number]) {
+  async function loadImage(load: () => Promise<RgbaImage>, id: ImageId | 'upload', block?: [number, number]): Promise<boolean> {
     const ticket = ++loadTicket;
     let img: RgbaImage;
     let message: string | null = null;
+    let fellBack = false;
     try {
       img = await load();
     } catch (err) {
-      if (ticket !== loadTicket) return;
+      if (ticket !== loadTicket) return false;
       message = err instanceof Error ? err.message : 'That picture could not be loaded.';
       if (image) {
         loadError = message;
         // The select shows the option the reader chose; put it back on the picture in use.
         if (pictureSelect) pictureSelect.value = imageId;
-        return;
+        return false;
       }
       try {
         img = await loadPicture('gradient');
       } catch {
         loadError = message;
-        return;
+        return false;
       }
-      if (ticket !== loadTicket) return;
+      if (ticket !== loadTicket) return false;
       id = 'gradient';
       block = undefined;
+      fellBack = true;
     }
-    if (ticket !== loadTicket) return;
+    if (ticket !== loadTicket) return false;
     loadError = message;
     image = img;
     imageId = id;
@@ -311,8 +320,9 @@
     anchor = block ?? null;
     component = 0;
     first = true;
-    encode();
+    encode(!fellBack);
     pushLayout();
+    return fellBack;
   }
 
   const chooseImage = (id: ImageId, block?: [number, number]) => loadImage(() => loadPicture(id), id, block);
@@ -509,9 +519,11 @@
     }
     window.addEventListener('resize', pushLayout);
     window.addEventListener('keydown', onKey);
-    const start = imageId === 'upload' ? 'gradient' : imageId;
-    await loadImage(() => loadPicture(start), start, linked.block);
-    if (route.query !== currentQuery()) syncUrl();
+    // Until the first picture is in, draw nothing (the viz would otherwise show its own stand-in gradient).
+    a.patchVizConfig({ panels: toDevicePanels(BLANK_PANELS, 1) });
+    const fellBack = await loadImage(() => firstPicture, linked.img, linked.block);
+    // Rewrite junk in the link to what loaded, but not a link whose picture could not be had.
+    if (!fellBack && route.query !== currentQuery()) syncUrl();
   }
 
   onDestroy(() => {
@@ -608,7 +620,7 @@
       {#each layout.panels as p (p.kind)}
         <span class="caption" style:left="{p.rect.x}px" style:top="{p.rect.y - 20}px" style:max-width="{Math.max(p.rect.w, CAPTION_MIN)}px">{p.label}</span>
       {/each}
-      {#if layout.image.w > 0}
+      {#if layout.image.w > 0 && stage !== 'overview'}
         <button
           class="hit"
           aria-label="Pick a block: click it, or use the arrow keys to move the selected block"
@@ -622,7 +634,7 @@
       {/if}
 
       {#if stage === 'overview' && layout.slots.stats && image}
-        <Overview rect={layout.slots.stats} {image} jpeg={jpegBytes} {quality} {credit} errors={alerts} />
+        <Overview rect={layout.slots.stats} {image} jpeg={jpegBytes} {quality} custom={customTables !== null} {credit} errors={alerts} />
       {/if}
 
       {#if stage === 'color' && panel('cube')}
@@ -782,6 +794,13 @@
         <Tex {tex} />
       {/each}
       <p class="tip">{NOTICE[stage]}</p>
+      {#if stage === 'overview' && credit}
+        <!-- The overview's own credit line gives way on a short stage; this one is always there. -->
+        <p class="credit">
+          {#if credit.url}<a href={credit.url} target="_blank" rel="noopener noreferrer">{credit.title}</a>{:else}{credit.title}{/if}
+          · {credit.author} · {credit.licence}
+        </p>
+      {/if}
       {#if stage === 'overview'}
         <button class="step-btn" onclick={() => setStage('color')}>Step 1: Color</button>
       {/if}
@@ -800,9 +819,9 @@
       packs what is left into as few bits as it can.
     </p>
     <p class="tip">
-      Play runs the scan block by block: the image fills in as it would arrive over a slow connection.
-      Click anywhere on the image to follow that block through every stage, and use the left and right arrow keys to move
-      between stages.
+      On stages 1–9, Play runs the scan block by block: the image fills in as it would arrive over a slow connection, and
+      clicking anywhere on the image follows that block through every stage. The left and right arrow keys move between
+      stages, the overview included.
     </p>
   {/snippet}
 </LabShell>
@@ -901,6 +920,8 @@
     font-size: 14px;
   }
   .sub { color: var(--stone); margin-top: -4px; }
+  .credit { margin: 0 0 16px; color: var(--stone); font-size: 14px; }
+  .credit a { color: inherit; text-decoration: underline; }
   .step-btn {
     height: 40px;
     padding: 0 18px;
