@@ -30,7 +30,18 @@ export type PanelKind =
   | 'block'
   | 'atlas'
   | 'coeffs'
-  | 'rebuild';
+  | 'rebuild'
+  | 'quant'
+  | 'dequant_rebuild'
+  | 'zigzag'
+  | 'wipe'
+  | 'error';
+
+/**
+ * Named areas the page fills with DOM content (tables, charts, chips) rather
+ * than viz panels. Each rect includes room for its own heading at the top.
+ */
+export type SlotName = 'charts' | 'qtable' | 'rd' | 'sequence' | 'tokens' | 'huffman' | 'resave';
 
 /** One thing the viz draws, and where, with the caption the overlay prints above it. */
 export interface Panel {
@@ -49,8 +60,8 @@ export interface StageLayout {
   image: Rect;
   /** The viz's panels, drawn in order. */
   panels: Panel[];
-  /** Room left for DOM-only content (charts), or a zero rect. */
-  extra: Rect;
+  /** Areas for DOM-only content; a stage lists only the slots it uses. */
+  slots: Partial<Record<SlotName, Rect>>;
 }
 
 /** Space around and between panels. */
@@ -59,6 +70,8 @@ export const MARGIN = 16;
 export const LABEL = 22;
 /** Below this canvas width the image goes on top instead of at the left. */
 export const PORTRAIT_BELOW = 640;
+/** A panel caption may run this wide (CSS px) even over a narrower panel. */
+export const CAPTION_MIN = 120;
 /** Room kept under a panel for the controls the overlay puts there. */
 export const TOOLS = 44;
 /** Side, in image pixels, of the window the subsample stage magnifies around the selected block. */
@@ -122,7 +135,7 @@ export function jpegLayout(
 ): StageLayout {
   const m = MARGIN;
   if (!(cssW > 2 * m + 40 && cssH > 2 * m + LABEL + 40 && imgW > 0 && imgH > 0)) {
-    return { image: ZERO, panels: [], extra: ZERO };
+    return { image: ZERO, panels: [], slots: {} };
   }
   let imageArea: Rect;
   let focus: Rect;
@@ -139,7 +152,7 @@ export function jpegLayout(
   const panels: Panel[] = [
     { kind: stage === 'blocks' ? 'image_grid' : 'image', rect: image, label: 'The image — click a block' },
   ];
-  let extra: Rect = ZERO;
+  const slots: Partial<Record<SlotName, Rect>> = {};
   const g = m;
 
   switch (stage) {
@@ -193,13 +206,59 @@ export function jpegLayout(
       const below = belowLabel({ x: area.x, y: area.y + side + g, w: area.w, h: area.y + area.h - (area.y + side + g) });
       const rebuildSide = Math.max(0, Math.min(below.h - TOOLS, (below.w - g) * 0.4));
       panels.push({ kind: 'rebuild', rect: { x: below.x, y: below.y, w: rebuildSide, h: rebuildSide }, label: 'Rebuilt from the first k patterns' });
-      extra = { x: below.x + rebuildSide + g, y: below.y - LABEL, w: Math.max(0, below.w - rebuildSide - g), h: below.h + LABEL };
+      slots.charts = { x: below.x + rebuildSide + g, y: below.y - LABEL, w: Math.max(0, below.w - rebuildSide - g), h: below.h + LABEL };
+      break;
+    }
+    case 'quantize': {
+      const area = belowLabel(focus);
+      const side = Math.max(0, Math.min((area.w - 2 * g) / 3, area.h * 0.42));
+      const [c0, c1, c2] = columns({ x: area.x, y: area.y, w: area.w, h: side }, 3, g);
+      panels.push({ kind: 'coeffs', rect: squareTop(c0, side), label: 'Before: the DCT' });
+      const q = squareTop(c1, side);
+      slots.qtable = { x: q.x, y: q.y - LABEL, w: q.w, h: q.h + LABEL };
+      panels.push({ kind: 'quant', rect: squareTop(c2, side), label: 'After: rounded to whole steps' });
+      const below = belowLabel({ x: area.x, y: area.y + side + g, w: area.w, h: area.y + area.h - (area.y + side + g) });
+      const rebuildSide = Math.max(0, Math.min(below.h, (below.w - g) * 0.3));
+      panels.push({ kind: 'dequant_rebuild', rect: { x: below.x, y: below.y, w: rebuildSide, h: rebuildSide }, label: 'What the decoder rebuilds' });
+      // The chart starts clear of the rebuild panel's caption, which may be wider than the panel.
+      const rdX = below.x + Math.max(rebuildSide, CAPTION_MIN) + g;
+      slots.rd = { x: rdX, y: below.y - LABEL, w: Math.max(0, below.x + below.w - rdX), h: below.h + LABEL };
+      break;
+    }
+    case 'zigzag': {
+      const area = belowLabel(focus);
+      const strip = Math.min(96, area.h * 0.3);
+      const side = Math.max(0, Math.min(area.w, area.h - strip - g));
+      const zig = squareTop({ x: area.x, y: area.y, w: area.w, h: side }, side);
+      panels.push({ kind: 'zigzag', rect: zig, label: 'The rounded block, read in zigzag order' });
+      slots.sequence = { x: area.x, y: zig.y + zig.h + g, w: area.w, h: Math.max(0, area.y + area.h - (zig.y + zig.h + g)) };
+      break;
+    }
+    case 'rle': {
+      const area = belowLabel(focus);
+      const side = Math.max(0, Math.min(area.w * 0.34, area.h * 0.5));
+      panels.push({ kind: 'quant', rect: { x: area.x, y: area.y, w: side, h: side }, label: 'The rounded block' });
+      slots.tokens = { x: area.x + side + g, y: area.y - LABEL, w: Math.max(0, area.w - side - g), h: area.h + LABEL };
+      break;
+    }
+    case 'huffman': {
+      slots.huffman = { ...focus };
+      break;
+    }
+    case 'decode': {
+      const area = belowLabel(focus);
+      const topH = Math.max(0, area.h * 0.56);
+      panels.push({ kind: 'wipe', rect: fit({ x: area.x, y: area.y, w: area.w, h: topH }, imgW, imgH), label: 'Decoded (left of the line) against the original' });
+      const below = belowLabel({ x: area.x, y: area.y + topH + g, w: area.w, h: area.y + area.h - (area.y + topH + g) });
+      const [l, r] = columns(below, 2, g);
+      panels.push({ kind: 'error', rect: fit(l, imgW, imgH), label: 'What was lost, brightened' });
+      slots.resave = { x: r.x, y: r.y - LABEL, w: r.w, h: r.h + LABEL };
       break;
     }
     default:
       break;
   }
-  return { image, panels, extra };
+  return { image, panels, slots };
 }
 
 /** Panels as the viz config wants them: `[x, y, w, h]` in device pixels. */

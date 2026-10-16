@@ -127,15 +127,48 @@ export const jpegSummaryFixture = {
     zigzag: jpegBlock.map((_, i) => (i === 0 ? 8 : 0)),
     dc_prev: 6,
     dc_diff: 2,
-    tokens: [{ run: 0, size: 0, amp: 0, symbol: 0 }],
-    bit_span: [100, 6],
-    bits: '010101',
+    dc_size: 2,
+    dc_code: '011',
+    dc_amp_bits: '10',
+    tokens: [{ run: 0, size: 0, amp: 0, symbol: 0, code: '1010', amp_bits: '' }],
+    bit_span: [100, 9],
+    bits: '011101010',
   },
+  hints: { blocking: [3, 4], ringing: [5, 6], bleed: [7, 8] },
   error: undefined as string | undefined,
 };
 
 /** What the fake's `viz_readout()` returns on the notes lab (null elsewhere). Mutable so a test can move the 4D angle. */
 export const notesVizReadout = { angle_4d: 0 };
+
+/** What the fake's `viz_readout()` returns on the JPEG lab: how far the zigzag path has got. Mutable. */
+export const jpegVizReadout = { zigzag: 10 };
+
+/** What the fake's `rule_inspect(key)` returns on the JPEG lab, by key. */
+export const jpegInspectFixture: Record<string, unknown> = {
+  tables: { luma: Array.from({ length: 64 }, () => 16), chroma: Array.from({ length: 64 }, () => 17) },
+  huffman: ['dc_luma', 'ac_luma', 'dc_chroma', 'ac_chroma'].map((name) => ({
+    name,
+    bits: [0, 2, ...Array.from({ length: 14 }, () => 0)],
+    vals: [0, 1],
+    codes: [
+      { symbol: 0, code: '00' },
+      { symbol: 1, code: '01' },
+    ],
+    counts: [
+      [0, 30],
+      [1, 10],
+    ],
+    entropy_bits: 32.5,
+    actual_bits: 80,
+  })),
+  segments: [
+    { marker: 0xd8, kind: 'Soi', offset: 0, len: 2 },
+    { marker: 0xdb, kind: 'Dqt', offset: 2, len: 134 },
+    { marker: 0xda, kind: 'Sos', offset: 136, len: 3958 },
+    { marker: 0xd9, kind: 'Eoi', offset: 4094, len: 2 },
+  ],
+};
 
 /** What the fake's `snapshot()` returns. Mutable so a test can park the clock mid-scan, playing. */
 export const snapshotFixture = {
@@ -168,14 +201,17 @@ export class FakeEngine {
     if (this._lab === 'jpeg') return jpegSummaryFixture;
     return null;
   }
-  viz_readout() { return this._lab === 'notes' ? notesVizReadout : null; }
+  viz_readout() {
+    if (this._lab === 'notes') return notesVizReadout;
+    return this._lab === 'jpeg' ? jpegVizReadout : null;
+  }
   viz_config() { return {}; }
   update_rule_config(cfg: unknown) { updateRuleConfigSpy(cfg); }
   update_rule_config_with_path(cfg: unknown, xy: Float32Array, pen: Uint8Array) { updateRuleConfigWithPathSpy(cfg, xy, pen); }
   update_rule_config_with_image(cfg: unknown, w: number, h: number, rgba: Uint8Array) {
     updateRuleConfigWithImageSpy(cfg, w, h, rgba);
   }
-  rule_inspect(_key: string) { return undefined; }
+  rule_inspect(key: string) { return this._lab === 'jpeg' ? jpegInspectFixture[key] : undefined; }
   rule_bytes() { return this._lab === 'jpeg' ? new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) : undefined; }
   update_viz_config(cfg: unknown) { updateVizConfigSpy(cfg); }
   rule_action(action: unknown) { ruleActionSpy(action); return true; }
@@ -195,5 +231,18 @@ export function makeVizMock() {
     jpeg_zigzag_order: () => Uint8Array.from({ length: 64 }, (_, i) => i),
     jpeg_dct_1d: (x: Float32Array) => Float32Array.from(x, (_, i) => (i === 0 ? 10 : 0)),
     jpeg_dft_1d: (x: Float32Array) => new Float32Array(x.length * 2).fill(1),
+    // Size grows and PSNR climbs with quality; the other Huffman mode costs 5000 bytes at any quality.
+    jpeg_encode_stats: (_rgba: Uint8Array, _w: number, _h: number, q: number, _s: string, huffman: string) => ({
+      bytes: huffman === 'standard' ? 5000 : 1000 + 40 * q,
+      psnr: 20 + q / 5,
+    }),
+    // Each generation drifts one more level from the original in every channel.
+    jpeg_encode_decode: (rgba: Uint8Array) => Uint8Array.from(rgba, (v) => Math.min(255, v + 1)),
+    jpeg_huffman_tree: () => [
+      { depth: 0, code: '', symbol: null },
+      { depth: 1, code: '0', symbol: null },
+      { depth: 2, code: '00', symbol: 0 },
+      { depth: 2, code: '01', symbol: 1 },
+    ],
   } as unknown as typeof import('viz-core');
 }
