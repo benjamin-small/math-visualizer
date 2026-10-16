@@ -20,7 +20,7 @@ const inside = (r: Rect, w: number, h: number) => r.x >= 0 && r.y >= 0 && r.x + 
 const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 describe('jpegLayout', () => {
-  const stages: StageId[] = ['color', 'subsample', 'blocks', 'dct', 'quantize', 'zigzag', 'rle', 'huffman', 'decode'];
+  const stages: StageId[] = ['overview', 'color', 'subsample', 'blocks', 'dct', 'quantize', 'zigzag', 'rle', 'huffman', 'decode'];
 
   for (const [w, h] of [
     [1134, 585],
@@ -100,6 +100,32 @@ describe('jpegLayout', () => {
     const rebuild = l.panels.find((p) => p.kind === 'dequant_rebuild')!.rect;
     expect(rebuild.w).toBeLessThan(CAPTION_MIN);
     expect(l.slots.rd!.x).toBeGreaterThanOrEqual(rebuild.x + CAPTION_MIN);
+  });
+
+  it('overview places original and decoded side by side above the stats slot', () => {
+    const l = jpegLayout('overview', 1134, 585, 256, 256);
+    const original = l.panels.find((p) => p.kind === 'original')!;
+    const decoded = l.panels.find((p) => p.kind === 'decoded')!;
+    expect(original.label).toBe('Original');
+    expect(decoded.label).toBe('After JPEG');
+    expect(decoded.rect.h).toBeCloseTo(original.rect.h);
+    expect(decoded.rect.x).toBeGreaterThan(original.rect.x + original.rect.w);
+    expect(l.slots.stats!.y).toBeGreaterThanOrEqual(original.rect.y + original.rect.h);
+    expect(l.image).toEqual(original.rect);
+    // The phone keeps the same structure.
+    const phone = jpegLayout('overview', 343, 520, 256, 256);
+    const o2 = phone.panels.find((p) => p.kind === 'original')!.rect;
+    const d2 = phone.panels.find((p) => p.kind === 'decoded')!.rect;
+    expect(d2.x).toBeGreaterThan(o2.x + o2.w);
+    expect(phone.slots.stats!.y).toBeGreaterThanOrEqual(o2.y + o2.h);
+  });
+
+  it('overview fits a non-square picture without distortion', () => {
+    const l = jpegLayout('overview', 1134, 585, 320, 203);
+    for (const kind of ['original', 'decoded']) {
+      const r = l.panels.find((p) => p.kind === kind)!.rect;
+      expect(Math.abs(r.w / r.h / (320 / 203) - 1)).toBeLessThan(0.01);
+    }
   });
 
   it('gives a stage too small for anything no panels', () => {
