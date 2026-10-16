@@ -157,6 +157,8 @@ fn every_panel_kind_renders_without_a_gl_error() {
                 {"kind":"zigzag","rect":[0,200,80,80]},
                 {"kind":"wipe","rect":[80,200,100,100]},
                 {"kind":"error","rect":[180,200,100,100]},
+                {"kind":"original","rect":[0,300,80,80]},
+                {"kind":"decoded","rect":[80,300,80,80]},
                 {"kind":"unknown","rect":[0,0,1,1]}
             ],"cube_mix":0.5,"dct_k":6,"hover":[1,2],"zigzag_speed":30,"wipe":0.3,"error_gain":8}"#))
         .expect("panels accepted");
@@ -265,4 +267,87 @@ fn panels_render_after_a_re_encode() {
     engine.frame(32.0);
     engine.frame(48.0);
     assert_eq!(gl_of(&canvas).get_error(), WebGl2RenderingContext::NO_ERROR);
+}
+
+/// The centre pixel of the default framebuffer, read in the task that drew it
+/// (the drawing buffer is not preserved once the browser composites).
+fn centre_pixel(gl: &WebGl2RenderingContext, side: i32) -> [u8; 4] {
+    let mut px = [0u8; 4];
+    gl.read_pixels_with_opt_u8_array(
+        side / 2,
+        side / 2,
+        1,
+        1,
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(&mut px),
+    )
+    .expect("read_pixels");
+    px
+}
+
+#[wasm_bindgen_test]
+fn original_and_decoded_panels_ignore_the_scan() {
+    let canvas = make_canvas("jpeg-undimmed");
+    canvas.set_width(64);
+    canvas.set_height(64);
+    let mut engine = Engine::new("jpeg-undimmed", Some("jpeg".into())).unwrap();
+    let gl = gl_of(&canvas);
+    // Nothing scanned: an `image` panel shows only the dimmed original.
+    engine
+        .dispatch(js(r#"{"kind":"JumpTo","iteration":0}"#))
+        .unwrap();
+    let render = |engine: &mut Engine, kind: &str| {
+        engine
+            .update_viz_config(js(&format!(
+                r#"{{"panels":[{{"kind":"{kind}","rect":[0,0,64,64]}}]}}"#
+            )))
+            .expect("panels accepted");
+        engine.frame(0.0);
+        engine.frame(16.0);
+        centre_pixel(&gl, 64)
+    };
+    let decoded = render(&mut engine, "decoded");
+    let original = render(&mut engine, "original");
+    let image = render(&mut engine, "image");
+    assert_eq!(gl.get_error(), WebGl2RenderingContext::NO_ERROR);
+
+    // The 256 × 256 gradient, sampled where the 64-pixel panel's centre lands:
+    // the linear filter averages the four texels around (128, 128).
+    let src = viz_core::jpeg_images::builtin_image("gradient", 256, 256).unwrap();
+    let mean = |c: usize| {
+        let sum: u32 = [(127, 127), (128, 127), (127, 128), (128, 128)]
+            .iter()
+            .map(|&(x, y)| src.rgba[(y * 256 + x) * 4 + c] as u32)
+            .sum();
+        sum as f32 / 4.0
+    };
+    for c in 0..3 {
+        let full = mean(c);
+        let dimmed = full * 0.35; // `dim` defaults to 0.35
+        assert!(
+            (image[c] as f32 - dimmed).abs() <= 3.0,
+            "image[{c}] = {} should be dimmed ~{dimmed}",
+            image[c]
+        );
+        assert!(
+            (original[c] as f32 - full).abs() <= 3.0,
+            "original[{c}] = {} should be undimmed ~{full}",
+            original[c]
+        );
+        // Decoded is lossy (quality 75), so it only matches the original loosely.
+        assert!(
+            (decoded[c] as f32 - full).abs() <= 12.0,
+            "decoded[{c}] = {} should be undimmed ~{full}",
+            decoded[c]
+        );
+        assert!(
+            decoded[c] as f32 > dimmed + 30.0,
+            "decoded[{c}] = {} is not brighter than the dimmed {dimmed}",
+            decoded[c]
+        );
+    }
+    web_sys::console::log_1(&JsValue::from_str(&format!(
+        "pixels decoded={decoded:?} original={original:?} image={image:?}"
+    )));
 }

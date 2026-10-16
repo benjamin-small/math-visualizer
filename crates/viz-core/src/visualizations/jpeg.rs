@@ -17,8 +17,10 @@
 //! grid with the scan path growing through it at `zigzag_speed` cells a
 //! second, restarting when the block or the encode changes; the viz reports
 //! how far it has got through `readout()`),
-//! `wipe` (the original with the decoded image over its left `wipe` share)
-//! and `error` (per-pixel |decoded − original|, brightened by `error_gain`).
+//! `wipe` (the original with the decoded image over its left `wipe` share),
+//! `original` and `decoded` (the whole picture before and after compression at
+//! full brightness, whatever the scan position) and `error` (per-pixel
+//! |decoded − original|, brightened by `error_gain`).
 
 use jpeg::color::{rgb_to_ycbcr, ycbcr_to_rgb};
 use jpeg::dct::{basis, idct, idct_partial};
@@ -981,6 +983,16 @@ impl Visualization for JpegViz {
                                 color: c,
                             });
                         }
+                    }
+                }
+                "original" | "decoded" => {
+                    if let (Some(q), Some(t)) = (&self.quad, &self.textures) {
+                        let tex = if panel.kind == "original" {
+                            &t.original
+                        } else {
+                            &t.decoded
+                        };
+                        q.draw(gl, tex, rect, canvas, 1.0);
                     }
                 }
                 "wipe" => {
