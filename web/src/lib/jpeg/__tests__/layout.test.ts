@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CAPTION_MIN,
   LABEL,
   MARGIN,
   PORTRAIT_BELOW,
@@ -19,7 +20,7 @@ const inside = (r: Rect, w: number, h: number) => r.x >= 0 && r.y >= 0 && r.x + 
 const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 describe('jpegLayout', () => {
-  const stages: StageId[] = ['color', 'subsample', 'blocks', 'dct'];
+  const stages: StageId[] = ['color', 'subsample', 'blocks', 'dct', 'quantize', 'zigzag', 'rle', 'huffman', 'decode'];
 
   for (const [w, h] of [
     [1134, 585],
@@ -29,13 +30,19 @@ describe('jpegLayout', () => {
     for (const stage of stages) {
       it(`keeps every ${stage} panel on a ${w}×${h} stage, captions included, without overlaps`, () => {
         const l = jpegLayout(stage, w, h, 256, 256, [10, 10]);
-        expect(l.panels.length).toBeGreaterThan(1);
+        // Every stage has the image plus at least one panel or slot of its own.
+        expect(l.panels.length + Object.keys(l.slots).length).toBeGreaterThan(1);
         for (const p of l.panels) {
           expect(p.rect.w).toBeGreaterThan(0);
           expect(inside({ ...p.rect, y: p.rect.y - LABEL, h: p.rect.h + LABEL }, w, h)).toBe(true);
         }
         for (let i = 0; i < l.panels.length; i++)
           for (let j = i + 1; j < l.panels.length; j++) expect(overlap(l.panels[i].rect, l.panels[j].rect)).toBe(false);
+        // Slots (DOM tools) stay on the stage and off the GL panels.
+        for (const r of Object.values(l.slots)) {
+          expect(inside(r!, w, h)).toBe(true);
+          for (const p of l.panels) expect(overlap(r!, p.rect)).toBe(false);
+        }
       });
     }
   }
@@ -70,6 +77,29 @@ describe('jpegLayout', () => {
     const crops = l.panels.filter((p) => p.crop).map((p) => p.crop);
     expect(crops).toHaveLength(4);
     expect(new Set(crops.map((c) => c!.join()))).toEqual(new Set(['156,124,32,32']));
+  });
+
+  it('gives each new stage its panels and slots', () => {
+    const kinds = (st: StageId) => jpegLayout(st, 1134, 585, 256, 256, [10, 10]).panels.map((p) => p.kind);
+    const slots = (st: StageId) => Object.keys(jpegLayout(st, 1134, 585, 256, 256, [10, 10]).slots).sort();
+    expect(kinds('quantize')).toEqual(['image', 'coeffs', 'quant', 'dequant_rebuild']);
+    expect(slots('quantize')).toEqual(['qtable', 'rd']);
+    expect(kinds('zigzag')).toEqual(['image', 'zigzag']);
+    expect(slots('zigzag')).toEqual(['sequence']);
+    expect(kinds('rle')).toEqual(['image', 'quant']);
+    expect(slots('rle')).toEqual(['tokens']);
+    expect(kinds('huffman')).toEqual(['image']);
+    expect(slots('huffman')).toEqual(['huffman']);
+    expect(kinds('decode')).toEqual(['image', 'wipe', 'error']);
+    expect(slots('decode')).toEqual(['resave']);
+    expect(slots('dct')).toEqual(['charts']);
+  });
+
+  it('starts the R–D chart clear of the rebuild caption on a phone', () => {
+    const l = jpegLayout('quantize', 343, 520, 256, 256, [10, 10]);
+    const rebuild = l.panels.find((p) => p.kind === 'dequant_rebuild')!.rect;
+    expect(rebuild.w).toBeLessThan(CAPTION_MIN);
+    expect(l.slots.rd!.x).toBeGreaterThanOrEqual(rebuild.x + CAPTION_MIN);
   });
 
   it('gives a stage too small for anything no panels', () => {

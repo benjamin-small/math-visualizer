@@ -61,3 +61,20 @@ export function busiestLine(block: readonly number[]): { axis: 'row' | 'column';
   }
   return best;
 }
+
+/**
+ * PSNR in dB between two same-size RGBA buffers over R, G and B (alpha
+ * ignored): Infinity when identical, NaN when the sizes differ.
+ */
+export function psnrOf(a: Uint8Array, b: Uint8Array): number {
+  if (a.length !== b.length || a.length % 4 !== 0) return NaN;
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const d = a[i + c] - b[i + c];
+      sum += d * d;
+    }
+  }
+  const mse = sum / ((a.length / 4) * 3);
+  return mse === 0 ? Infinity : 10 * Math.log10((255 * 255) / mse);
+}

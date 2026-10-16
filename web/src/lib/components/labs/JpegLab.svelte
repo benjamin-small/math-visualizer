@@ -52,7 +52,7 @@
   /** Why the last picture could not be loaded (the current image stays). */
   let loadError = $state<string | null>(null);
   let summary = $state<JpegSummary | null>(null);
-  let layout = $state<StageLayout>({ image: { x: 0, y: 0, w: 0, h: 0 }, panels: [], extra: { x: 0, y: 0, w: 0, h: 0 } });
+  let layout = $state<StageLayout>({ image: { x: 0, y: 0, w: 0, h: 0 }, panels: [], slots: {} });
   let api = $state<LabApi | null>(null);
   let appliedQuery = route.query;
   let overlayEl: HTMLDivElement | null = null;
@@ -504,7 +504,7 @@
             <input type="range" min="0" max="64" step="1" value={dctK} oninput={onK} aria-label="Patterns kept" />
           </label>
         {/if}
-        <DctCharts rect={layout.extra} dct={sel.dct} shifted={sel.shifted} k={dctK} />
+        <DctCharts rect={layout.slots.charts ?? { x: 0, y: 0, w: 0, h: 0 }} dct={sel.dct} shifted={sel.shifted} k={dctK} />
       {/if}
 
       {#if loadError}

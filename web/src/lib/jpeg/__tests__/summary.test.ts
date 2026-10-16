@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { formatBytes, readSummary, readoutOf } from '../summary';
-import { busiestLine, cumulativeEnergy, mirrored, periodic, termsFor } from '../math';
-import { chromaKept, samplesKept, stageTex, NOTICE } from '../formulas';
+import { busiestLine, cumulativeEnergy, mirrored, periodic, psnrOf, termsFor } from '../math';
+import { chromaKept, lastNonZero, samplesKept, stageTex, NOTICE } from '../formulas';
+import { STAGES } from '../stages';
 import { decodeUpload, fitWithin } from '../images';
 import { jpegSummaryFixture } from '../../test/fakeViz';
 
@@ -11,9 +12,22 @@ describe('readSummary', () => {
     expect(s.total).toBe(256);
     expect(s.mcu).toEqual([16, 16, 16, 16]);
     expect(s.grids[1]).toEqual([16, 16]);
-    expect(s.selected!.bitSpan).toEqual([100, 6]);
+    expect(s.selected!.bitSpan).toEqual([100, 9]);
     expect(s.selected!.dcDiff).toBe(2);
     expect(s.error).toBeNull();
+  });
+
+  it('reads the codes that spell out the selected block, and the artifact hints', () => {
+    const s = readSummary(jpegSummaryFixture)!;
+    const sel = s.selected!;
+    expect([sel.dcSize, sel.dcCode, sel.dcAmpBits]).toEqual([2, '011', '10']);
+    expect(sel.tokens[0]).toMatchObject({ code: '1010', ampBits: '' });
+    expect(sel.dcCode + sel.dcAmpBits + sel.tokens.map((t) => t.code + t.ampBits).join('')).toBe(sel.bits);
+    expect(s.hints).toEqual({ blocking: [3, 4], ringing: [5, 6], bleed: [7, 8] });
+    // A Rust None for ringing (no hard edge in the picture) stays null; a malformed hint drops them all.
+    expect(readSummary({ ...jpegSummaryFixture, hints: { blocking: [1, 2], ringing: undefined, bleed: [3, 4] } })!.hints!.ringing).toBeNull();
+    expect(readSummary({ ...jpegSummaryFixture, hints: { blocking: [1], bleed: [3, 4] } })!.hints).toBeNull();
+    expect(readSummary({ ...jpegSummaryFixture, hints: undefined })!.hints).toBeNull();
   });
 
   it('treats undefined (a Rust None) as missing, not as a value', () => {
@@ -81,11 +95,35 @@ describe('formulas', () => {
     expect(stageTex('dct', s, [1, 0])[1]).toContain('-20.0');
     expect(stageTex('subsample', s, null)[1]).toContain('25\\%');
     expect(stageTex('color', null, null)).toHaveLength(1);
-    expect(stageTex('quantize', s, null)).toEqual([]);
+    expect(stageTex('quantize', s, null)[1]).toBe(String.raw`F_Q(0,0) = \operatorname{round}\!\left(\frac{120.0}{16}\right) = 8`);
+    expect(stageTex('quantize', s, [1, 0])[1]).toContain('\\frac{-20.0}{16}');
+    expect(stageTex('zigzag', s, null)[1]).toContain('\\#1\\text{ of }64');
+    expect(stageTex('zigzag', s, null)[1]).toContain('63\\text{ zeros follow}');
+    expect(stageTex('rle', s, null)[1]).toBe(String.raw`\Delta DC = 8 - (6) = 2,\quad \text{size} = 2`);
+    expect(stageTex('huffman', s, null)[1]).toContain('30000');
+    expect(stageTex('huffman', s, null)[1]).toContain('28000');
+    expect(stageTex('decode', s, null)[1]).toBe(String.raw`\text{PSNR} = 36.5\text{ dB}`);
+    expect(stageTex('decode', { ...s, psnr: null }, null)[1]).toContain('\\infty');
+    expect(stageTex('quantize', null, null)).toHaveLength(1);
   });
 
-  it('has a notice for every ready stage', () => {
-    for (const id of ['color', 'subsample', 'blocks', 'dct'] as const) expect(NOTICE[id].length).toBeGreaterThan(20);
+  it('has a notice for every stage', () => {
+    for (const { id } of STAGES) expect(NOTICE[id].length).toBeGreaterThan(20);
+  });
+
+  it('finds the last non-zero coefficient (-1 when there is none)', () => {
+    expect(lastNonZero([5, 0, 3, 0, 0])).toBe(2);
+    expect(lastNonZero([0, 0, 0])).toBe(-1);
+    expect(lastNonZero([])).toBe(-1);
+  });
+
+  it('measures PSNR over RGB, ignoring alpha', () => {
+    const a = new Uint8Array([10, 20, 30, 255, 40, 50, 60, 255]);
+    expect(psnrOf(a, a)).toBe(Infinity);
+    // Every channel off by one: MSE = 1, PSNR = 20·log10(255).
+    const b = Uint8Array.from(a, (v, i) => (i % 4 === 3 ? 0 : v + 1));
+    expect(psnrOf(a, b)).toBeCloseTo(48.13, 2);
+    expect(psnrOf(a, a.slice(0, 4))).toBeNaN();
   });
 });
 

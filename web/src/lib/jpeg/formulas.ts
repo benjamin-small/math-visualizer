@@ -15,6 +15,20 @@ export const COLOR_TEX = String.raw`\begin{bmatrix} Y \\ C_b \\ C_r \end{bmatrix
 /** The 8 × 8 forward DCT as written in the JPEG standard. */
 export const DCT_TEX = String.raw`F(u,v) = \tfrac14\, C(u)\, C(v) \sum_{x=0}^{7} \sum_{y=0}^{7} f(x,y)\, \cos\frac{(2x+1)u\pi}{16}\, \cos\frac{(2y+1)v\pi}{16}`;
 
+export const QUANT_TEX = String.raw`F_Q(u,v) = \operatorname{round}\!\left(\frac{F(u,v)}{Q(u,v)}\right),\qquad Q = \left\lfloor \frac{Q_{\text{base}}\cdot s + 50}{100} \right\rfloor,\; s = \begin{cases} 5000/q & q < 50 \\ 200 - 2q & q \ge 50 \end{cases}`;
+
+export const SIZE_TEX = String.raw`\text{size}(v) = \lceil \log_2(|v| + 1) \rceil,\qquad \text{token} = (\text{run of zeros},\ \text{size})\ \text{then size bits of } v`;
+
+export const CODE_TEX = String.raw`\text{code length}(x) \approx -\log_2 p(x),\qquad \text{bits} \ge \sum_x n_x \log_2 \frac{N}{n_x}`;
+
+export const PSNR_TEX = String.raw`\text{MSE} = \frac{1}{3wh}\sum (\hat I - I)^2,\qquad \text{PSNR} = 10 \log_{10} \frac{255^2}{\text{MSE}}`;
+
+/** Zigzag index of the last non-zero value (−1 when all are zero). */
+export function lastNonZero(zigzag: readonly number[]): number {
+  for (let k = zigzag.length - 1; k >= 0; k--) if (zigzag[k] !== 0) return k;
+  return -1;
+}
+
 /** Share of the chroma samples a mode keeps (each of Cb and Cr). */
 export function chromaKept(subsampling: string | null): number {
   return subsampling === '444' ? 1 : subsampling === '422' ? 0.5 : 0.25;
@@ -54,6 +68,42 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
       const cv = v === 0 ? String.raw`\tfrac{1}{\sqrt2}` : '1';
       return [DCT_TEX, String.raw`F(${u},${v}) = \tfrac14 \cdot ${cu} \cdot ${cv} \sum \sum f(x,y)\cos\cdots = ${fmt(val, 1)}`];
     }
+    case 'quantize': {
+      if (!sel) return [QUANT_TEX];
+      const [u, v] = hover ?? [0, 0];
+      const i = u + 8 * v;
+      return [
+        QUANT_TEX,
+        String.raw`F_Q(${u},${v}) = \operatorname{round}\!\left(\frac{${fmt(sel.dct[i], 1)}}{${fmt(sel.table[i])}}\right) = ${fmt(sel.quant[i])}`,
+      ];
+    }
+    case 'zigzag': {
+      if (!sel) return [];
+      const last = lastNonZero(sel.zigzag);
+      return [
+        String.raw`\text{scan order: } (0,0),\,(1,0),\,(0,1),\,(0,2),\,(1,1),\,(2,0),\,\ldots,\,(7,7)`,
+        String.raw`\text{last non-zero} = \#${last + 1}\text{ of }64,\quad ${63 - last}\text{ zeros follow}`,
+      ];
+    }
+    case 'rle': {
+      if (!sel) return [SIZE_TEX];
+      return [
+        SIZE_TEX,
+        String.raw`\Delta DC = ${fmt(sel.quant[0])} - (${fmt(sel.dcPrev)}) = ${fmt(sel.dcDiff)},\quad \text{size} = ${sel.dcSize}`,
+      ];
+    }
+    case 'huffman': {
+      if (!s) return [CODE_TEX];
+      return [
+        CODE_TEX,
+        String.raw`\text{this image: } ${Math.round(s.payloadBits)}\text{ bits written} \ge ${Math.round(s.entropyBits)}\text{ bits (Shannon bound for its symbols)}`,
+      ];
+    }
+    case 'decode': {
+      if (!s) return [PSNR_TEX];
+      const psnr = s.psnr == null ? String.raw`\infty` : String.raw`${fmt(s.psnr, 1)}\text{ dB}`;
+      return [PSNR_TEX, String.raw`\text{PSNR} = ${psnr}`];
+    }
     default:
       return [];
   }
@@ -69,9 +119,14 @@ export const NOTICE: Record<StageId, string> = {
     'From here on the image is a pile of independent 8 × 8 problems, 64 numbers each. Click anywhere on the image to follow a different block.',
   dct:
     'A handful of low-frequency patterns carry almost all the energy. Slide k up from 0 and watch the block appear long before all 64 terms are in.',
-  quantize: '',
-  zigzag: '',
-  rle: '',
-  huffman: '',
-  decode: '',
+  quantize:
+    'Most of the loss happens here: each coefficient is divided by its table entry and rounded. The high-frequency corner has big entries, so it rounds to zero first. Edit a cell and apply it to see the whole image respond.',
+  zigzag:
+    'Reading the grid along the zigzag puts the low frequencies first, so the zeros the rounding made gather into one long tail at the end.',
+  rle:
+    'Sixty-four numbers become a handful of tokens: each says how many zeros to skip and how big the next number is, and one end-of-block token stands for the whole tail of zeros.',
+  huffman:
+    'Common symbols get short codes and rare ones long codes, so the file comes close to the entropy limit. Switch between optimized and standard tables to see what tailoring the codes to this image saves.',
+  decode:
+    'Undo every step and compare. Blocking, ringing and colour bleed are each the fingerprint of a step you have already seen; the hints jump to where each is worst.',
 };

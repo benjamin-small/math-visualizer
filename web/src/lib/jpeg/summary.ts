@@ -12,6 +12,18 @@ export interface AcToken {
   amp: number;
   /** The Huffman symbol, `run << 4 | size`. */
   symbol: number;
+  /** The symbol's Huffman code as 0s and 1s. */
+  code: string;
+  /** The amplitude bits that follow the code (empty for ZRL and EOB). */
+  ampBits: string;
+}
+
+/** Luma block `[bx, by]` where each compression artifact is worst. */
+export interface Hints {
+  blocking: [number, number];
+  /** Null when the picture has no hard edges. */
+  ringing: [number, number] | null;
+  bleed: [number, number];
 }
 
 /** The block the stages follow, with every intermediate form of it. */
@@ -40,6 +52,12 @@ export interface SelectedBlock {
   dcPrev: number;
   /** This block's quantized DC minus `dcPrev`: the value that gets coded. */
   dcDiff: number;
+  /** Bits needed for `dcDiff` (the DC Huffman symbol). */
+  dcSize: number;
+  /** The DC symbol's Huffman code as 0s and 1s. */
+  dcCode: string;
+  /** The amplitude bits of `dcDiff`. */
+  dcAmpBits: string;
   /** The AC coefficients as run/size tokens (ending with EOB unless the last coefficient is non-zero). */
   tokens: AcToken[];
   /** `[start bit, length]` of this block's bits in the entropy-coded payload. */
@@ -79,12 +97,27 @@ export interface JpegSummary {
   /** Block grid `[cols, rows]` per component. */
   grids: [number, number][];
   selected: SelectedBlock | null;
+  /** Where each artifact is worst; null when the encode failed. */
+  hints: Hints | null;
   /** Why the encode failed, or null. */
   error: string | null;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+const str = (v: unknown) => (typeof v === 'string' ? v : '');
+const pair = (v: unknown): [number, number] | null => {
+  const p = Array.isArray(v) ? v : [];
+  return p.length === 2 && p.every((x) => typeof x === 'number') ? [p[0], p[1]] : null;
+};
+
+function readHints(v: unknown): Hints | null {
+  if (!isObj(v)) return null;
+  const blocking = pair(v.blocking);
+  const bleed = pair(v.bleed);
+  return blocking && bleed ? { blocking, ringing: pair(v.ringing), bleed } : null;
+}
+
 const nums = (v: unknown): number[] => (Array.isArray(v) ? v.map((x) => num(x)) : []);
 
 function readSelected(v: unknown): SelectedBlock | null {
@@ -105,8 +138,18 @@ function readSelected(v: unknown): SelectedBlock | null {
     zigzag: nums(v.zigzag),
     dcPrev: num(v.dc_prev),
     dcDiff: num(v.dc_diff),
+    dcSize: num(v.dc_size),
+    dcCode: str(v.dc_code),
+    dcAmpBits: str(v.dc_amp_bits),
     tokens: Array.isArray(v.tokens)
-      ? v.tokens.filter(isObj).map((t) => ({ run: num(t.run), size: num(t.size), amp: num(t.amp), symbol: num(t.symbol) }))
+      ? v.tokens.filter(isObj).map((t) => ({
+          run: num(t.run),
+          size: num(t.size),
+          amp: num(t.amp),
+          symbol: num(t.symbol),
+          code: str(t.code),
+          ampBits: str(t.amp_bits),
+        }))
       : [],
     bitSpan: [num(span[0]), num(span[1])],
     bits: typeof v.bits === 'string' ? v.bits : '',
@@ -139,6 +182,7 @@ export function readSummary(raw: unknown): JpegSummary | null {
         })
       : [],
     selected: readSelected(raw.selected),
+    hints: readHints(raw.hints),
     error: typeof raw.error === 'string' ? raw.error : null,
   };
 }
