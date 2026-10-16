@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loadVizCore } from '../../wasm/loader';
 import { IMAGE_IDS } from '../params';
 import { GROUP_LABELS, IMAGES, loadPicture, pictureUrl, thumbnail } from '../images';
 
@@ -100,21 +101,37 @@ describe('picture catalog', () => {
     expect(await thumbnail('doge', 64)).toBe('/math-visualizer/jpeg/doge.png');
   });
 
-  it('draws the thumbnail of a generated picture on a canvas', async () => {
-    const putImageData = vi.fn();
-    const createImageData = vi.fn((w: number, h: number) => ({
-      width: w,
-      height: h,
-      data: new Uint8ClampedArray(w * h * 4),
-    }));
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      createImageData,
-      putImageData,
-    } as unknown as CanvasRenderingContext2D);
-    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,AAAA');
+  it('draws a generated thumbnail by scaling the full-size picture', async () => {
+    const builtin = vi.fn((_id: string, w: number, h: number) => new Uint8Array(w * h * 4));
+    vi.mocked(loadVizCore).mockResolvedValueOnce({ jpeg_builtin_image: builtin } as never);
+    const drawn: { canvas: HTMLCanvasElement; ctx: Record<string, ReturnType<typeof vi.fn>> }[] = [];
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      const ctx = {
+        createImageData: vi.fn((w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) })),
+        putImageData: vi.fn(),
+        drawImage: vi.fn(),
+        imageSmoothingEnabled: false,
+        imageSmoothingQuality: 'low',
+      };
+      drawn.push({ canvas: this, ctx: ctx as never });
+      return ctx as unknown as CanvasRenderingContext2D;
+    } as never);
+    const toDataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,AAAA');
     expect(await thumbnail('noise', 32)).toBe('data:image/png;base64,AAAA');
-    expect(putImageData).toHaveBeenCalledTimes(1);
-    const img = putImageData.mock.calls[0][0] as { width: number; height: number };
-    expect([img.width, img.height]).toEqual([32, 32]);
+    // The kit is asked for the picture the reader gets, not one at thumbnail size.
+    expect(builtin).toHaveBeenCalledWith('noise', 256, 256);
+    const source = drawn.find((d) => d.canvas.width === 256);
+    const out = drawn.find((d) => d.canvas.width === 32);
+    expect(source?.ctx.putImageData).toHaveBeenCalledTimes(1);
+    expect(out?.canvas.height).toBe(32);
+    expect(out?.ctx.drawImage).toHaveBeenCalledWith(source?.canvas, 0, 0, 32, 32);
+    expect(toDataURL).toHaveBeenCalledTimes(1);
+    expect(toDataURL.mock.contexts[0]).toBe(out?.canvas);
+  });
+
+  it('says so when a bundled picture arrives but is not a readable image', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(new Blob(['<html>'])) })));
+    vi.stubGlobal('createImageBitmap', vi.fn(() => Promise.reject(new Error('bad'))));
+    await expect(loadPicture('doge')).rejects.toThrow('Could not load the picture "Doge" (the file is not a readable image).');
   });
 });
