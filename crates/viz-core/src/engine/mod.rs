@@ -292,8 +292,10 @@ impl Engine {
         Ok(())
     }
 
-    /// The rule's on-demand view for `key` (see `Rule::inspect`);
-    /// `undefined` in JS (a JSON null) for keys or rules without one.
+    /// The rule's on-demand view for `key` (see `Rule::inspect`): `undefined`
+    /// in JS (a JSON null that wasm-bindgen turns into `undefined`) for an
+    /// unknown key or a rule without one, and `null` when the rule failed
+    /// internally (the error is logged to the console).
     pub fn rule_inspect(&self, key: &str) -> JsValue {
         match self.rule.inspect(self.state.as_ref(), key) {
             Ok(v) => to_js(&v),
