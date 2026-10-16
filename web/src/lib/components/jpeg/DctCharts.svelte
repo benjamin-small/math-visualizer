@@ -64,7 +64,7 @@
 {#if rect.w > 80 && rect.h > 120}
   <div class="charts" style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
     <figure>
-      <figcaption>Energy captured, zigzag order — {energy.length ? Math.round((energy[Math.max(0, k - 1)] ?? 0) * 100) : 0}% at k = {k}</figcaption>
+      <figcaption>Energy captured, zigzag order — {energy.length && k > 0 ? Math.round((energy[k - 1] ?? 0) * 100) : 0}% at k = {k}</figcaption>
       <svg width={W} height={half - 20} aria-hidden="true">
         <polyline class="curve" points={line(energy, W, half - 24, 0, 1)} />
         {#if k > 0}
