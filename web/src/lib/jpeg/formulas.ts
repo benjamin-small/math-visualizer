@@ -7,10 +7,12 @@ const COMPONENT = ['Y', 'C_b', 'C_r'];
 
 const fmt = (v: number, digits = 0) => (Math.abs(v) < 1e-9 ? '0' : v.toFixed(digits));
 
+/** The Color stage's formula: RGB to YCbCr as the standard matrix plus offset (static; no per-pixel RGB is available). */
 export const COLOR_TEX = String.raw`\begin{bmatrix} Y \\ C_b \\ C_r \end{bmatrix} =
 \begin{bmatrix} 0.299 & 0.587 & 0.114 \\ -0.1687 & -0.3313 & 0.5 \\ 0.5 & -0.4187 & -0.0813 \end{bmatrix}
 \begin{bmatrix} R \\ G \\ B \end{bmatrix} + \begin{bmatrix} 0 \\ 128 \\ 128 \end{bmatrix}`;
 
+/** The 8 × 8 forward DCT as written in the JPEG standard. */
 export const DCT_TEX = String.raw`F(u,v) = \tfrac14\, C(u)\, C(v) \sum_{x=0}^{7} \sum_{y=0}^{7} f(x,y)\, \cos\frac{(2x+1)u\pi}{16}\, \cos\frac{(2y+1)v\pi}{16}`;
 
 /** Share of the chroma samples a mode keeps (each of Cb and Cr). */

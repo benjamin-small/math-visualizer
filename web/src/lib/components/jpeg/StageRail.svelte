@@ -5,7 +5,9 @@
   import { STAGES, type StageId } from '../../jpeg/stages';
 
   interface Props {
+    /** The stage on screen. */
     current: StageId;
+    /** Called with a ready stage's id when the reader picks it. */
     onselect: (id: StageId) => void;
   }
 

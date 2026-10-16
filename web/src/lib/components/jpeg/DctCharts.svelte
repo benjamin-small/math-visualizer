@@ -11,10 +11,12 @@
   import { busiestLine, cumulativeEnergy, mirrored, periodic, termsFor } from '../../jpeg/math';
 
   interface Props {
+    /** The room the charts fill, in CSS pixels. */
     rect: Rect;
     /** The selected block's DCT and shifted samples, row-major. */
     dct: readonly number[];
     shifted: readonly number[];
+    /** How many patterns the k slider keeps (0–64). */
     k: number;
   }
 

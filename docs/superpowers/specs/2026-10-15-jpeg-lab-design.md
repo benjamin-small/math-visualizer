@@ -17,7 +17,7 @@ Building the engine lab and stages 1–4 settled these, folded into the text bel
 3. The viz config is panels-based: `panels: [{ kind, rect, crop? }]` in device pixels, drawn in order; the `image_rect` / `focus_rect` / `aux_rect` / `stage` fields are dropped and the page decides what goes where.
 4. Plane panels take an optional `crop` (image pixels); the Subsample stage magnifies a 32 px window around the selected block so chroma's blocks are visible at all.
 5. The first selection is the luma block with the most AC energy, so every stage opens on a block with detail.
-6. The bundled public-domain photo and the home tile, nav link and README lab entry move to Plan 4; The Color stage's per-plane rebuild toggles move there too. `#/jpeg` works but is unlinked until then.
+6. The bundled public-domain photo and the home tile, nav link and README lab entry move to Plan 4, and so do the Color stage's per-plane rebuild toggles. `#/jpeg` works but is unlinked until then.
 7. The rail shows all nine stages; 5–9 are disabled until their plans land.
 8. The Color stage's formula is the static matrix, because the summary carries only the selected component's samples and there is no per-pixel RGB to plug in.
 9. `kit.ts` is still deferred: the DCT stage calls the three kit functions it needs (`jpeg_zigzag_order`, `jpeg_dct_1d`, `jpeg_dft_1d`) through `loadVizCore()` directly, and a wrapper lands when more stages need the kit.
@@ -111,8 +111,8 @@ Stateless `#[wasm_bindgen]` free functions mirroring the crate one-to-one with t
 
 - Draws a `panels` list pushed by JS: `[{ kind, rect, crop? }]` in device pixels, drawn in order, `#[serde(default)]` (empty → the viz fits the image to the canvas itself; the home tile and wasm tests rely on this). Plane panels take an optional `crop` in image pixels. Reads `gl.drawing_buffer_width()/height()` every frame.
 - **Viz config:** the `panels` list (with `crop`), `cube_mix` (0 = RGB axes … 1 = YCbCr axes), `dct_k` (0–64), `hover: Option<[u32;2]>`, `dim` (brightness of the not-yet-scanned image, 0–1), `accent` and `grid` colours, `background`, `auto_rotate_speed`; `wipe` (0–1) and `error_gain` arrive with the Decode stage (Plan 3). `init` only (re)creates resources; it never resets the camera.
-- **New renderer** `render/texture_quad.rs`: draws an R8 or RGBA8 texture into a pixel rect with nearest or linear filtering and an optional colour map (grayscale, diverging for signed coefficients, heat for error). Textures re-upload only when the summary `version` (or the selection) changes.
-- **Reused renderers:** `InstancedQuads` (8×8 cell grids, heatmaps, the basis atlas cells), `LineBatch` (block grid, MCU outlines, scan front, zigzag snake), `Camera3D` + `LineBatch3D` + `InstancedPoints3D` (the colour cube: up to 16 384 sampled pixels as a point cloud, cube edges and axes interpolated from RGB to YCbCr by `cube_mix`; auto-rotate and drag-to-orbit as in Sierpinski).
+- **New renderer** `render/texture_quad.rs`: draws an RGBA8 texture into a pixel rect with nearest or linear filtering and a `dim` factor that darkens it (there are no R8 textures and no colour maps: the viz turns samples into RGBA itself, grey for luma and tinted for chroma). Textures re-upload only when the encode's summary `version` changes, not when the selection moves.
+- **Reused renderers:** `InstancedQuads` (8×8 cell grids, heatmaps, the basis atlas cells), `LineBatch` (block grid, MCU outlines, scan front, zigzag snake), `Camera3D` + `LineBatch3D` + `InstancedPoints3D` (the colour cube: up to 4096 sampled pixels as a point cloud, cube edges and axes interpolated from RGB to YCbCr by `cube_mix`; auto-rotate and drag-to-orbit as in Sierpinski).
 - Scan progress: blocks beyond MCU `n` are drawn dimmed in every image view; the current MCU gets the terracotta outline.
 
 ### Overlays (Svelte DOM/SVG over the canvas, pointer-events where interactive)
@@ -146,7 +146,7 @@ Numeric 8×8 grids, the KaTeX formula panel (KaTeX is already a dependency, lazi
 - **Link:** `#/jpeg?img=gradient&q=50&s=420&h=opt&stage=dct&b=12,7` (sanitised; canonical rewrite on load; uploads fall back to `gradient`; `buildQuery` keeps raw commas as in the Notes lab).
 - **Home tile:** `gradient` at q = 50 scanning; readout "41 % scanned · 18.4 KB"; `done` when `n == total`; `progress = n / total`. The home grid grows to five tiles (layout set in slice 4).
 - **Save .jpg:** `engine.rule_bytes()` → Blob → download `jpeg-lab-q50-420.jpg`.
-- **Upload:** file input and drag-and-drop on the stage; decoded with `createImageBitmap`, downscaled to fit 512×512 on an `OffscreenCanvas` (canvas fallback), pushed through `update_rule_config_with_image`. A failure shows an inline message and keeps the current image.
+- **Upload:** file input and drag-and-drop on the stage; decoded with `createImageBitmap`, downscaled to fit 512×512 on a DOM canvas (painted white first, so transparent areas are not black; no `OffscreenCanvas`), pushed through `update_rule_config_with_image`. A failure shows an inline message and keeps the current image.
 
 ## Error handling and performance
 
@@ -172,6 +172,6 @@ Four PRs into protected `main`, each green on `cargo fmt --all --check`, `cargo 
 1. **`crates/jpeg` + the kit + the oracle test.** The library is complete and proven before any UI exists.
 2. **The engine lab + stages 1–4:** the generic engine hooks, the rule, `JpegViz`, `texture_quad`, the page frame (bezel, rail, readout, layout) and Color, Subsample, Blocks, DCT.
 3. **Stages 5–8 + Decode:** quantization with editable tables and the R–D curve, zigzag, run-length, Huffman tree and byte bar, decode with wipe, error map and generation loss.
-4. **Home tile, nav link, the photo, share links, README, story and the five-tile home grid.**
+4. **Home tile, nav link, the photo, the Color stage's Y-only and chroma-only toggles, share links, README, story and the five-tile home grid.**
 
 Within slices 2 and 3, Rust and web pieces run as parallel subagents on disjoint files.

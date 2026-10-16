@@ -5,7 +5,9 @@
   import { cells, type Rect } from '../../jpeg/layout';
 
   interface Props {
+    /** The 8 × 8 panel the numbers sit on, in CSS pixels. */
     rect: Rect;
+    /** The 64 numbers, row-major. */
     values: readonly number[];
     /** Digits after the point. */
     digits?: number;

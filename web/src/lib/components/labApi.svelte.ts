@@ -20,7 +20,13 @@ export class LabApi {
     this.engine?.dispatch(c);
   }
 
-  /** Merge a partial rule config into the current one (the engine replaces the whole object). */
+  /**
+   * Merge a partial rule config into the current one (the engine replaces the
+   * whole object). This is a plain config push: a rule that holds pushed data
+   * drops it (the JPEG rule's pixels are `#[serde(skip)]` and fall back to the
+   * generated picture), so the JPEG lab must not use it; it pushes through
+   * `setRuleConfigWithImage`.
+   */
   patchRuleConfig(patch: object) {
     const cur = (this.engine?.rule_config() ?? {}) as object;
     this.setRuleConfig({ ...cur, ...patch });
@@ -42,7 +48,10 @@ export class LabApi {
   /**
    * Replace the rule config with scalar fields as JSON plus an RGBA image as a
    * typed array (`w × h × 4` bytes) — zero-copy across the WASM boundary. Only
-   * rules with an image (the JPEG lab) accept this.
+   * rules with an image (the JPEG lab) accept this. Every settings change on
+   * such a page has to go through here, with the pixels: any plain push
+   * (`setRuleConfig`, `patchRuleConfig`) drops the image and re-encodes the
+   * rule's generated fallback.
    */
   setRuleConfigWithImage(cfg: object, w: number, h: number, rgba: Uint8Array) {
     try {

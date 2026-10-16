@@ -7,9 +7,13 @@ import type { StageId } from './stages';
 
 /** A rectangle in CSS pixels, canvas-local, y down. */
 export interface Rect {
+  /** Left edge. */
   x: number;
+  /** Top edge. */
   y: number;
+  /** Width. */
   w: number;
+  /** Height. */
   h: number;
 }
 
@@ -28,7 +32,9 @@ export type PanelKind =
   | 'coeffs'
   | 'rebuild';
 
+/** One thing the viz draws, and where, with the caption the overlay prints above it. */
 export interface Panel {
+  /** What to draw. */
   kind: PanelKind;
   rect: Rect;
   /** Caption the overlay prints above the panel. */
@@ -37,9 +43,11 @@ export interface Panel {
   crop?: [number, number, number, number];
 }
 
+/** Where everything goes on one stage. */
 export interface StageLayout {
   /** The image panel (also in `panels`): clicks here pick a block. */
   image: Rect;
+  /** The viz's panels, drawn in order. */
   panels: Panel[];
   /** Room left for DOM-only content (charts), or a zero rect. */
   extra: Rect;
