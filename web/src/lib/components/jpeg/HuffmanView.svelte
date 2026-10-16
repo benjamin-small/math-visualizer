@@ -47,7 +47,14 @@
   const table = $derived(tables[tab] ?? null);
   const bars = $derived(table ? topCounts(table.counts, 24) : []);
   const maxCount = $derived(Math.max(1, ...bars.map((b) => b[1])));
-  const tree = $derived(table && kit ? readTree(kit.jpeg_huffman_tree(new Uint8Array(table.bits), new Uint8Array(table.vals))) : []);
+  const tree = $derived.by(() => {
+    if (!table || !kit) return [];
+    try {
+      return readTree(kit.jpeg_huffman_tree(new Uint8Array(table.bits), new Uint8Array(table.vals)));
+    } catch {
+      return [];
+    }
+  });
   const maxDepth = $derived(Math.max(1, ...tree.map((n) => n.depth)));
   const codeOf = $derived(new Map(table?.codes.map((c) => [c.symbol, c.code]) ?? []));
   const fileBytes = $derived(Math.max(1, segments.reduce((s, g) => s + g.len, 0)));
