@@ -28,6 +28,7 @@ features = [
     "WebGlUniformLocation",
     "WebGlBuffer",
     "WebGlVertexArrayObject",
+    "WebGlTexture",
     "console",
 ]
 

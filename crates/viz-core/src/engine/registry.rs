@@ -6,10 +6,12 @@ use serde_json::Value;
 use super::erased::{ErasedRule, ErasedVisualization, TypedRule, TypedViz};
 use crate::config::ConfigSchema;
 use crate::rules::fourier_epicycles::{FourierConfig, FourierEpicycles};
+use crate::rules::jpeg::{JpegConfig, JpegRule};
 use crate::rules::notes::{Notes, NotesConfig};
 use crate::rules::sierpinski_chaos::{ChaosGameConfig, SierpinskiChaos};
 use crate::rules::sorting::{SortingConfig, SortingRace};
 use crate::visualizations::fourier_epicycles::{FourierEpicyclesViz, FourierEpicyclesVizConfig};
+use crate::visualizations::jpeg::{JpegViz, JpegVizConfig};
 use crate::visualizations::notes::{NotesViz, NotesVizConfig};
 use crate::visualizations::sierpinski_pyramid::{SierpinskiPyramid, SierpinskiPyramidVizConfig};
 use crate::visualizations::sorting::{SortingViz, SortingVizConfig};
@@ -32,7 +34,7 @@ pub struct LabParts {
 pub const DEFAULT_LAB: &str = "sierpinski";
 
 /// Every id `build_lab` accepts.
-pub const LAB_IDS: &[&str] = &["sierpinski", "fourier", "sorting", "notes"];
+pub const LAB_IDS: &[&str] = &["sierpinski", "fourier", "sorting", "notes", "jpeg"];
 
 /// Build the rule/viz pair for `id`, or `None` if the id is unknown.
 ///
@@ -64,6 +66,12 @@ pub fn build_lab(id: &str) -> Option<LabParts> {
             viz: Box::new(TypedViz::new(NotesViz::new())),
             rule_cfg: NotesConfig::defaults(),
             viz_cfg: NotesVizConfig::defaults(),
+        }),
+        "jpeg" => Some(LabParts {
+            rule: Box::new(TypedRule::new(JpegRule)),
+            viz: Box::new(TypedViz::new(JpegViz::new())),
+            rule_cfg: JpegConfig::defaults(),
+            viz_cfg: JpegVizConfig::defaults(),
         }),
         _ => None,
     }
@@ -169,5 +177,15 @@ mod tests {
         assert_eq!(parts.rule_cfg["notes"], json!([60]));
         // The layout rects come from the DOM; zero means "fit the canvas".
         assert_eq!(parts.viz_cfg["figure"], json!([0.0, 0.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn jpeg_lab_pairs_rule_and_viz() {
+        let parts = build_lab("jpeg").expect("jpeg lab should build");
+        assert_eq!(parts.rule.id(), "jpeg");
+        assert_eq!(parts.viz.id(), "jpeg");
+        // The default gradient at 256² in 4:2:0 is 16 × 16 MCUs.
+        assert_eq!(max_iterations_of(&parts.rule_cfg, 1), 256);
+        assert_eq!(parts.viz_cfg["panels"], json!([]));
     }
 }
