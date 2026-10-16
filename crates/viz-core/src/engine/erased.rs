@@ -409,6 +409,24 @@ mod tests {
         assert_eq!(rule.inspect(&*state, "tables").unwrap(), Value::Null);
         assert_eq!(rule.bytes(&*state).unwrap(), None);
     }
+
+    #[test]
+    fn the_jpeg_rule_takes_an_image_and_reports_bytes() {
+        use crate::rules::jpeg::JpegRule;
+        let mut rule = TypedRule::new(JpegRule);
+        let cfg = rule.config_json();
+        rule.set_config_with_image(&cfg, 2, 1, &[255, 0, 0, 255, 0, 0, 255, 255])
+            .expect("image accepted");
+        let state = rule.init(0);
+        assert_eq!(rule.summary(&*state).unwrap()["width"], 2);
+        assert!(rule.bytes(&*state).unwrap().is_some());
+        // The pixels never appear in the reported config.
+        assert!(rule.config_json().get("pixels").is_none());
+        // A malformed config is refused before the image is looked at.
+        assert!(rule
+            .set_config_with_image(&json!({"quality": "high"}), 2, 1, &[0; 8])
+            .is_err());
+    }
 }
 
 #[cfg(test)]
