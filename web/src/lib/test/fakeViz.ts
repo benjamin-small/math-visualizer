@@ -104,6 +104,7 @@ export const jpegSummaryFixture = {
   raw_bytes: 196608,
   bits_so_far: 8000,
   payload_bits: 30000,
+  code_bits: 29000,
   entropy_bits: 28000,
   psnr: 36.5,
   quality: 50,

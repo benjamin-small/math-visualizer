@@ -86,7 +86,9 @@ export interface JpegSummary {
   bitsSoFar: number;
   /** Payload bits of the whole scan. */
   payloadBits: number;
-  /** Shannon's bound for the scan's symbols: the fewest bits any code could spend on them. */
+  /** Bits the Huffman codes take, amplitude bits excluded: `payloadBits` is this plus the amplitude bits. */
+  codeBits: number;
+  /** Shannon's bound for the scan's symbols: the fewest bits any code could spend on them (compare with `codeBits`). */
   entropyBits: number;
   /** dB; null for a perfect copy. */
   psnr: number | null;
@@ -170,6 +172,7 @@ export function readSummary(raw: unknown): JpegSummary | null {
     rawBytes: num(raw.raw_bytes),
     bitsSoFar: num(raw.bits_so_far),
     payloadBits: num(raw.payload_bits),
+    codeBits: num(raw.code_bits),
     entropyBits: num(raw.entropy_bits),
     psnr: raw.psnr == null ? null : num(raw.psnr),
     quality: raw.quality == null ? null : num(raw.quality),

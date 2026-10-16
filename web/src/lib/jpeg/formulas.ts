@@ -15,12 +15,16 @@ export const COLOR_TEX = String.raw`\begin{bmatrix} Y \\ C_b \\ C_r \end{bmatrix
 /** The 8 × 8 forward DCT as written in the JPEG standard. */
 export const DCT_TEX = String.raw`F(u,v) = \tfrac14\, C(u)\, C(v) \sum_{x=0}^{7} \sum_{y=0}^{7} f(x,y)\, \cos\frac{(2x+1)u\pi}{16}\, \cos\frac{(2y+1)v\pi}{16}`;
 
+/** The Quantize stage's formula: divide by the table entry and round; the table is the base table scaled by the quality `q`. */
 export const QUANT_TEX = String.raw`F_Q(u,v) = \operatorname{round}\!\left(\frac{F(u,v)}{Q(u,v)}\right),\qquad Q = \left\lfloor \frac{Q_{\text{base}}\cdot s + 50}{100} \right\rfloor,\; s = \begin{cases} 5000/q & q < 50 \\ 200 - 2q & q \ge 50 \end{cases}`;
 
+/** The Run-length stage's formula: a value's size category, and a token as (zero run, size) followed by that many amplitude bits. */
 export const SIZE_TEX = String.raw`\text{size}(v) = \lceil \log_2(|v| + 1) \rceil,\qquad \text{token} = (\text{run of zeros},\ \text{size})\ \text{then size bits of } v`;
 
+/** The Huffman stage's formula: a symbol's ideal code length is −log₂ of its probability, so the scan needs at least the entropy sum. */
 export const CODE_TEX = String.raw`\text{code length}(x) \approx -\log_2 p(x),\qquad \text{bits} \ge \sum_x n_x \log_2 \frac{N}{n_x}`;
 
+/** The Decode stage's formula: PSNR from the mean squared error over all colour samples. */
 export const PSNR_TEX = String.raw`\text{MSE} = \frac{1}{3wh}\sum (\hat I - I)^2,\qquad \text{PSNR} = 10 \log_{10} \frac{255^2}{\text{MSE}}`;
 
 /** Zigzag index of the last non-zero value (−1 when all are zero). */
@@ -82,7 +86,9 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
       const last = lastNonZero(sel.zigzag);
       return [
         String.raw`\text{scan order: } (0,0),\,(1,0),\,(0,1),\,(0,2),\,(1,1),\,(2,0),\,\ldots,\,(7,7)`,
-        String.raw`\text{last non-zero} = \#${last + 1}\text{ of }64,\quad ${63 - last}\text{ zeros follow}`,
+        last < 0
+          ? String.raw`\text{all 64 are zero}`
+          : String.raw`\text{last non-zero} = \#${last + 1}\text{ of }64,\quad ${63 - last}\text{ zeros follow}`,
       ];
     }
     case 'rle': {
@@ -94,9 +100,12 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
     }
     case 'huffman': {
       if (!s) return [CODE_TEX];
+      // The codes alone are bounded by the entropy; the payload adds each value's amplitude bits.
+      const codes = Math.round(s.codeBits);
+      const payload = Math.round(s.payloadBits);
       return [
         CODE_TEX,
-        String.raw`\text{this image: } ${Math.round(s.payloadBits)}\text{ bits written} \ge ${Math.round(s.entropyBits)}\text{ bits (Shannon bound for its symbols)}`,
+        String.raw`\text{codes: } ${codes}\text{ bits} \ge ${Math.round(s.entropyBits)}\text{ bits (Shannon bound)},\quad ${codes} + ${payload - codes}\text{ amplitude bits} = ${payload}\text{ bits written}`,
       ];
     }
     case 'decode': {

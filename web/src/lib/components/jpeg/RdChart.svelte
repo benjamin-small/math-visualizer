@@ -1,13 +1,13 @@
 <script lang="ts">
   // The rate–distortion curve for the current picture and settings: file
   // size against PSNR for every quality from 1 to 100, with a dot where the
-  // slider is. The sweep runs through the kit a few encodes per frame and is
+  // slider is. The sweep runs through the kit a few encodes per frame (as many as fit in a short time budget) and is
   // cached, so returning to a picture is instant.
   import { onDestroy } from 'svelte';
   import { loadVizCore } from '../../wasm/loader';
   import type { Rect } from '../../jpeg/layout';
   import type { RgbaImage } from '../../jpeg/images';
-  import { RD_PER_FRAME, RD_PSNR_CAP, addPoint, cachedCurve, missing, rdKey, rdPolyline, type RdPoint } from '../../jpeg/rd';
+  import { RD_PSNR_CAP, addPoint, cachedCurve, missing, rdKey, rdPolyline, sweepFrame, type RdPoint } from '../../jpeg/rd';
 
   interface Props {
     rect: Rect;
@@ -36,15 +36,14 @@
       if (!alive) return;
       const step = () => {
         if (!alive) return;
-        const todo = missing(key).slice(0, RD_PER_FRAME);
-        for (const q of todo) {
+        sweepFrame(missing(key), (q) => {
           try {
             const s = viz.jpeg_encode_stats(img.rgba, img.w, img.h, q, subsampling, huffman) as { bytes: number; psnr: number };
             addPoint(key, { quality: q, bytes: s.bytes, psnr: s.psnr });
           } catch {
             addPoint(key, { quality: q, bytes: 0, psnr: 0 });
           }
-        }
+        });
         points = [...cachedCurve(key)];
         if (missing(key).length > 0) frame = requestAnimationFrame(step);
       };
