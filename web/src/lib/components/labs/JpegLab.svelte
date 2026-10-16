@@ -98,6 +98,10 @@
   /** Who made the picture in use, when it is a bundled one. */
   const credit = $derived(IMAGES.find((im) => im.id === imageId)?.credit);
   const GROUPS = Object.keys(GROUP_LABELS) as PictureGroup[];
+  /** The overview is on screen with its stats slot (it then shows the messages itself). */
+  const overviewShown = $derived(stage === 'overview' && !!image && (layout.slots.stats?.w ?? 0) > 160 && (layout.slots.stats?.h ?? 0) > 80);
+  /** What went wrong, for the messages. */
+  const alerts = $derived([loadError, summary?.error ? `This image could not be encoded: ${summary.error}` : null].filter((m): m is string => !!m));
   const panel = (kind: Panel['kind']) => layout.panels.find((p) => p.kind === kind)?.rect;
 
   function currentQuery(): string {
@@ -618,7 +622,7 @@
       {/if}
 
       {#if stage === 'overview' && layout.slots.stats && image}
-        <Overview rect={layout.slots.stats} {image} jpeg={jpegBytes} {quality} {credit} />
+        <Overview rect={layout.slots.stats} {image} jpeg={jpegBytes} {quality} {credit} errors={alerts} />
       {/if}
 
       {#if stage === 'color' && panel('cube')}
@@ -758,11 +762,14 @@
         />
       {/if}
 
-      {#if loadError}
-        <p class="error" class:top={stage === 'overview'} role="alert">{loadError}</p>
-      {/if}
-      {#if summary?.error}
-        <p class="error" role="alert">This image could not be encoded: {summary.error}</p>
+      <!-- On the overview the messages are the first row of its stats, where they hide nothing. -->
+      {#if !overviewShown}
+        {#if loadError}
+          <p class="error" role="alert">{loadError}</p>
+        {/if}
+        {#if summary?.error}
+          <p class="error" role="alert">This image could not be encoded: {summary.error}</p>
+        {/if}
       {/if}
     </div>
   {/snippet}
@@ -881,8 +888,6 @@
     font-size: 13px;
     pointer-events: auto;
   }
-  /* On the overview the bottom of the canvas holds the credit and the axes: the alert goes on top instead. */
-  .error.top { top: 8px; right: 16px; bottom: auto; }
   .stage-card { margin-bottom: 36px; }
   .stage-card h2 { display: flex; align-items: center; gap: 10px; }
   .stage-card .mark {
