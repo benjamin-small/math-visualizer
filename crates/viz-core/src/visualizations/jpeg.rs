@@ -10,11 +10,20 @@
 //! full-resolution planes), `coded_cb` / `coded_cr` (the subsampled chroma as
 //! coded, shown blocky), `cube` (the pixels as points in the colour cube),
 //! `block` (the selected block's 64 samples), `atlas` (the 64 DCT basis
-//! patterns), `coeffs` (the selected block's DCT, signed) and `rebuild` (the
-//! block rebuilt from its first `dct_k` zigzag coefficients).
+//! patterns), `coeffs` (the selected block's DCT, signed), `rebuild` (the
+//! block rebuilt from its first `dct_k` zigzag coefficients), `quant` (the
+//! block's coefficients after quantization, as the decoder sees them),
+//! `dequant_rebuild` (the block rebuilt from those), `zigzag` (the quantized
+//! grid with the scan path growing through it at `zigzag_speed` cells a
+//! second, restarting when the block or the encode changes; the viz reports
+//! how far it has got through `readout()`),
+//! `wipe` (the original with the decoded image over its left `wipe` share)
+//! and `error` (per-pixel |decoded − original|, brightened by `error_gain`).
 
 use jpeg::color::{rgb_to_ycbcr, ycbcr_to_rgb};
-use jpeg::dct::{basis, idct_partial};
+use jpeg::dct::{basis, idct, idct_partial};
+use jpeg::quant::dequantize;
+use jpeg::zigzag::ZIGZAG;
 use jpeg::{Plane, Rgb8Image, Subsampling};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -93,6 +102,26 @@ pub struct JpegVizConfig {
     /// The cube's idle spin, radians per second.
     #[serde(default = "default_auto_rotate")]
     pub auto_rotate_speed: f32,
+    /// How fast the `zigzag` panel's path grows, in cells per second
+    /// (0 = draw the whole path at once).
+    #[serde(default = "default_zigzag_speed")]
+    pub zigzag_speed: f32,
+    /// Share of the `wipe` panel (from the left) showing the decoded image.
+    #[serde(default = "default_wipe")]
+    pub wipe: f32,
+    /// Brightness multiplier for the `error` panel.
+    #[serde(default = "default_error_gain")]
+    pub error_gain: f32,
+}
+
+fn default_zigzag_speed() -> f32 {
+    24.0
+}
+fn default_wipe() -> f32 {
+    0.5
+}
+fn default_error_gain() -> f32 {
+    4.0
 }
 
 impl ConfigSchema for JpegVizConfig {
@@ -109,6 +138,9 @@ impl ConfigSchema for JpegVizConfig {
                 "dct_k": number_property(NumberOpts { label: "Coefficients kept", default: 64.0, min: 0.0, max: 64.0, step: 1.0, integer: true, cosmetic: true, widget: None }),
                 "hover": { "title": "Hovered coefficient", "default": null, "x-cosmetic": true },
                 "auto_rotate_speed": number_property(NumberOpts { label: "Cube spin", default: 0.2, min: 0.0, max: 2.0, step: 0.05, integer: false, cosmetic: true, widget: None }),
+                "zigzag_speed": number_property(NumberOpts { label: "Zigzag speed", default: 24.0, min: 0.0, max: 64.0, step: 1.0, integer: false, cosmetic: true, widget: None }),
+                "wipe": number_property(NumberOpts { label: "Decoded share", default: 0.5, min: 0.0, max: 1.0, step: 0.01, integer: false, cosmetic: true, widget: None }),
+                "error_gain": number_property(NumberOpts { label: "Error gain", default: 4.0, min: 1.0, max: 32.0, step: 0.5, integer: false, cosmetic: true, widget: None }),
             },
         })
     }
@@ -124,6 +156,9 @@ impl ConfigSchema for JpegVizConfig {
             "dct_k": default_dct_k(),
             "hover": null,
             "auto_rotate_speed": default_auto_rotate(),
+            "zigzag_speed": default_zigzag_speed(),
+            "wipe": default_wipe(),
+            "error_gain": default_error_gain(),
         })
     }
 }
@@ -353,6 +388,54 @@ pub fn sample_pixels(img: &Rgb8Image, max_points: usize) -> Vec<[f32; 3]> {
     out
 }
 
+/// RGBA bytes of the per-pixel error between two same-size images: the mean
+/// |Δ| over R, G, B as a warm tint (the panel brightens it with
+/// `error_gain`). Mismatched sizes give all black.
+pub fn error_rgba(a: &Rgb8Image, b: &Rgb8Image) -> Vec<u8> {
+    let mut out = vec![0u8; a.w * a.h * 4];
+    if a.w != b.w || a.h != b.h {
+        return out;
+    }
+    for (i, (pa, pb)) in a
+        .rgba
+        .chunks_exact(4)
+        .zip(b.rgba.chunks_exact(4))
+        .enumerate()
+    {
+        let e = (0..3)
+            .map(|c| (pa[c] as f32 - pb[c] as f32).abs())
+            .sum::<f32>()
+            / 3.0;
+        out[i * 4] = e.round().min(255.0) as u8;
+        out[i * 4 + 1] = (e * 0.55).round().min(255.0) as u8;
+        out[i * 4 + 2] = (e * 0.25).round().min(255.0) as u8;
+        out[i * 4 + 3] = 255;
+    }
+    out
+}
+
+/// Centres of the 8 × 8 cells in zigzag order, the path drawn through the
+/// first `t` of them (`t` in 0–64; a fractional `t` ends part-way along the
+/// next step). Fewer than two points → no path.
+pub fn zigzag_path(cells: &[[f32; 4]; 64], t: f32) -> Vec<[f32; 2]> {
+    let centre = |k: usize| {
+        let c = cells[ZIGZAG[k] as usize];
+        [c[0] + c[2] / 2.0, c[1] + c[3] / 2.0]
+    };
+    let t = t.clamp(0.0, 64.0);
+    let whole = t.floor() as usize;
+    let mut pts: Vec<[f32; 2]> = (0..whole.min(64)).map(centre).collect();
+    let frac = t - whole as f32;
+    if frac > 0.0 && (1..64).contains(&whole) {
+        let (a, b) = (centre(whole - 1), centre(whole));
+        pts.push([a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac]);
+    }
+    if pts.len() < 2 {
+        pts.clear();
+    }
+    pts
+}
+
 /// GL scissor box for a y-down device-pixel rect on a canvas `canvas_h` high.
 pub fn scissor_box(canvas_h: u32, r: [f32; 4]) -> [i32; 4] {
     let y_up = canvas_h as f32 - (r[1] + r[3]);
@@ -417,6 +500,7 @@ struct Textures {
     decoded: Texture,
     planes: [Texture; 3],
     coded: [Option<Texture>; 2],
+    error: Texture,
 }
 
 /// The cube's sampled pixels turned into GPU instances, valid for one encode
@@ -442,6 +526,12 @@ pub struct JpegViz {
     cube_cache: Option<CubeCache>,
     quad_scratch: Vec<QuadInstance>,
     line_scratch: Vec<LineVertex>,
+    /// The zigzag path's progress in cells (0–64), advanced by `tick`.
+    zig_progress: f32,
+    /// Cells per second for `zig_progress` (0 = jump to the end).
+    zig_speed: f32,
+    /// The (encode, block) the path was started for; a change restarts it.
+    zig_key: Option<(u32, Selection)>,
 }
 
 impl JpegViz {
@@ -459,6 +549,9 @@ impl JpegViz {
             textures: None,
             camera,
             auto_speed: default_auto_rotate(),
+            zig_progress: 0.0,
+            zig_speed: default_zigzag_speed(),
+            zig_key: None,
             cube_cache: None,
             quad_scratch: Vec::new(),
             line_scratch: Vec::new(),
@@ -518,12 +611,18 @@ impl JpegViz {
                 None => Ok(None),
             }
         };
+        let error_bytes = state
+            .decoded
+            .as_ref()
+            .map_or_else(|| vec![0; (w * h * 4) as usize], |d| error_rgba(img, d));
+        let error = Texture::new(gl, w, h, &error_bytes, Filter::Nearest)?;
         self.textures = Some(Textures {
             version: state.version,
             original,
             decoded,
             planes,
             coded: [coded(1)?, coded(2)?],
+            error,
         });
         Ok(())
     }
@@ -738,6 +837,7 @@ impl Visualization for JpegViz {
 
     fn init(&mut self, gl: &Gl, cfg: &Self::Config) {
         self.auto_speed = cfg.auto_rotate_speed;
+        self.zig_speed = cfg.zigzag_speed.max(0.0);
         // A failure is retried by the next render, like the other vizzes.
         let _ = self.ensure_resources(gl);
     }
@@ -829,6 +929,80 @@ impl Visualization for JpegViz {
                         self.draw_cells(rect, &colors, None, cfg.accent);
                     }
                 }
+                "quant" => {
+                    if let Some(b) = trace.and_then(|t| t.block(sel.component, sel.bx, sel.by)) {
+                        let table =
+                            trace.map_or([1; 64], |t| t.tables[(sel.component > 0) as usize]);
+                        let colors = dequantize(&b.quant, &table).map(diverging);
+                        self.draw_cells(rect, &colors, hover, cfg.accent);
+                    }
+                }
+                "dequant_rebuild" => {
+                    if let Some(b) = trace.and_then(|t| t.block(sel.component, sel.bx, sel.by)) {
+                        let table =
+                            trace.map_or([1; 64], |t| t.tables[(sel.component > 0) as usize]);
+                        let rebuilt = idct(&dequantize(&b.quant, &table));
+                        let colors = rebuilt.map(|v| sample_color(sel.component, v + 128.0));
+                        self.draw_cells(rect, &colors, None, cfg.accent);
+                    }
+                }
+                "zigzag" => {
+                    if let Some(b) = trace.and_then(|t| t.block(sel.component, sel.bx, sel.by)) {
+                        let lit = [0.886, 0.478, 0.322, 0.55];
+                        let colors =
+                            b.quant
+                                .map(|q| if q != 0 { lit } else { [0.16, 0.16, 0.19, 1.0] });
+                        self.draw_cells(rect, &colors, None, cfg.accent);
+                        let gap = (rect[2] / 160.0).max(1.0);
+                        let key = Some((state.version, sel));
+                        if self.zig_key != key {
+                            self.zig_key = key;
+                            self.zig_progress = 0.0;
+                        }
+                        let path = zigzag_path(&cells_8x8(rect, gap), self.zig_progress);
+                        let c = [1.0, 1.0, 1.0, 0.85];
+                        for pair in path.windows(2) {
+                            self.line_scratch.push(LineVertex {
+                                position: pair[0],
+                                color: c,
+                            });
+                            self.line_scratch.push(LineVertex {
+                                position: pair[1],
+                                color: c,
+                            });
+                        }
+                    }
+                }
+                "wipe" => {
+                    if let (Some(q), Some(t)) = (&self.quad, &self.textures) {
+                        q.draw(gl, &t.original, rect, canvas, 1.0);
+                        let share = cfg.wipe.clamp(0.0, 1.0);
+                        if share > 0.0 {
+                            gl.enable(Gl::SCISSOR_TEST);
+                            let [x, y, w, h] = scissor_box(
+                                canvas[1],
+                                [rect[0], rect[1], rect[2] * share, rect[3]],
+                            );
+                            gl.scissor(x, y, w, h);
+                            q.draw(gl, &t.decoded, rect, canvas, 1.0);
+                            gl.disable(Gl::SCISSOR_TEST);
+                        }
+                        let edge = rect[0] + rect[2] * share;
+                        self.line_scratch.push(LineVertex {
+                            position: [edge, rect[1]],
+                            color: cfg.accent,
+                        });
+                        self.line_scratch.push(LineVertex {
+                            position: [edge, rect[1] + rect[3]],
+                            color: cfg.accent,
+                        });
+                    }
+                }
+                "error" => {
+                    if let (Some(q), Some(t)) = (&self.quad, &self.textures) {
+                        q.draw(gl, &t.error, rect, canvas, cfg.error_gain.max(0.0));
+                    }
+                }
                 "atlas" => self.draw_atlas(rect, hover, cfg.accent),
                 "cube" => {
                     // Flush 2D batches first so they stay under the cube.
@@ -857,6 +1031,16 @@ impl Visualization for JpegViz {
 
     fn tick(&mut self, dt: f32) {
         self.camera.auto_advance(dt, self.auto_speed);
+        self.zig_progress = if self.zig_speed > 0.0 {
+            (self.zig_progress + dt * self.zig_speed).min(64.0)
+        } else {
+            64.0
+        };
+    }
+
+    /// `{ "zigzag": cells }`: how far the zigzag path has grown (0–64).
+    fn readout(&self) -> Value {
+        json!({ "zigzag": self.zig_progress })
     }
 }
 
@@ -1015,5 +1199,50 @@ mod tests {
     #[test]
     fn scissor_boxes_flip_y() {
         assert_eq!(scissor_box(100, [10.0, 20.0, 30.0, 40.0]), [10, 40, 30, 40]);
+    }
+
+    #[test]
+    fn the_new_view_fields_default() {
+        let c: JpegVizConfig = serde_json::from_value(json!({})).unwrap();
+        assert_eq!((c.zigzag_speed, c.wipe, c.error_gain), (24.0, 0.5, 4.0));
+    }
+
+    #[test]
+    fn error_bytes_are_the_mean_channel_difference_tinted_warm() {
+        let a = Rgb8Image::new(2, 1, vec![10, 10, 10, 255, 0, 0, 0, 255]).unwrap();
+        let b = Rgb8Image::new(2, 1, vec![10, 10, 10, 255, 30, 60, 90, 255]).unwrap();
+        let e = error_rgba(&a, &b);
+        assert_eq!(&e[..4], &[0, 0, 0, 255]);
+        assert_eq!(&e[4..], &[60, 33, 15, 255]);
+        let c = Rgb8Image::new(1, 1, vec![0; 4]).unwrap();
+        assert_eq!(error_rgba(&a, &c), vec![0; 8]);
+    }
+
+    #[test]
+    fn the_zigzag_path_visits_cells_in_scan_order() {
+        let cells = cells_8x8([0.0, 0.0, 80.0, 80.0], 0.0);
+        assert!(zigzag_path(&cells, 1.0).is_empty());
+        let p = zigzag_path(&cells, 3.0);
+        // (0,0) → (1,0) → (0,1): centres at 5, 15 and (5, 15).
+        assert_eq!(p, vec![[5.0, 5.0], [15.0, 5.0], [5.0, 15.0]]);
+        let half = zigzag_path(&cells, 2.5);
+        assert_eq!(half.last().copied(), Some([10.0, 10.0]));
+        assert_eq!(zigzag_path(&cells, 64.0).len(), 64);
+        assert_eq!(zigzag_path(&cells, 99.0).len(), 64);
+        assert_eq!(zigzag_path(&cells, 64.0)[63], [75.0, 75.0]);
+    }
+
+    #[test]
+    fn the_zigzag_path_grows_with_time_and_reports_it() {
+        let mut v = JpegViz::new();
+        assert_eq!(v.readout()["zigzag"], 0.0);
+        v.tick(0.5);
+        assert_eq!(v.readout()["zigzag"], 12.0);
+        v.tick(10.0);
+        assert_eq!(v.readout()["zigzag"], 64.0);
+        v.zig_speed = 0.0;
+        v.zig_progress = 3.0;
+        v.tick(0.01);
+        assert_eq!(v.readout()["zigzag"], 64.0);
     }
 }
