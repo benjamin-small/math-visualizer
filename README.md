@@ -167,6 +167,7 @@ math-visualizer/
 │   │   │   │   └── datasets.rs       # 4 seeded initial-array generators
 │   │   │   ├── notes.rs              # Notes lab rule: oscillators in just or equal temperament
 │   │   │   ├── jpeg.rs               # JPEG lab rule: one encode per config, a scan cursor, the selected block
+│   │   │   ├── jpeg_hints.rs         # Where blocking, ringing and colour bleed are worst
 │   │   │   ├── rng.rs                # Shared deterministic SplitMix64 RNG helpers
 │   │   │   ├── midpoint_on_circle.rs # Alternative rule (still works)
 │   │   │   └── color_cycle.rs        # Phase 2 demo rule
