@@ -1,6 +1,6 @@
 # JPEG lab: overview screen and picture gallery — Design
 
-Status: approved for planning, 2026-10-16. Extends `2026-10-15-jpeg-lab-design.md`, whose Delivery item 4 listed "the photo"; this design replaces that item. The rest of item 4 (home tile, nav link, README lab entry, the Color stage's Y-only/chroma-only toggles, the five-tile home grid, mobile polish) moves to the plan after this one.
+Status: draft for review, 2026-10-16. Extends `2026-10-15-jpeg-lab-design.md`, whose Delivery item 4 listed "the photo"; this design replaces that item. The rest of item 4 (home tile, nav link, README lab entry, the Color stage's Y-only/chroma-only toggles, the five-tile home grid, mobile polish) moves to the plan after this one.
 
 ## Intent
 
