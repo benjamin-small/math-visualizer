@@ -51,18 +51,18 @@ describe('params', () => {
 });
 
 describe('stages', () => {
-  it('lists nine stages, the first four ready', () => {
+  it('lists nine stages, all ready', () => {
     expect(STAGES.map((s) => s.id)).toEqual(['color', 'subsample', 'blocks', 'dct', 'quantize', 'zigzag', 'rle', 'huffman', 'decode']);
-    expect(STAGES.filter((s) => s.ready).map((s) => s.id)).toEqual(['color', 'subsample', 'blocks', 'dct']);
+    expect(STAGES.every((s) => s.ready)).toBe(true);
   });
 
-  it('only lands on ready stages', () => {
-    expect(readyStage('dct')).toBe('dct');
-    expect(readyStage('huffman')).toBe('color');
+  it('lands on a named stage and steps through all nine, stopping at the ends', () => {
+    expect(readyStage('huffman')).toBe('huffman');
+    expect(readyStage('nope')).toBe('color');
     expect(readyStage(undefined)).toBe('color');
     expect(stepStage('color', -1)).toBe('color');
-    expect(stepStage('blocks', 1)).toBe('dct');
-    expect(stepStage('dct', 1)).toBe('dct');
-    expect(stepStage('quantize', 1)).toBe('color');
+    expect(stepStage('dct', 1)).toBe('quantize');
+    expect(stepStage('huffman', 1)).toBe('decode');
+    expect(stepStage('decode', 1)).toBe('decode');
   });
 });
