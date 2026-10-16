@@ -6,8 +6,10 @@ import {
   ruleActionSpy,
   updateRuleConfigWithImageSpy,
   updateVizConfigSpy,
+  snapshotFixture,
 } from '../../test/fakeViz';
 import { navigate, route } from '../../router.svelte';
+import { loadVizCore } from '../../wasm/loader';
 
 installRafPolyfill();
 
@@ -75,10 +77,37 @@ describe('JpegLab.svelte', () => {
     const { getByLabelText } = await renderLab();
     dispatchSpy.mockClear();
     await fireEvent.input(getByLabelText('Quality'), { target: { value: '20' } });
-    expect(lastPush()[0].quality).toBe(20);
+    await vi.waitFor(() => expect(lastPush()[0].quality).toBe(20));
     // The fake snapshot sits at 0 of 360 and paused: nothing to restore, no Play.
     expect(kinds()).not.toContain('Play');
+    // The URL is written when the slider is released, not on every input.
+    expect(route.query).not.toContain('q=20');
+    await fireEvent.change(getByLabelText('Quality'));
     expect(route.query).toContain('q=20');
+  });
+
+  it('coalesces a drag of the quality slider into one encode per frame', async () => {
+    const { getByLabelText } = await renderLab();
+    const before = pushes().length;
+    for (const v of ['20', '30', '40']) await fireEvent.input(getByLabelText('Quality'), { target: { value: v } });
+    await vi.waitFor(() => expect(lastPush()[0].quality).toBe(40));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(pushes().length).toBe(before + 1);
+  });
+
+  it('restores the scan share and keeps playing after a settings change', async () => {
+    Object.assign(snapshotFixture, { iteration: 128, max_iterations: 256, playing: true });
+    try {
+      const { getByLabelText, container } = await renderLab();
+      await vi.waitFor(() => expect(container.querySelector('.readout')?.textContent).toContain('128'));
+      dispatchSpy.mockClear();
+      await fireEvent.click(getByLabelText('4:4:4'));
+      expect(lastPush()[0].max_iterations).toBe(1024);
+      expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 512 });
+      expect(kinds()).toContain('Play');
+    } finally {
+      Object.assign(snapshotFixture, { iteration: 0, max_iterations: 360, playing: false });
+    }
   });
 
   it('counts MCUs for the chosen subsampling', async () => {
@@ -128,22 +157,82 @@ describe('JpegLab.svelte', () => {
     const { container, findByRole } = await renderLab();
     const before = pushes().length;
     vi.stubGlobal('createImageBitmap', vi.fn(() => Promise.reject(new Error('nope'))));
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    await fireEvent.change(input, { target: { files: [new File(['x'], 'x.txt', { type: 'text/plain' })] } });
-    expect((await findByRole('alert')).textContent).toContain('not an image');
-    expect(pushes().length).toBe(before);
-    vi.unstubAllGlobals();
+    try {
+      const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+      await fireEvent.change(input, { target: { files: [new File(['x'], 'x.txt', { type: 'text/plain' })] } });
+      expect((await findByRole('alert')).textContent).toContain('not an image');
+      expect(pushes().length).toBe(before);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('saves the encoded bytes as a .jpg', async () => {
     const { getByRole } = await renderLab('q=75&s=444');
     const create = vi.fn(() => 'blob:x');
     const revoke = vi.fn();
+    const saved = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
     Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke });
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    await fireEvent.click(getByRole('button', { name: /Save .jpg/ }));
-    expect(create).toHaveBeenCalledOnce();
-    expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('jpeg-lab-q75-444.jpg');
-    click.mockRestore();
+    try {
+      await fireEvent.click(getByRole('button', { name: /Save .jpg/ }));
+      expect(create).toHaveBeenCalledOnce();
+      expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('jpeg-lab-q75-444.jpg');
+      // Revoked after the click has had its tick, not before.
+      expect(revoke).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:x'));
+    } finally {
+      click.mockRestore();
+      Object.assign(URL, { createObjectURL: saved.create, revokeObjectURL: saved.revoke });
+    }
+  });
+
+  it('shows 0% captured at k = 0', async () => {
+    const { getByLabelText, container } = await renderLab('stage=dct');
+    await vi.waitFor(() => expect(container.querySelector('figcaption')?.textContent).toContain('at k = 64'));
+    await fireEvent.input(getByLabelText('Patterns kept'), { target: { value: '0' } });
+    await vi.waitFor(() => expect(container.querySelector('figcaption')?.textContent).toMatch(/ 0% at k = 0/));
+  });
+
+  it('goes back to the luma plane when another image is chosen', async () => {
+    const { getByRole, getByLabelText } = await renderLab('stage=blocks');
+    await fireEvent.click(getByRole('button', { name: 'Cb' }));
+    expect(getByRole('button', { name: 'Cb' }).getAttribute('aria-pressed')).toBe('true');
+    await fireEvent.click(getByLabelText('Text'));
+    await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('text'));
+    await vi.waitFor(() => expect(getByRole('button', { name: 'Y' }).getAttribute('aria-pressed')).toBe('true'));
+  });
+
+  it('moves the selected block with the arrow keys on the image, without changing stage', async () => {
+    const { getByRole } = await renderLab();
+    const pick = getByRole('button', { name: /Pick a block/ });
+    ruleActionSpy.mockClear();
+    await fireEvent.keyDown(pick, { key: 'ArrowRight' });
+    // The summary's luma block is (21, 17); one block right.
+    expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 0, bx: 22, by: 17 });
+    expect(route.query).toContain('b=22,17');
+    expect(route.query).not.toContain('stage=');
+    await fireEvent.keyDown(pick, { key: 'ArrowDown' });
+    expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 0, bx: 22, by: 18 });
+  });
+
+  it('leaves arrow keys with a modifier to the browser', async () => {
+    await renderLab('stage=dct');
+    await fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true });
+    await fireEvent.keyDown(window, { key: 'ArrowLeft', metaKey: true });
+    expect(route.query).toBe('stage=dct');
+  });
+
+  it('keeps the current image and says why when a built-in cannot be made', async () => {
+    const { getByLabelText, findByRole } = await renderLab();
+    const before = pushes().length;
+    vi.mocked(loadVizCore).mockImplementationOnce(() => Promise.reject(new Error('wasm down')));
+    try {
+      await fireEvent.click(getByLabelText('Bars'));
+      expect((await findByRole('alert')).textContent).toContain('wasm down');
+      expect(pushes().length).toBe(before);
+    } finally {
+      vi.mocked(loadVizCore).mockClear();
+    }
   });
 });

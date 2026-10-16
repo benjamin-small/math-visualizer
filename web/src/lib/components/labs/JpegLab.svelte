@@ -49,16 +49,22 @@
   let showShifted = $state(true);
 
   let image = $state<RgbaImage | null>(null);
-  let uploadError = $state<string | null>(null);
+  /** Why the last picture could not be loaded (the current image stays). */
+  let loadError = $state<string | null>(null);
   let summary = $state<JpegSummary | null>(null);
   let layout = $state<StageLayout>({ image: { x: 0, y: 0, w: 0, h: 0 }, panels: [], extra: { x: 0, y: 0, w: 0, h: 0 } });
   let api = $state<LabApi | null>(null);
   let appliedQuery = route.query;
   let overlayEl: HTMLDivElement | null = null;
   let fileInput: HTMLInputElement | null = null;
+  let imageGroup: HTMLDivElement | null = null;
   let ro: ResizeObserver | null = null;
   /** True until the first encode has started playing. */
   let first = true;
+  /** Each picture load takes a ticket; only the latest one is applied when it arrives. */
+  let loadTicket = 0;
+  /** The animation frame a quality drag has scheduled its encode on (0 = none). */
+  let qualityFrame = 0;
 
   const stageInfo = $derived(STAGES.find((s) => s.id === stage)!);
   const readout = $derived(summary ? readoutOf(summary) : null);
@@ -90,6 +96,7 @@
       const p = parseParams(q);
       stage = p.stage;
       anchor = p.block ?? null;
+      if (!p.block) component = 0;
       const encodeChanged = p.quality !== quality || p.subsampling !== subsampling || p.huffman !== huffman;
       quality = p.quality;
       subsampling = p.subsampling;
@@ -101,11 +108,12 @@
     });
   });
 
-  // The shell replaces `snapshot` every frame: re-read the summary off that clock.
+  // The shell replaces `snapshot` every frame; the summary only moves with the scan cursor.
+  const iteration = $derived(api?.snapshot.iteration ?? 0);
   $effect(() => {
+    void iteration;
     const a = api;
     if (!a) return;
-    void a.snapshot;
     summary = readSummary(a.readSummary());
   });
 
@@ -122,7 +130,11 @@
    * paused; put the scan back at the same share of the image and resume if it
    * was playing (the very first encode starts playing from 0).
    */
-  function encode() {
+  function encode(writeUrl = true) {
+    if (qualityFrame) {
+      cancelAnimationFrame(qualityFrame);
+      qualityFrame = 0;
+    }
     const a = api;
     const img = image;
     if (!a?.engine || !img) return;
@@ -146,39 +158,55 @@
     }
     selectAnchor();
     summary = readSummary(a.readSummary());
-    syncUrl();
+    if (writeUrl) syncUrl();
   }
 
-  async function chooseImage(id: ImageId) {
-    uploadError = null;
+  /**
+   * Make `load()`'s picture the current one. Only the latest request is applied
+   * (a slow decode must not overwrite a newer choice); a failure leaves the
+   * current image in place and says why.
+   */
+  async function loadImage(load: () => Promise<RgbaImage>, id: ImageId | 'upload') {
+    const ticket = ++loadTicket;
+    let img: RgbaImage;
+    try {
+      img = await load();
+    } catch (err) {
+      if (ticket !== loadTicket) return;
+      loadError = err instanceof Error ? err.message : 'That picture could not be loaded.';
+      // The radio the reader clicked is checked in the page; put it back on the image in use.
+      for (const r of imageGroup?.querySelectorAll<HTMLInputElement>('input[name="jpeg-image"]') ?? []) {
+        r.checked = r.value === imageId;
+      }
+      return;
+    }
+    if (ticket !== loadTicket) return;
+    loadError = null;
+    image = img;
     imageId = id;
-    image = await loadBuiltin(id);
     anchor = null;
+    component = 0;
     first = true;
     encode();
     pushLayout();
   }
 
+  const chooseImage = (id: ImageId) => loadImage(() => loadBuiltin(id), id);
+
   async function onUpload(file: File | null | undefined) {
     if (!file) return;
-    try {
-      const img = await decodeUpload(file);
-      uploadError = null;
-      image = img;
-      imageId = 'upload';
-      anchor = null;
-      first = true;
-      encode();
-      pushLayout();
-    } catch (err) {
-      // Keep the current image; say why.
-      uploadError = err instanceof Error ? err.message : 'That file could not be read.';
-    }
+    await loadImage(() => decodeUpload(file), 'upload');
   }
 
   function onQuality(e: Event) {
     quality = clampQuality((e.target as HTMLInputElement).value);
-    encode();
+    // A drag fires an input per pixel: encode once per frame, and write the URL when it is let go.
+    if (!qualityFrame) {
+      qualityFrame = requestAnimationFrame(() => {
+        qualityFrame = 0;
+        encode(false);
+      });
+    }
   }
 
   function setSubsampling(s: SubsamplingId) {
@@ -196,10 +224,15 @@
   function setStage(s: StageId) {
     if (s === stage) return;
     stage = s;
-    hover = null;
-    api?.patchVizConfig({ hover: null });
+    clearHover();
     pushLayout();
     syncUrl();
+  }
+
+  function clearHover() {
+    if (hover === null) return;
+    hover = null;
+    api?.patchVizConfig({ hover: null });
   }
 
   function setComponent(c: number) {
@@ -210,11 +243,30 @@
 
   /** A click on the image picks the luma block under the pointer. */
   function onImageClick(e: MouseEvent) {
-    if (!image) return;
+    // A keyboard "click" has no pointer position; the arrow keys pick blocks instead.
+    if (!image || e.detail === 0) return;
     const box = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
     const b = blockAt(e.clientX - box.left, e.clientY - box.top, layout.image, image.w, image.h);
     if (!b) return;
     anchor = b;
+    selectAnchor();
+    pushLayout();
+    syncUrl();
+  }
+
+  /** The arrow keys on the image move the selected luma block one step, within the grid. */
+  function onImageKey(e: KeyboardEvent) {
+    if (!image || e.altKey || e.metaKey || e.ctrlKey) return;
+    const step: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    const d = step[e.key];
+    if (!d) return;
+    e.preventDefault();
+    e.stopPropagation(); // not also a stage switch
+    const sel = summary?.selected;
+    const [bx, by] = anchor ?? (sel && sel.component === 0 ? [sel.bx, sel.by] : [0, 0]);
+    const cols = Math.ceil(image.w / 8);
+    const rows = Math.ceil(image.h / 8);
+    anchor = [Math.min(cols - 1, Math.max(0, bx + d[0])), Math.min(rows - 1, Math.max(0, by + d[1]))];
     selectAnchor();
     pushLayout();
     syncUrl();
@@ -247,12 +299,14 @@
     a.href = url;
     a.download = `jpeg-lab-q${quality}-${subsampling}.jpg`;
     a.click();
-    URL.revokeObjectURL(url);
+    // Revoke after the browser has started the download, not in the same tick as the click.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   /** The left and right arrow keys step through the ready stages, unless a form control has the keys. */
   function onKey(e: KeyboardEvent) {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (e.altKey || e.metaKey || e.ctrlKey || e.defaultPrevented) return;
     const t = e.target;
     if (t instanceof Element && t.closest('input, select, textarea, [contenteditable="true"], [contenteditable=""]')) return;
     setStage(stepStage(stage, e.key === 'ArrowRight' ? 1 : -1));
@@ -287,15 +341,15 @@
     }
     window.addEventListener('resize', pushLayout);
     window.addEventListener('keydown', onKey);
-    image = await loadBuiltin(imageId === 'upload' ? 'gradient' : imageId);
-    encode();
-    pushLayout();
+    const start = imageId === 'upload' ? 'gradient' : imageId;
+    await loadImage(() => loadBuiltin(start), start);
     if (route.query !== currentQuery()) syncUrl();
   }
 
   onDestroy(() => {
     ro?.disconnect();
     ro = null;
+    if (qualityFrame) cancelAnimationFrame(qualityFrame);
     const stageEl = overlayEl?.closest('.stage') as HTMLElement | null;
     stageEl?.removeEventListener('dragover', onDragOver);
     stageEl?.removeEventListener('drop', onDrop);
@@ -316,7 +370,7 @@
   {onReady}
 >
   {#snippet controls()}
-    <div class="group" role="radiogroup" aria-labelledby="jpeg-image-name">
+    <div class="group" role="radiogroup" aria-labelledby="jpeg-image-name" bind:this={imageGroup}>
       <span class="name" id="jpeg-image-name">Image</span>
       {#each IMAGES as im (im.id)}
         <label class="btn pill" title={im.title}>
@@ -336,7 +390,7 @@
     </div>
     <label class="field quality">
       Quality
-      <input type="range" min="1" max="100" step="1" value={quality} oninput={onQuality} aria-label="Quality" />
+      <input type="range" min="1" max="100" step="1" value={quality} oninput={onQuality} onchange={syncUrl} aria-label="Quality" />
       <span class="mono value">{quality}</span>
     </label>
     <div class="group" role="radiogroup" aria-labelledby="jpeg-sub-name">
@@ -378,12 +432,13 @@
       {#if layout.image.w > 0}
         <button
           class="hit"
-          aria-label="Pick a block"
+          aria-label="Pick a block: click it, or use the arrow keys to move the selected block"
           style:left="{layout.image.x}px"
           style:top="{layout.image.y}px"
           style:width="{layout.image.w}px"
           style:height="{layout.image.h}px"
           onclick={onImageClick}
+          onkeydown={onImageKey}
         ></button>
       {/if}
 
@@ -419,6 +474,7 @@
               style:width="{r.w}px"
               style:height="{r.h}px"
               onpointermove={(e) => onCellHover(e, r)}
+              onpointerleave={clearHover}
             ></div>
           {/if}
         {/each}
@@ -435,8 +491,8 @@
         <DctCharts rect={layout.extra} dct={sel.dct} shifted={sel.shifted} k={dctK} />
       {/if}
 
-      {#if uploadError}
-        <p class="error" role="alert">{uploadError}</p>
+      {#if loadError}
+        <p class="error" role="alert">{loadError}</p>
       {/if}
       {#if summary?.error}
         <p class="error" role="alert">This image could not be encoded: {summary.error}</p>

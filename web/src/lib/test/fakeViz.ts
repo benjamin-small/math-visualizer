@@ -137,6 +137,16 @@ export const jpegSummaryFixture = {
 /** What the fake's `viz_readout()` returns on the notes lab (null elsewhere). Mutable so a test can move the 4D angle. */
 export const notesVizReadout = { angle_4d: 0 };
 
+/** What the fake's `snapshot()` returns. Mutable so a test can park the clock mid-scan, playing. */
+export const snapshotFixture = {
+  iteration: 0,
+  sub_progress: 0,
+  playing: false,
+  speed: 1.0,
+  seed: 0,
+  max_iterations: 360,
+};
+
 export class FakeEngine {
   private readonly _lab: string | null | undefined;
 
@@ -147,16 +157,7 @@ export class FakeEngine {
   free() { freeSpy(); }
   frame(_now: number) {}
   dispatch(cmd: unknown) { dispatchSpy(cmd); }
-  snapshot() {
-    return {
-      iteration: 0,
-      sub_progress: 0,
-      playing: false,
-      speed: 1.0,
-      seed: 0,
-      max_iterations: 360,
-    };
-  }
+  snapshot() { return { ...snapshotFixture }; }
   rule_schema() { return {}; }
   viz_schema() { return {}; }
   rule_config() { return {}; }
