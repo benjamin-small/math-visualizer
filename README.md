@@ -137,7 +137,7 @@ math-visualizer/
 ├── crates/viz-core/                  # Rust crate compiled to WebAssembly
 │   ├── src/
 │   │   ├── lib.rs                    # wasm-bindgen entry point
-│   │   ├── jpeg_images.rs            # Generated JPEG lab test images (gradient, text, bars)
+│   │   ├── jpeg_images.rs            # Generated JPEG lab pictures (gradient, text, bars, cosines, shifted cosines, noise)
 │   │   ├── jpeg_kit.rs               # Stateless wasm-bindgen wrappers over the jpeg crate
 │   │   ├── traits.rs                 # SceneState, Rule, Visualization, Capabilities, InputEvent
 │   │   ├── config/                   # ConfigSchema trait + JSON Schema helpers
