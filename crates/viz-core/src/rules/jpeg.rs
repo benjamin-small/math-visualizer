@@ -208,6 +208,9 @@ pub struct JpegState {
     pub error: Option<String>,
     /// Where each compression artifact is worst (None if the encode failed).
     pub hints: Option<Hints>,
+    /// Bits the Huffman codes take (Σ over the four tables of symbol count ×
+    /// code length), amplitude bits excluded; computed once per encode.
+    pub code_bits: u64,
 }
 
 impl SceneState for JpegState {
@@ -243,6 +246,7 @@ impl JpegState {
                 by: 0,
             });
         let hints = decoded.as_ref().and_then(|d| find_hints(&original, d));
+        let code_bits = encoded.as_ref().map_or(0, |e| code_bits_of(&e.trace));
         Self {
             original,
             encoded,
@@ -253,6 +257,7 @@ impl JpegState {
             version,
             error,
             hints,
+            code_bits,
         }
     }
 
@@ -272,6 +277,7 @@ impl JpegState {
             version: NEXT_VERSION.fetch_add(1, Ordering::Relaxed),
             error: Some(error),
             hints: None,
+            code_bits: 0,
         }
     }
 
@@ -292,6 +298,23 @@ impl JpegState {
         let last = e.trace.mcu_bits[n - 1];
         last.start_bit + last.len
     }
+}
+
+/// Bits the Huffman codes of `t` take: Σ over the four tables of symbol count
+/// × code length. The payload is this plus the amplitude bits.
+fn code_bits_of(t: &jpeg::codec::Trace) -> u64 {
+    (0..4)
+        .map(|slot| {
+            let Ok(codes) = canonical_codes(&t.huffman[slot]) else {
+                return 0;
+            };
+            t.frequencies[slot]
+                .iter()
+                .zip(codes.len.iter())
+                .map(|(&count, &len)| count as u64 * len as u64)
+                .sum::<u64>()
+        })
+        .sum()
 }
 
 /// The luma block with the most AC energy (the most detail): the most telling
@@ -461,6 +484,7 @@ impl Rule for JpegRule {
             "raw_bytes": state.original.w * state.original.h * 3,
             "bits_so_far": state.bits_so_far(),
             "payload_bits": payload_bits,
+            "code_bits": state.code_bits,
             "entropy_bits": entropy,
             "psnr": if state.psnr.is_finite() { json!(state.psnr) } else { Value::Null },
             "quality": opts.map(|o| o.quality),
@@ -844,6 +868,50 @@ mod tests {
                 t["entropy_bits"].as_f64().unwrap(),
             );
             assert!(actual + 1e-6 >= bound, "{}: {actual} < {bound}", t["name"]);
+        }
+    }
+
+    /// Amplitude bits counted straight from the blocks: each DC difference's
+    /// size plus every AC token's size.
+    fn amplitude_bits(s: &JpegState) -> u64 {
+        let t = &s.encoded.as_ref().unwrap().trace;
+        t.blocks
+            .iter()
+            .flatten()
+            .map(|b| {
+                jpeg::rle::size_category(b.dc_diff) as u64
+                    + b.tokens.iter().map(|tk| tk.size as u64).sum::<u64>()
+            })
+            .sum()
+    }
+
+    #[test]
+    fn code_bits_plus_amplitude_bits_make_the_payload() {
+        for huffman in ["optimized", "standard"] {
+            let mut c = cfg();
+            c.huffman = huffman.into();
+            let s = JpegRule.init(&c, 0);
+            let v = JpegRule.summary(&s);
+            let code = v["code_bits"].as_u64().unwrap();
+            assert_eq!(
+                code + amplitude_bits(&s),
+                v["payload_bits"].as_u64().unwrap(),
+                "{huffman}"
+            );
+            // It is the Huffman view's per-table `actual_bits`, summed.
+            let tables = JpegRule.inspect(&s, "huffman");
+            let viewed: u64 = tables
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t["actual_bits"].as_u64().unwrap())
+                .sum();
+            assert_eq!(code, viewed, "{huffman}");
+            // The codes alone sit at or above Shannon's bound for the symbols.
+            assert!(
+                code as f64 + 1e-6 >= v["entropy_bits"].as_f64().unwrap(),
+                "{huffman}"
+            );
         }
     }
 

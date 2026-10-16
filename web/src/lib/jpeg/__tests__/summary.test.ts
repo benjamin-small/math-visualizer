@@ -15,6 +15,8 @@ describe('readSummary', () => {
     expect(s.selected!.bitSpan).toEqual([100, 9]);
     expect(s.selected!.dcDiff).toBe(2);
     expect(s.error).toBeNull();
+    // The scan's bits split into Huffman codes and amplitude bits.
+    expect([s.payloadBits, s.codeBits, s.entropyBits]).toEqual([30000, 29000, 28000]);
   });
 
   it('reads the codes that spell out the selected block, and the artifact hints', () => {
@@ -100,11 +102,22 @@ describe('formulas', () => {
     expect(stageTex('zigzag', s, null)[1]).toContain('\\#1\\text{ of }64');
     expect(stageTex('zigzag', s, null)[1]).toContain('63\\text{ zeros follow}');
     expect(stageTex('rle', s, null)[1]).toBe(String.raw`\Delta DC = 8 - (6) = 2,\quad \text{size} = 2`);
-    expect(stageTex('huffman', s, null)[1]).toContain('30000');
-    expect(stageTex('huffman', s, null)[1]).toContain('28000');
+    // Code bits (not the payload) are compared with the bound; the payload adds the amplitude bits.
+    const huffman = stageTex('huffman', s, null)[1];
+    expect(huffman).toBe(
+      String.raw`\text{codes: } 29000\text{ bits} \ge 28000\text{ bits (Shannon bound)},\quad 29000 + 1000\text{ amplitude bits} = 30000\text{ bits written}`,
+    );
     expect(stageTex('decode', s, null)[1]).toBe(String.raw`\text{PSNR} = 36.5\text{ dB}`);
     expect(stageTex('decode', { ...s, psnr: null }, null)[1]).toContain('\\infty');
     expect(stageTex('quantize', null, null)).toHaveLength(1);
+  });
+
+  it('says "all 64 are zero" for a block with no non-zero value, not "#0 of 64"', () => {
+    const s = readSummary(jpegSummaryFixture)!;
+    const empty = { ...s, selected: { ...s.selected!, zigzag: Array.from({ length: 64 }, () => 0) } };
+    const line = stageTex('zigzag', empty, null)[1];
+    expect(line).toBe(String.raw`\text{all 64 are zero}`);
+    expect(line).not.toContain('#0');
   });
 
   it('has a notice for every stage', () => {

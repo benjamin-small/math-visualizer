@@ -13,8 +13,11 @@ export interface RdPoint {
 /** The qualities the curve samples: every one from 1 to 100. */
 export const RD_QUALITIES: readonly number[] = Array.from({ length: 100 }, (_, i) => i + 1);
 
-/** Points computed per animation frame. */
+/** The most points computed in one animation frame. */
 export const RD_PER_FRAME = 4;
+
+/** A frame stops starting new encodes once this many milliseconds have gone, so a large picture never holds a frame for long. */
+export const RD_FRAME_BUDGET_MS = 8;
 
 /** PSNR values above this are drawn at the top of the chart. */
 export const RD_PSNR_CAP = 60;
@@ -45,6 +48,26 @@ export function addPoint(key: string, p: RdPoint) {
 export function missing(key: string): number[] {
   const have = new Set(cachedCurve(key).map((p) => p.quality));
   return RD_QUALITIES.filter((q) => !have.has(q));
+}
+
+/**
+ * Run one frame's share of the sweep: `encode` each of `todo` in turn, at least
+ * one and at most `RD_PER_FRAME`, and stop starting new ones once
+ * `RD_FRAME_BUDGET_MS` has passed on `now`. Returns how many ran.
+ */
+export function sweepFrame(
+  todo: readonly number[],
+  encode: (quality: number) => void,
+  now: () => number = () => performance.now(),
+): number {
+  const start = now();
+  let done = 0;
+  while (done < todo.length && done < RD_PER_FRAME) {
+    encode(todo[done]);
+    done++;
+    if (now() - start >= RD_FRAME_BUDGET_MS) break;
+  }
+  return done;
 }
 
 /** Forget every curve (tests). */

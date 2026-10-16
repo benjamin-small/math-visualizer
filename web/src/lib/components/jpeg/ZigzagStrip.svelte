@@ -20,7 +20,9 @@
 
 {#if rect.w > 120 && rect.h > 40}
   <div class="strip" style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
-    <div class="head">Last non-zero: <span class="mono">#{last + 1}</span> of 64 — then {63 - last} zeros</div>
+    <div class="head">
+      {#if last < 0}All 64 are zero{:else}Last non-zero: <span class="mono">#{last + 1}</span> of 64 — then {63 - last} zeros{/if}
+    </div>
     <ol class="seq mono" aria-label="Coefficients in zigzag order">
       {#each zigzag as v, k}
         <li class:lit={k < reached} class:tail={k > last}>{v}</li>
@@ -30,7 +32,7 @@
 {/if}
 
 <style>
-  .strip { position: absolute; display: flex; flex-direction: column; gap: 6px; color: rgba(255, 255, 255, 0.72); font-size: 12px; }
+  .strip { position: absolute; display: flex; flex-direction: column; gap: 6px; color: rgba(255, 255, 255, 0.72); font-size: 12px; overflow: auto; pointer-events: auto; }
   .head { white-space: nowrap; }
   .seq { display: flex; flex-wrap: wrap; gap: 2px; margin: 0; padding: 0; list-style: none; }
   li {

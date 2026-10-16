@@ -18,6 +18,8 @@
     subsampling: string;
     huffman: string;
     hints: Hints | null;
+    /** True while custom quantization tables are in use (Re-save cannot use them). */
+    custom: boolean;
     wipe: number;
     gain: number;
     onwipe: (v: number) => void;
@@ -26,7 +28,7 @@
     onpick: (block: [number, number]) => void;
   }
 
-  let { rect, image, quality, subsampling, huffman, hints, wipe, gain, onwipe, ongain, onpick }: Props = $props();
+  let { rect, image, quality, subsampling, huffman, hints, custom, wipe, gain, onwipe, ongain, onpick }: Props = $props();
 
   /** Generations re-saved per click. */
   const GENERATIONS = 20;
@@ -90,21 +92,27 @@
   <div class="tools" style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
     <label class="ctl">
       <span>Wipe</span>
-      <input type="range" min="0" max="1" step="0.01" value={wipe} oninput={(e) => onwipe(Number((e.currentTarget as HTMLInputElement).value))} aria-label="Decoded share of the comparison" />
+      <input type="range" min="0" max="1" step="0.01" value={wipe} oninput={(e) => onwipe(Number((e.currentTarget as HTMLInputElement).value))} title="How much of the comparison shows the decoded picture, the rest the original" />
     </label>
     <label class="ctl">
       <span>Error × <span class="mono">{gain}</span></span>
-      <input type="range" min="1" max="16" step="1" value={gain} oninput={(e) => ongain(Number((e.currentTarget as HTMLInputElement).value))} aria-label="Error brightness" />
+      <input type="range" min="1" max="16" step="1" value={gain} oninput={(e) => ongain(Number((e.currentTarget as HTMLInputElement).value))} title="How much the error map is brightened" />
     </label>
     {#if hints}
       <div class="hints" role="group" aria-label="Jump to an artifact">
         <button class="chip" onclick={() => onpick(hints.blocking)} title="The block whose borders compression stepped most">Blocking</button>
         <button class="chip" disabled={!hints.ringing} onclick={() => hints.ringing && onpick(hints.ringing)} title={hints.ringing ? 'The block with a hard edge that moved most' : 'This picture has no hard edges to ring'}>Ringing</button>
         <button class="chip" onclick={() => onpick(hints.bleed)} title="The block whose colour moved most">Colour bleed</button>
+        {#if !hints.ringing}
+          <span class="note">No hard edges here, so nothing rings.</span>
+        {/if}
       </div>
     {/if}
     <div class="resave">
-      <button class="chip" onclick={() => void resave()} disabled={running}>{running ? `Re-saving… ${history.length}` : `Re-save ×${GENERATIONS}`}</button>
+      <button class="chip" onclick={() => void resave()} disabled={running || custom}>{running ? `Re-saving… ${history.length}` : `Re-save ×${GENERATIONS}`}</button>
+      {#if custom}
+        <span class="note">Re-save uses the quality-scaled tables, so press Standard first.</span>
+      {/if}
       {#if history.length}
         <span>gen {history.length}: <span class="mono">{Number.isFinite(history[history.length - 1]) ? history[history.length - 1].toFixed(2) : '∞'} dB</span></span>
       {/if}
@@ -135,6 +143,7 @@
     cursor: pointer;
   }
   .chip:disabled { opacity: 0.45; cursor: default; }
+  .note { color: rgba(255, 255, 255, 0.6); }
   svg { display: block; overflow: visible; margin-left: 4px; }
   .axis { stroke: rgba(255, 255, 255, 0.25); }
   .curve { fill: none; stroke: #e27a52; stroke-width: 1.5; }

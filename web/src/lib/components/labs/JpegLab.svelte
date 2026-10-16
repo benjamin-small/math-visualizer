@@ -325,6 +325,12 @@
     api?.patchVizConfig({ hover: null });
   }
 
+  /** A mouse leaving the area clears the hover; a finger lifting also fires `pointerleave`, and must not undo its tap. */
+  function onHoverLeave(e: PointerEvent) {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    clearHover();
+  }
+
   function setComponent(c: number) {
     component = c;
     if (!anchor && summary?.selected) anchor = [summary.selected.bx, summary.selected.by];
@@ -419,7 +425,7 @@
     const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `jpeg-lab-q${quality}-${subsampling}.jpg`;
+    a.download = customTables ? `jpeg-lab-custom-${subsampling}.jpg` : `jpeg-lab-q${quality}-${subsampling}.jpg`;
     a.click();
     // Revoke after the browser has started the download, not in the same tick as the click.
     setTimeout(() => URL.revokeObjectURL(url), 0);
@@ -538,6 +544,12 @@
     </div>
     {#if readout}
       <div class="row stats" aria-live="off">
+        {#if customTables}
+          <span class="custom-chip">
+            Custom Q tables
+            <button class="chip" onclick={standardTables} title="Go back to the tables scaled from the Quality slider">Standard</button>
+          </span>
+        {/if}
         <span class="stat"><span class="mono">{readout.size}</span> of {readout.of}</span>
         <span class="stat"><span class="mono">{readout.ratio}</span></span>
         <span class="stat"><span class="mono">{readout.bpp}</span> bits / pixel</span>
@@ -597,7 +609,7 @@
               style:height="{r.h}px"
               onpointermove={(e) => onCellHover(e, r)}
               onpointerdown={(e) => onCellHover(e, r)}
-              onpointerleave={clearHover}
+              onpointerleave={onHoverLeave}
             ></div>
           {/if}
         {/each}
@@ -627,7 +639,7 @@
               style:height="{r.h}px"
               onpointermove={(e) => onCellHover(e, r)}
               onpointerdown={(e) => onCellHover(e, r)}
-              onpointerleave={clearHover}
+              onpointerleave={onHoverLeave}
             ></div>
             <CellNumbers rect={r} values={kind === 'coeffs' ? sel.dct : sel.quant} minCell={20} />
           {/if}
@@ -692,6 +704,7 @@
           {subsampling}
           {huffman}
           hints={summary?.hints ?? null}
+          custom={customTables !== null}
           {wipe}
           gain={errorGain}
           onwipe={onWipe}
@@ -745,7 +758,18 @@
   .pill:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* The rail and the readout each take a whole row, after the shell's speed slider. */
   .row { flex-basis: 100%; min-width: 0; max-width: 100%; order: 1; }
-  .stats { display: flex; flex-wrap: wrap; gap: 6px 22px; }
+  .stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; }
+  .custom-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px 0 10px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: var(--tint);
+    font-size: 13px;
+  }
+  .custom-chip .chip { height: 24px; border-color: var(--stone); background: transparent; color: var(--ink); }
 
   .marks { position: absolute; inset: 0; }
   .caption {

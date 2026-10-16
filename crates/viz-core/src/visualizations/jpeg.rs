@@ -530,11 +530,22 @@ pub struct JpegViz {
     zig_progress: f32,
     /// Cells per second for `zig_progress` (0 = jump to the end).
     zig_speed: f32,
-    /// The (encode, block) the path was started for; a change restarts it.
+    /// The (encode, block) the path was started for; a change restarts it. It
+    /// is `None` while no zigzag panel is drawn, so re-entering the stage replays it.
     zig_key: Option<(u32, Selection)>,
 }
 
 impl JpegViz {
+    /// Starts the zigzag path over when `key` (the encode and block it draws,
+    /// or `None` on a stage without the path) differs from the last one, so it
+    /// replays on a new encode, a new block and on every re-entry to the stage.
+    fn restart_zigzag_if(&mut self, key: Option<(u32, Selection)>) {
+        if self.zig_key != key {
+            self.zig_key = key;
+            self.zig_progress = 0.0;
+        }
+    }
+
     /// A viz with no GPU resources yet; they are created on first use.
     pub fn new() -> Self {
         let mut camera = Camera3D::new();
@@ -872,6 +883,9 @@ impl Visualization for JpegViz {
             &cfg.panels
         };
 
+        if !panels.iter().any(|p| p.kind == "zigzag") {
+            self.restart_zigzag_if(None);
+        }
         let hover = hover_index(cfg.hover);
         let sel = state.selection;
         let trace = state.encoded.as_ref().map(|e| &e.trace);
@@ -954,11 +968,7 @@ impl Visualization for JpegViz {
                                 .map(|q| if q != 0 { lit } else { [0.16, 0.16, 0.19, 1.0] });
                         self.draw_cells(rect, &colors, None, cfg.accent);
                         let gap = (rect[2] / 160.0).max(1.0);
-                        let key = Some((state.version, sel));
-                        if self.zig_key != key {
-                            self.zig_key = key;
-                            self.zig_progress = 0.0;
-                        }
+                        self.restart_zigzag_if(Some((state.version, sel)));
                         let path = zigzag_path(&cells_8x8(rect, gap), self.zig_progress);
                         let c = [1.0, 1.0, 1.0, 0.85];
                         for pair in path.windows(2) {
@@ -1244,5 +1254,35 @@ mod tests {
         v.zig_progress = 3.0;
         v.tick(0.01);
         assert_eq!(v.readout()["zigzag"], 64.0);
+    }
+
+    #[test]
+    fn the_zigzag_path_restarts_when_its_key_changes_or_is_cleared() {
+        let sel = |bx| Selection {
+            component: 0,
+            bx,
+            by: 0,
+        };
+        let mut v = JpegViz::new();
+        v.restart_zigzag_if(Some((1, sel(0))));
+        v.tick(0.5);
+        assert_eq!(v.readout()["zigzag"], 12.0);
+        // The same encode and block: the path keeps growing.
+        v.restart_zigzag_if(Some((1, sel(0))));
+        assert_eq!(v.readout()["zigzag"], 12.0);
+        // A new encode restarts it...
+        v.restart_zigzag_if(Some((2, sel(0))));
+        assert_eq!(v.readout()["zigzag"], 0.0);
+        v.tick(0.5);
+        // ...and so does a new block.
+        v.restart_zigzag_if(Some((2, sel(1))));
+        assert_eq!(v.readout()["zigzag"], 0.0);
+        // Leaving the stage clears the key, so coming back to the same block replays it.
+        v.tick(0.5);
+        v.restart_zigzag_if(None);
+        v.restart_zigzag_if(Some((2, sel(1))));
+        assert_eq!(v.readout()["zigzag"], 0.0);
+        v.tick(0.5);
+        assert_eq!(v.readout()["zigzag"], 12.0);
     }
 }

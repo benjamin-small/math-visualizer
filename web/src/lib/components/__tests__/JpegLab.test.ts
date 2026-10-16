@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent } from '@testing-library/svelte';
+import { render, fireEvent, within } from '@testing-library/svelte';
 import {
   installRafPolyfill,
   dispatchSpy,
@@ -256,6 +256,27 @@ describe('JpegLab.svelte', () => {
     await vi.waitFor(() => expect(updateVizConfigSpy.mock.calls.some(([c]) => (c as { hover?: unknown }).hover != null)).toBe(true));
   });
 
+  it('keeps a tapped coefficient when a touch pointer leaves, and clears it when the mouse leaves', async () => {
+    const { container } = await renderLab('stage=quantize');
+    const area = (await vi.waitFor(() => {
+      const a = container.querySelector('.hover-area');
+      expect(a).toBeTruthy();
+      return a!;
+    })) as HTMLElement;
+    const at = { clientX: parseFloat(area.style.left) + 6, clientY: parseFloat(area.style.top) + 6 };
+    const hoverCalls = () => updateVizConfigSpy.mock.calls.map(([c]) => c as { hover?: unknown }).filter((c) => 'hover' in c);
+    await fireEvent(area, new MouseEvent('pointerdown', { ...at, bubbles: true }));
+    await vi.waitFor(() => expect(hoverCalls().at(-1)!.hover).not.toBeNull());
+    // A finger lifting fires pointerleave right after pointerup: the tap must stay.
+    const touchLeave = new MouseEvent('pointerleave');
+    Object.defineProperty(touchLeave, 'pointerType', { value: 'touch' });
+    await fireEvent(area, touchLeave);
+    expect(hoverCalls().at(-1)!.hover).not.toBeNull();
+    // A mouse (or an event with no pointer type, as in jsdom) leaving clears it.
+    await fireEvent(area, new MouseEvent('pointerleave'));
+    expect(hoverCalls().at(-1)!.hover).toBeNull();
+  });
+
   it('leaves arrow keys with a modifier to the browser', async () => {
     await renderLab('stage=dct');
     await fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true });
@@ -276,7 +297,7 @@ describe('JpegLab.svelte', () => {
     }
   });
   it('applies an edited Q table to the selected plane and goes back to the standard tables', async () => {
-    const { getByLabelText, getByRole } = await renderLab('stage=quantize');
+    const { getByLabelText, getByRole, container } = await renderLab('stage=quantize');
     const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
     await fireEvent.change(cell, { target: { value: '99' } });
     await fireEvent.click(getByRole('button', { name: 'Apply to image' }));
@@ -285,8 +306,74 @@ describe('JpegLab.svelte', () => {
     expect(luma.filter((v) => v !== 16)).toEqual([99]);
     // The chroma plane keeps the table the encoder was using.
     expect(chroma.every((v) => v === 17)).toBe(true);
-    await fireEvent.click(getByRole('button', { name: 'Standard' }));
+    await fireEvent.click(within(container.querySelector('.qtable') as HTMLElement).getByRole('button', { name: 'Standard' }));
     expect(lastPush()[0].tables).toBeNull();
+  });
+
+  it('replaces only the chroma table when a chroma block is selected', async () => {
+    const saved = jpegSummaryFixture.selected.component;
+    jpegSummaryFixture.selected.component = 1;
+    try {
+      const { getByLabelText, getByRole } = await renderLab('stage=quantize');
+      const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
+      await fireEvent.change(cell, { target: { value: '99' } });
+      await fireEvent.click(getByRole('button', { name: 'Apply to image' }));
+      const [luma, chroma] = lastPush()[0].tables!;
+      // The luma table keeps what the encoder was using (16s in the fake); chroma takes the edit.
+      expect(luma.every((v) => v === 16)).toBe(true);
+      expect(chroma[1]).toBe(99);
+      expect(chroma.filter((v) => v !== 16)).toEqual([99]);
+    } finally {
+      jpegSummaryFixture.selected.component = saved;
+    }
+  });
+
+  it('shows a custom-tables chip on every stage, with a way back to the standard tables', async () => {
+    const { getByLabelText, getByRole, container } = await renderLab('stage=quantize');
+    expect(container.querySelector('.custom-chip')).toBeNull();
+    const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
+    await fireEvent.change(cell, { target: { value: '99' } });
+    await fireEvent.click(getByRole('button', { name: 'Apply to image' }));
+    // Away from the Quantize stage, the Quality slider still is not what sizes the file: say so.
+    await fireEvent.click(getByRole('button', { name: /DCT/ }));
+    const chip = container.querySelector('.custom-chip') as HTMLElement;
+    expect(chip.textContent).toContain('Custom Q tables');
+    await fireEvent.click(within(chip).getByRole('button', { name: 'Standard' }));
+    expect(lastPush()[0].tables).toBeNull();
+    expect(container.querySelector('.custom-chip')).toBeNull();
+  });
+
+  it('disables Re-save while custom tables are in use and says to press Standard first', async () => {
+    const { getByLabelText, getByRole, container } = await renderLab('stage=quantize');
+    const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
+    await fireEvent.change(cell, { target: { value: '99' } });
+    await fireEvent.click(getByRole('button', { name: 'Apply to image' }));
+    await fireEvent.click(getByRole('button', { name: /Decode/ }));
+    const resave = (await vi.waitFor(() => getByRole('button', { name: /Re-save/ }))) as HTMLButtonElement;
+    expect(resave.disabled).toBe(true);
+    expect(container.querySelector('.resave')?.textContent).toContain('Re-save uses the quality-scaled tables, so press Standard first.');
+    await fireEvent.click(within(container.querySelector('.custom-chip') as HTMLElement).getByRole('button', { name: 'Standard' }));
+    await vi.waitFor(() => expect((getByRole('button', { name: /Re-save/ }) as HTMLButtonElement).disabled).toBe(false));
+    expect(container.querySelector('.resave')?.textContent).not.toContain('press Standard first');
+  });
+
+  it('names the saved file custom while custom tables are in use', async () => {
+    const { getByLabelText, getByRole } = await renderLab('stage=quantize&s=444');
+    const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
+    await fireEvent.change(cell, { target: { value: '99' } });
+    await fireEvent.click(getByRole('button', { name: 'Apply to image' }));
+    const saved = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    const revoke = vi.fn();
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: revoke });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      await fireEvent.click(getByRole('button', { name: /Save .jpg/ }));
+      expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('jpeg-lab-custom-444.jpg');
+      await vi.waitFor(() => expect(revoke).toHaveBeenCalled());
+    } finally {
+      click.mockRestore();
+      Object.assign(URL, { createObjectURL: saved.create, revokeObjectURL: saved.revoke });
+    }
   });
 
   it('draws the rate–distortion curve from the kit', async () => {
@@ -302,6 +389,19 @@ describe('JpegLab.svelte', () => {
     await vi.waitFor(() => expect(container.querySelectorAll('.seq li.lit')).toHaveLength(10));
     expect(container.querySelector('.strip .head')?.textContent).toContain('#1 of 64');
     expect(container.querySelectorAll('.seq li.tail')).toHaveLength(63);
+  });
+
+  it('says "All 64 are zero" instead of "#0 of 64" for a block that rounds to nothing', async () => {
+    const saved = jpegSummaryFixture.selected.zigzag;
+    jpegSummaryFixture.selected.zigzag = saved.map(() => 0);
+    try {
+      const { container } = await renderLab('stage=zigzag');
+      await vi.waitFor(() => expect(container.querySelector('.strip .head')?.textContent).toContain('All 64 are zero'));
+      expect(container.querySelector('.strip .head')?.textContent).not.toContain('#0');
+      expect(document.querySelector('.stage-card')?.textContent).toContain('all 64 are zero');
+    } finally {
+      jpegSummaryFixture.selected.zigzag = saved;
+    }
   });
 
   it('spells out the selected block as tokens and their bits', async () => {
@@ -329,15 +429,16 @@ describe('JpegLab.svelte', () => {
   });
 
   it('jumps to the artifact hints, sets the wipe and error gain, and re-saves twenty times', async () => {
-    const { getByRole, getByLabelText, container } = await renderLab('stage=decode');
+    const { getByRole, container } = await renderLab('stage=decode');
     await vi.waitFor(() => getByRole('button', { name: 'Ringing' }));
     ruleActionSpy.mockClear();
     await fireEvent.click(getByRole('button', { name: 'Ringing' }));
     expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 0, bx: 5, by: 6 });
     expect(route.query).toContain('b=5,6');
-    await fireEvent.input(getByLabelText('Decoded share of the comparison'), { target: { value: '0.25' } });
+    // The visible label is the accessible name (WCAG 2.5.3).
+    await fireEvent.input(getByRole('slider', { name: 'Wipe' }), { target: { value: '0.25' } });
     expect(lastViz().wipe).toBe(0.25);
-    await fireEvent.input(getByLabelText('Error brightness'), { target: { value: '9' } });
+    await fireEvent.input(getByRole('slider', { name: /^Error ×/ }), { target: { value: '9' } });
     expect(lastViz().error_gain).toBe(9);
     await fireEvent.click(getByRole('button', { name: /Re-save/ }));
     await vi.waitFor(() => expect(container.querySelector('.resave')?.textContent).toContain('gen 20'), { timeout: 3000 });
@@ -370,6 +471,8 @@ describe('JpegLab.svelte', () => {
       const ringing = (await vi.waitFor(() => getByRole('button', { name: 'Ringing' }))) as HTMLButtonElement;
       expect(ringing.disabled).toBe(true);
       expect(ringing.title).toContain('no hard edges');
+      // The reason is on screen too, not only in a tooltip (touch has none).
+      expect(document.querySelector('.hints')?.textContent).toContain('No hard edges here, so nothing rings.');
       expect((getByRole('button', { name: 'Blocking' }) as HTMLButtonElement).disabled).toBe(false);
     } finally {
       jpegSummaryFixture.hints = saved;
@@ -380,8 +483,8 @@ describe('JpegLab.svelte', () => {
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(800, 0));
     Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 420));
     try {
-      const { getByLabelText, getByRole } = await renderLab('stage=decode');
-      await vi.waitFor(() => getByLabelText('Decoded share of the comparison'));
+      const { getByRole } = await renderLab('stage=decode');
+      await vi.waitFor(() => getByRole('slider', { name: 'Wipe' }));
       expect(getByRole('button', { name: /Re-save/ })).toBeTruthy();
       expect(getByRole('button', { name: 'Blocking' })).toBeTruthy();
     } finally {
