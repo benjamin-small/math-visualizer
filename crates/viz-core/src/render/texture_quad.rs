@@ -3,7 +3,10 @@
 //!
 //! Pure draw call: the caller owns blend state and the scissor box.
 
-use web_sys::{WebGl2RenderingContext as Gl, WebGlBuffer, WebGlTexture, WebGlVertexArrayObject};
+use web_sys::{
+    WebGl2RenderingContext as Gl, WebGlBuffer, WebGlTexture, WebGlUniformLocation,
+    WebGlVertexArrayObject,
+};
 
 use super::camera_2d::pixel_projection;
 use super::shader::ShaderProgram;
@@ -54,7 +57,9 @@ pub enum Filter {
 pub struct Texture {
     tex: WebGlTexture,
     gl: Gl,
+    /// Width in texels.
     pub w: u32,
+    /// Height in texels.
     pub h: u32,
 }
 
@@ -79,18 +84,23 @@ impl Texture {
         gl.tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_WRAP_S, Gl::CLAMP_TO_EDGE as i32);
         gl.tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_WRAP_T, Gl::CLAMP_TO_EDGE as i32);
         gl.pixel_storei(Gl::UNPACK_ALIGNMENT, 1);
-        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-            Gl::TEXTURE_2D,
-            0,
-            Gl::RGBA8 as i32,
-            w as i32,
-            h as i32,
-            0,
-            Gl::RGBA,
-            Gl::UNSIGNED_BYTE,
-            Some(rgba),
-        )
-        .map_err(|e| format!("tex_image_2d failed: {e:?}"))?;
+        if let Err(e) = gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                Gl::TEXTURE_2D,
+                0,
+                Gl::RGBA8 as i32,
+                w as i32,
+                h as i32,
+                0,
+                Gl::RGBA,
+                Gl::UNSIGNED_BYTE,
+                Some(rgba),
+            )
+        {
+            gl.bind_texture(Gl::TEXTURE_2D, None);
+            gl.delete_texture(Some(&tex));
+            return Err(format!("tex_image_2d failed: {e:?}"));
+        }
         gl.bind_texture(Gl::TEXTURE_2D, None);
         Ok(Self {
             tex,
@@ -112,10 +122,15 @@ pub struct TextureQuad {
     program: ShaderProgram,
     vao: WebGlVertexArrayObject,
     vbo: WebGlBuffer,
+    u_proj: Option<WebGlUniformLocation>,
+    u_rect: Option<WebGlUniformLocation>,
+    u_dim: Option<WebGlUniformLocation>,
+    u_tex: Option<WebGlUniformLocation>,
     gl: Gl,
 }
 
 impl TextureQuad {
+    /// Compiles the program and builds the unit quad.
     pub fn new(gl: &Gl) -> Result<Self, String> {
         let program = ShaderProgram::new(gl, VERTEX_SRC, FRAGMENT_SRC)?;
         let vao = gl
@@ -133,10 +148,18 @@ impl TextureQuad {
         gl.enable_vertex_attrib_array(0);
         gl.vertex_attrib_pointer_with_i32(0, 2, Gl::FLOAT, false, 0, 0);
         gl.bind_vertex_array(None);
+        let u_proj = program.uniform_location(gl, "u_proj");
+        let u_rect = program.uniform_location(gl, "u_rect");
+        let u_dim = program.uniform_location(gl, "u_dim");
+        let u_tex = program.uniform_location(gl, "u_tex");
         Ok(Self {
             program,
             vao,
             vbo,
+            u_proj,
+            u_rect,
+            u_dim,
+            u_tex,
             gl: gl.clone(),
         })
     }
@@ -147,13 +170,13 @@ impl TextureQuad {
     pub fn draw(&self, gl: &Gl, tex: &Texture, rect: [f32; 4], canvas: [u32; 2], dim: f32) {
         self.program.use_program(gl);
         gl.uniform_matrix3fv_with_f32_array(
-            self.program.uniform_location(gl, "u_proj").as_ref(),
+            self.u_proj.as_ref(),
             false,
             &pixel_projection(canvas[0], canvas[1]),
         );
-        gl.uniform4fv_with_f32_array(self.program.uniform_location(gl, "u_rect").as_ref(), &rect);
-        gl.uniform1f(self.program.uniform_location(gl, "u_dim").as_ref(), dim);
-        gl.uniform1i(self.program.uniform_location(gl, "u_tex").as_ref(), 0);
+        gl.uniform4fv_with_f32_array(self.u_rect.as_ref(), &rect);
+        gl.uniform1f(self.u_dim.as_ref(), dim);
+        gl.uniform1i(self.u_tex.as_ref(), 0);
         gl.active_texture(Gl::TEXTURE0);
         gl.bind_texture(Gl::TEXTURE_2D, Some(&tex.tex));
         gl.bind_vertex_array(Some(&self.vao));

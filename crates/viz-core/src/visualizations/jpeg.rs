@@ -363,6 +363,50 @@ pub fn scissor_box(canvas_h: u32, r: [f32; 4]) -> [i32; 4] {
     ]
 }
 
+/// The hovered coefficient `[u, v]` as an index into the 8 × 8 grid, or
+/// `None` when absent or out of range (values come from JS).
+pub fn hover_index(hover: Option<[u32; 2]>) -> Option<usize> {
+    hover
+        .filter(|[u, v]| *u < 8 && *v < 8)
+        .map(|[u, v]| (u + 8 * v) as usize)
+}
+
+/// Builds the cube's edge lines and pixel points for `mix`.
+fn build_cube(img: &Rgb8Image, version: u32, mix: f32, accent: [f32; 4]) -> CubeCache {
+    let edge_color = [1.0, 1.0, 1.0, 0.35];
+    let mut lines: Vec<LineVertex3D> = Vec::with_capacity(26);
+    for (a, b) in cube_edges() {
+        for end in [a, b] {
+            lines.push(LineVertex3D {
+                position: cube_point(end, mix),
+                color: edge_color,
+            });
+        }
+    }
+    // The grey diagonal: black → white, the Y axis once the cube turns.
+    for end in [[0.0; 3], [255.0; 3]] {
+        lines.push(LineVertex3D {
+            position: cube_point(end, mix),
+            color: accent,
+        });
+    }
+    let points = sample_pixels(img, 4096)
+        .into_iter()
+        .map(|rgb| PointInstance3D {
+            position: cube_point(rgb, mix),
+            color: [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.9],
+            radius_px: 2.0,
+        })
+        .collect();
+    CubeCache {
+        version,
+        mix,
+        accent,
+        lines,
+        points,
+    }
+}
+
 // ---- The visualization ----
 
 /// Textures built from one encode (`version`).
@@ -372,6 +416,16 @@ struct Textures {
     decoded: Texture,
     planes: [Texture; 3],
     coded: [Option<Texture>; 2],
+}
+
+/// The cube's sampled pixels turned into GPU instances, valid for one encode
+/// (`version`), one `cube_mix` and one accent colour.
+struct CubeCache {
+    version: u32,
+    mix: f32,
+    accent: [f32; 4],
+    lines: Vec<LineVertex3D>,
+    points: Vec<PointInstance3D>,
 }
 
 /// GPU resources and view state.
@@ -384,12 +438,13 @@ pub struct JpegViz {
     textures: Option<Textures>,
     camera: Camera3D,
     auto_speed: f32,
-    cube_cache: Option<(u32, Vec<[f32; 3]>)>,
+    cube_cache: Option<CubeCache>,
     quad_scratch: Vec<QuadInstance>,
     line_scratch: Vec<LineVertex>,
 }
 
 impl JpegViz {
+    /// A viz with no GPU resources yet; they are created on first use.
     pub fn new() -> Self {
         let mut camera = Camera3D::new();
         camera.elevation = 0.45;
@@ -637,12 +692,13 @@ impl JpegViz {
         rect: [f32; 4],
         canvas: [u32; 2],
     ) {
-        if self
+        let mix = cfg.cube_mix;
+        let stale = self
             .cube_cache
             .as_ref()
-            .is_none_or(|(v, _)| *v != state.version)
-        {
-            self.cube_cache = Some((state.version, sample_pixels(&state.original, 4096)));
+            .is_none_or(|c| c.version != state.version || c.mix != mix || c.accent != cfg.accent);
+        if stale {
+            self.cube_cache = Some(build_cube(&state.original, state.version, mix, cfg.accent));
         }
         let [x, y, w, h] = scissor_box(canvas[1], rect);
         if w <= 0 || h <= 0 {
@@ -651,49 +707,15 @@ impl JpegViz {
         gl.viewport(x, y, w, h);
         self.camera.resize(w as u32, h as u32);
         let vp = self.camera.view_projection();
-        let mix = cfg.cube_mix;
-        let edge_color = [1.0, 1.0, 1.0, 0.35];
-        let mut lines: Vec<LineVertex3D> = Vec::with_capacity(32);
-        for (a, b) in cube_edges() {
-            lines.push(LineVertex3D {
-                position: cube_point(a, mix),
-                color: edge_color,
-            });
-            lines.push(LineVertex3D {
-                position: cube_point(b, mix),
-                color: edge_color,
-            });
-        }
-        // The grey diagonal: black → white, the Y axis once the cube turns.
-        let accent = cfg.accent;
-        lines.push(LineVertex3D {
-            position: cube_point([0.0; 3], mix),
-            color: accent,
-        });
-        lines.push(LineVertex3D {
-            position: cube_point([255.0; 3], mix),
-            color: accent,
-        });
-        if let Some(l) = self.lines_3d.as_mut() {
-            l.upload(gl, &lines);
-            l.draw(gl, &vp);
-        }
-        let points: Vec<PointInstance3D> = self
-            .cube_cache
-            .as_ref()
-            .map(|(_, px)| {
-                px.iter()
-                    .map(|&rgb| PointInstance3D {
-                        position: cube_point(rgb, mix),
-                        color: [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.9],
-                        radius_px: 2.0,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if let Some(p) = self.points_3d.as_mut() {
-            p.upload(gl, &points);
-            p.draw(gl, &vp, [w as u32, h as u32]);
+        if let Some(c) = &self.cube_cache {
+            if let Some(l) = self.lines_3d.as_mut() {
+                l.upload(gl, &c.lines);
+                l.draw(gl, &vp);
+            }
+            if let Some(p) = self.points_3d.as_mut() {
+                p.upload(gl, &c.points);
+                p.draw(gl, &vp, [w as u32, h as u32]);
+            }
         }
         gl.viewport(0, 0, canvas[0] as i32, canvas[1] as i32);
     }
@@ -731,6 +753,7 @@ impl Visualization for JpegViz {
         let [r, g, b, a] = cfg.background;
         gl.clear_color(r, g, b, a);
         gl.clear(Gl::COLOR_BUFFER_BIT);
+        gl.disable(Gl::DEPTH_TEST);
         gl.enable(Gl::BLEND);
         gl.blend_func(Gl::SRC_ALPHA, Gl::ONE_MINUS_SRC_ALPHA);
         let proj = pixel_projection(canvas[0], canvas[1]);
@@ -748,7 +771,7 @@ impl Visualization for JpegViz {
             &cfg.panels
         };
 
-        let hover = cfg.hover.map(|[u, v]| (u + 8 * v) as usize);
+        let hover = hover_index(cfg.hover);
         let sel = state.selection;
         let trace = state.encoded.as_ref().map(|e| &e.trace);
         for panel in panels {
@@ -978,6 +1001,14 @@ mod tests {
             ),
             [0.0, 0.0, 50.0, 50.0]
         );
+    }
+
+    #[test]
+    fn hover_index_ignores_out_of_range_coefficients() {
+        assert_eq!(hover_index(Some([1, 2])), Some(17));
+        assert_eq!(hover_index(Some([9, 0])), None);
+        assert_eq!(hover_index(Some([u32::MAX, u32::MAX])), None);
+        assert_eq!(hover_index(None), None);
     }
 
     #[test]
