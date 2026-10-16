@@ -1,12 +1,21 @@
 //! Built-in test images for the JPEG lab, generated in code so they need no
 //! assets: each one is chosen to provoke one artifact.
 
+use std::f32::consts::PI;
+
 use jpeg::Rgb8Image;
 
 use crate::rules::rng::splitmix64;
 
 /// Ids accepted by `builtin_image`, in picker order.
-pub const GENERATED_IMAGES: &[&str] = &["gradient", "text", "bars"];
+pub const GENERATED_IMAGES: &[&str] = &[
+    "gradient",
+    "text",
+    "bars",
+    "cosines",
+    "cosines-shifted",
+    "noise",
+];
 
 /// Largest width or height `builtin_image` will generate (guards against
 /// enormous allocations requested from JavaScript).
@@ -22,6 +31,9 @@ pub fn builtin_image(id: &str, w: usize, h: usize) -> Option<Rgb8Image> {
         "gradient" => gradient_px,
         "text" => text_px,
         "bars" => bars_px,
+        "cosines" => cosines_px,
+        "cosines-shifted" => cosines_shifted_px,
+        "noise" => noise_px,
         _ => return None,
     };
     let mut rgba = Vec::with_capacity(w * h * 4);
@@ -136,9 +148,43 @@ fn bars_px(x: usize, y: usize, w: usize, h: usize) -> [u8; 3] {
     to_px(rgb.map(|c| c * 255.0))
 }
 
+/// A quilt of the 64 DCT basis patterns, one per 8×8 block, on a constant teal
+/// tint: block `(bx, by)` carries frequency `(bx % 8, by % 8)`. Every block is
+/// exactly one cosine the transform has a coefficient for, so it codes to one
+/// or two numbers and the whole picture compresses almost perfectly.
+fn cosines_px(x: usize, y: usize, _w: usize, _h: usize) -> [u8; 3] {
+    let (u, v) = ((x / 8) % 8, (y / 8) % 8);
+    let c = |k: usize, n: usize| (PI * (2 * n + 1) as f32 * k as f32 / 16.0).cos();
+    let l = 128.0 + 90.0 * c(u, x % 8) * c(v, y % 8);
+    to_px([l - 40.0, l + 10.0, l + 25.0])
+}
+
+/// The same cosines slid 4 pixels right and down, so every 8×8 block straddles
+/// four patterns. The picture is as simple to describe as before, but no block
+/// is a single cosine any more, so it costs several times the bytes. The
+/// transform only rewards what lines up with its grid.
+fn cosines_shifted_px(x: usize, y: usize, w: usize, h: usize) -> [u8; 3] {
+    cosines_px(x + 4, y + 4, w, h)
+}
+
+/// Seeded random bytes in every channel. There is no structure to find, so
+/// compression can only shrink it by destroying it: the file stays large and
+/// the decoded picture is a poor copy of the original.
+fn noise_px(x: usize, y: usize, w: usize, _h: usize) -> [u8; 3] {
+    let r = splitmix64(0x4A50_4547 ^ (y * w + x) as u64);
+    [r as u8, (r >> 8) as u8, (r >> 16) as u8]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jpeg::blocks::level_shift;
+    use jpeg::codec::{decode, encode, HuffmanMode, Options};
+    use jpeg::color::rgb_to_ycbcr;
+    use jpeg::dct::fdct;
+    use jpeg::metrics::psnr;
+    use jpeg::quant::{quantize, scale_table, STD_LUMA};
+    use jpeg::Subsampling;
 
     fn max_neighbour_step(img: &Rgb8Image) -> u8 {
         let mut m = 0;
@@ -179,5 +225,118 @@ mod tests {
             .filter(|p| p[..3].iter().max().unwrap() - p[..3].iter().min().unwrap() > 200)
             .count();
         assert!(saturated > 256 * 64, "bars are colourful");
+    }
+
+    fn baseline() -> Options {
+        Options {
+            quality: 50,
+            subsampling: Subsampling::S420,
+            huffman: HuffmanMode::Optimized,
+            ..Options::default()
+        }
+    }
+
+    fn file_bytes(img: &Rgb8Image, quality: u8) -> usize {
+        let opts = Options {
+            quality,
+            ..baseline()
+        };
+        encode(img, &opts).unwrap().bytes.len()
+    }
+
+    /// Shannon entropy of the byte values, in bits per byte.
+    fn entropy(bytes: &[u8]) -> f64 {
+        let mut freq = [0u32; 256];
+        for &b in bytes {
+            freq[b as usize] += 1;
+        }
+        let n = bytes.len() as f64;
+        freq.iter()
+            .filter(|&&f| f > 0)
+            .map(|&f| {
+                let p = f as f64 / n;
+                -p * p.log2()
+            })
+            .sum()
+    }
+
+    #[test]
+    fn the_generated_list_names_every_picture() {
+        assert_eq!(
+            GENERATED_IMAGES,
+            [
+                "gradient",
+                "text",
+                "bars",
+                "cosines",
+                "cosines-shifted",
+                "noise"
+            ]
+        );
+        for id in GENERATED_IMAGES {
+            assert!(builtin_image(id, 16, 16).is_some(), "{id}");
+        }
+    }
+
+    #[test]
+    fn every_cosine_block_quantizes_to_at_most_two_numbers() {
+        let img = builtin_image("cosines", 256, 256).unwrap();
+        let table = scale_table(&STD_LUMA, 50);
+        for by in 0..32 {
+            for bx in 0..32 {
+                let mut luma = [0.0f32; 64];
+                for j in 0..8 {
+                    for i in 0..8 {
+                        let o = ((bx * 8 + i) + img.w * (by * 8 + j)) * 4;
+                        let [r, g, b] = [0, 1, 2].map(|c| img.rgba[o + c] as f32);
+                        luma[i + 8 * j] = rgb_to_ycbcr(r, g, b)[0];
+                    }
+                }
+                let q = quantize(&fdct(&level_shift(&luma)), &table);
+                let nonzero = q.iter().filter(|&&v| v != 0).count();
+                assert!(
+                    nonzero <= 2,
+                    "block ({bx}, {by}) has {nonzero} non-zero values"
+                );
+                let (u, v) = (bx % 8, by % 8);
+                if (u, v) != (0, 0) {
+                    assert_ne!(
+                        q[u + 8 * v],
+                        0,
+                        "block ({bx}, {by}) lost its (u, v) = ({u}, {v}) value"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shifting_the_cosines_by_four_pixels_costs_at_least_five_times_the_bytes() {
+        let aligned = file_bytes(&builtin_image("cosines", 256, 256).unwrap(), 50);
+        let shifted = file_bytes(&builtin_image("cosines-shifted", 256, 256).unwrap(), 50);
+        assert!(shifted >= 5 * aligned, "{shifted} vs {aligned}");
+    }
+
+    #[test]
+    fn noise_is_seeded_and_does_not_survive_compression() {
+        let noise = builtin_image("noise", 256, 256).unwrap();
+        assert_eq!(noise, builtin_image("noise", 256, 256).unwrap());
+        let samples: Vec<u8> = noise
+            .rgba
+            .chunks_exact(4)
+            .flat_map(|p| [p[0], p[1], p[2]])
+            .collect();
+        let h = entropy(&samples);
+        assert!(h > 7.99, "entropy {h}");
+        for quality in [50u8, 90, 100] {
+            let opts = Options {
+                quality,
+                ..baseline()
+            };
+            let bytes = encode(&noise, &opts).unwrap().bytes;
+            let back = decode(&bytes).unwrap().image;
+            let db = psnr(&noise, &back).unwrap();
+            assert!(db < 15.0, "q{quality}: {db} dB");
+        }
     }
 }
