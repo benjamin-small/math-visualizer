@@ -1,6 +1,6 @@
 # JPEG lab: overview screen and picture gallery — Design
 
-Status: draft for review, 2026-10-16. Extends `2026-10-15-jpeg-lab-design.md`, whose Delivery item 4 listed "the photo"; this design replaces that item. The rest of item 4 (home tile, nav link, README lab entry, the Color stage's Y-only/chroma-only toggles, the five-tile home grid, mobile polish) moves to the plan after this one.
+Status: approved, 2026-10-16 (amended with prototype measurements below). Extends `2026-10-15-jpeg-lab-design.md`, whose Delivery item 4 listed "the photo"; this design replaces that item. The rest of item 4 (home tile, nav link, README lab entry, the Color stage's Y-only/chroma-only toggles, the five-tile home grid, mobile polish) moves to the plan after this one.
 
 ## Intent
 
@@ -11,7 +11,10 @@ A first-time visitor should see what JPEG *did* before they see how. The lab ope
 1. **The overview is a new first screen.** It comes before the nine stages and is the stage the lab opens on. It shows:
    - **Before and after:** the original and its JPEG (decoded), side by side. Both use the current quality, chroma and Huffman settings and update live as they change.
    - **Size:** raw bytes against JPEG bytes, as two bars to scale and a ratio (for example "192 KB → 4 KB · 48 : 1").
-   - **Byte frequency:** two histograms of byte values 0–255. One is the raw image's bytes, the RGB samples as a file would store them. The other is the JPEG file's bytes. The raw one is lumpy and the JPEG one nearly flat: a well-compressed file looks like noise.
+   - **Byte frequency:** three histograms of byte values 0–255, read left to right as a story, each with its Shannon entropy in bits per byte.
+     1. **The raw bytes:** the RGB samples as a file would store them. For a photo they already look nearly random.
+     2. **Neighbour differences:** each sample minus the same channel of its left neighbour, mod 256. They pile up around 0: the pattern is hidden in neighbours being alike.
+     3. **The JPEG file's bytes:** random-looking again, but far fewer of them.
    - **The gallery:** every picture as a thumbnail on this screen, grouped by kind, with Upload as the last tile.
    - **A way into the steps:** an obvious route into stage 1.
    - **It is step 0 on the rail** ("0 · Overview", before Color). The lab opens there and the arrow keys reach it. The encode is shown finished there, without the scan animation or scan dimming. Moving into stage 1 behaves as today.
@@ -26,7 +29,7 @@ A first-time visitor should see what JPEG *did* before they see how. The lab ope
    - **Maths:** generated in Rust, like the current built-ins.
      - *Made of cosines*: every 8 × 8 block is one of the DCT's own basis patterns, aligned to the block grid, so each block codes to one or two non-zero coefficients. It is tiny and near-perfect.
      - *Cosines, shifted 4 px*: the same pattern offset by 4 pixels in x and y, so every pattern straddles blocks. It has the same detail and compresses far worse.
-     - *Pure noise*: seeded random pixels. There is nothing to squeeze, so the raw byte histogram is already flat and JPEG barely shrinks it. It may grow at high quality, and low quality smears it.
+     - *Pure noise*: seeded random pixels. There is nothing to squeeze. JPEG still makes the file smaller, but only by destroying the picture: PSNR stays near 12 dB at every quality, even 100.
    - **Artifact tests:** the existing Gradient, Text and Bars, unchanged.
 3. **Credits.** Each bundled photo or meme shows its title, author and licence in a small caption on the overview. The same attributions go in the README, and a credits file sits next to the images.
 
@@ -92,3 +95,23 @@ A first-time visitor should see what JPEG *did* before they see how. The lab ope
 - The exact maths generators (which basis patterns, the quilt arrangement, grey or colour), provided the cosine image codes to about one or two coefficients per block and the shifted version is clearly larger at the default quality. Measure both in the prototype and record the numbers in the plan.
 - Image ids and labels.
 - How loading a bundled picture shows progress or failure. It should behave like today's built-in/upload loading.
+
+## Prototype measurements (2026-10-16)
+
+All measured at quality 50, 4:2:0, optimized Huffman, with the repo's own encoder, on the prepared pictures.
+
+| Picture | Size | Raw bytes | JPEG | PSNR | H raw | H neighbour diffs | H JPEG (bits/byte) |
+|---|---|---|---|---|---|---|---|
+| Grand Prismatic Spring | 256 × 256 | 196,608 | 10,283 | 30.3 dB | 7.77 | 5.66 | 7.95 |
+| STS-135 | 256 × 256 | 196,608 | 6,973 | 28.9 dB | 7.02 | 4.51 | 7.94 |
+| Doge | 272 × 320 | 261,120 | 9,118 | 27.1 dB | 7.61 | 4.81 | 7.94 |
+| Honest work | 320 × 203 | 194,880 | 9,912 | 30.5 dB | 7.65 | 5.08 | 7.95 |
+| Made of cosines | 256 × 256 | 196,608 | 2,461 | 38.4 dB | 7.09 | n/a | 7.39 |
+| Cosines, shifted 4 px | 256 × 256 | 196,608 | 17,027 | 25.3 dB | 7.09 | n/a | 7.92 |
+| Pure noise | 256 × 256 | 196,608 | 25,317 | 11.8 dB | 8.00 | n/a | 7.95 |
+
+- The shifted cosines are about 7× the aligned ones at the same quality.
+- Noise keeps a PSNR of 11.2–12.7 dB from q25 to q100, and its file never exceeds the raw size at 4:2:0.
+- The byte frequency of raw photo pixels is already 7.0–7.8 bits per byte, which is why the neighbour-difference histogram was added.
+- The prepared PNGs are 100–141 KB each, under the 150 KB budget.
+- Doge's caption ("wow.", "many edits", "much wiki", "such neutral" …) passes the check.
