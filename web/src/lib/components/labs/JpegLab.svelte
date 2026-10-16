@@ -12,6 +12,12 @@
   import StageRail from '../jpeg/StageRail.svelte';
   import CellNumbers from '../jpeg/CellNumbers.svelte';
   import DctCharts from '../jpeg/DctCharts.svelte';
+  import QTable from '../jpeg/QTable.svelte';
+  import RdChart from '../jpeg/RdChart.svelte';
+  import ZigzagStrip from '../jpeg/ZigzagStrip.svelte';
+  import TokenChips from '../jpeg/TokenChips.svelte';
+  import HuffmanView from '../jpeg/HuffmanView.svelte';
+  import DecodeTools from '../jpeg/DecodeTools.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
   import { route, replaceQuery } from '../../router.svelte';
@@ -26,9 +32,11 @@
     type SubsamplingId,
   } from '../../jpeg/params';
   import { IMAGES, decodeUpload, loadBuiltin, type RgbaImage } from '../../jpeg/images';
-  import { blockAt, cellAt, jpegLayout, toDevicePanels, type Panel, type StageLayout } from '../../jpeg/layout';
+  import { CAPTION_MIN, blockAt, cellAt, jpegLayout, toDevicePanels, type Panel, type StageLayout } from '../../jpeg/layout';
   import { readSummary, readoutOf, type JpegSummary } from '../../jpeg/summary';
   import { NOTICE, stageTex } from '../../jpeg/formulas';
+  import { readSegments, readTables, type HuffTableView, type SegmentView } from '../../jpeg/huffman';
+  import { loadVizCore } from '../../wasm/loader';
 
   /** MCUs scanned per second by default: the 256² gradient (256 MCUs) scans in four seconds. */
   const DEFAULT_SPEED = 64;
@@ -47,6 +55,21 @@
   let dctK = $state(64);
   let hover = $state<[number, number] | null>(null);
   let showShifted = $state(true);
+  /** Decode stage: the decoded share of the comparison, and the error map's brightness. */
+  let wipe = $state(0.5);
+  let errorGain = $state(4);
+  /** Custom quantization tables `[luma, chroma]`, row-major; null = scaled from the quality. */
+  let customTables = $state.raw<[number[], number[]] | null>(null);
+  /** Huffman stage: the rule's four tables and the file's segments, read once per encode. */
+  let huffTables = $state.raw<HuffTableView[]>([]);
+  let segments = $state.raw<SegmentView[]>([]);
+  /** The file size with the other Huffman mode (null while unknown or with custom tables). */
+  let otherBytes = $state<number | null>(null);
+  /** Names the picture in the R–D cache: the image id, or one tag per upload. */
+  let imageTag = $state('gradient');
+  let uploads = 0;
+  /** Zigzag stage: how many cells the viz's scan path has reached. */
+  let zigReached = $state(0);
 
   let image = $state<RgbaImage | null>(null);
   /** Why the last picture could not be loaded (the current image stays). */
@@ -120,6 +143,48 @@
     summary = readSummary(a.readSummary());
   });
 
+  // The viz animates the zigzag path itself; read how far it has got each frame.
+  const frameSnap = $derived(api?.snapshot);
+  $effect(() => {
+    void frameSnap;
+    const a = api;
+    if (stage !== 'zigzag' || !a) return;
+    const r = a.readVizReadout() as { zigzag?: unknown } | null;
+    zigReached = typeof r?.zigzag === 'number' ? Math.min(64, Math.ceil(r.zigzag)) : 64;
+  });
+
+  // The Huffman stage reads the tables and segments once per encode.
+  const version = $derived(summary?.version ?? -1);
+  $effect(() => {
+    void version;
+    const engine = api?.engine;
+    if (stage !== 'huffman' || !engine) return;
+    huffTables = readTables(engine.rule_inspect('huffman'));
+    segments = readSegments(engine.rule_inspect('segments'));
+  });
+
+  // ...and what the other Huffman mode would cost (the kit encodes with quality-scaled tables only).
+  $effect(() => {
+    void version;
+    const img = image;
+    const other = huffman === 'optimized' ? 'standard' : 'optimized';
+    const [q, s] = [quality, subsampling];
+    otherBytes = null;
+    if (stage !== 'huffman' || !img || customTables) return;
+    let alive = true;
+    void loadVizCore().then((v) => {
+      if (!alive) return;
+      try {
+        otherBytes = (v.jpeg_encode_stats(img.rgba, img.w, img.h, q, s, other) as { bytes: number }).bytes;
+      } catch {
+        otherBytes = null;
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  });
+
   /** `b` limited to the current image's luma block grid (the engine refuses blocks outside it). */
   function clampBlock(b: [number, number]): [number, number] {
     if (!image) return b;
@@ -159,7 +224,7 @@
     const wasPlaying = snap.playing;
     const max = mcuCount(img.w, img.h, subsampling);
     a.setRuleConfigWithImage(
-      { image_id: imageId, quality, subsampling, huffman, max_iterations: max },
+      { image_id: imageId, quality, subsampling, huffman, max_iterations: max, tables: customTables },
       img.w,
       img.h,
       img.rgba,
@@ -201,6 +266,7 @@
     loadError = null;
     image = img;
     imageId = id;
+    imageTag = id === 'upload' ? `upload-${++uploads}` : id;
     anchor = block ?? null;
     component = 0;
     first = true;
@@ -306,6 +372,40 @@
     api?.patchVizConfig({ dct_k: dctK });
   }
 
+  /** Use `table` for the selected block's plane (the other plane keeps the table it had) and re-encode. */
+  function applyTable(table: number[]) {
+    const cur = (api?.engine?.rule_inspect('tables') ?? null) as { luma?: number[]; chroma?: number[] } | null;
+    const next: [number[], number[]] = [customTables?.[0] ?? cur?.luma ?? table, customTables?.[1] ?? cur?.chroma ?? table];
+    next[sel && sel.component > 0 ? 1 : 0] = table;
+    customTables = next;
+    encode();
+  }
+
+  function standardTables() {
+    if (!customTables) return;
+    customTables = null;
+    encode();
+  }
+
+  function onWipe(v: number) {
+    wipe = v;
+    api?.patchVizConfig({ wipe });
+  }
+
+  function onGain(v: number) {
+    errorGain = v;
+    api?.patchVizConfig({ error_gain: errorGain });
+  }
+
+  /** Follow the luma block a Decode hint points at. */
+  function pickBlock(b: [number, number]) {
+    anchor = b;
+    component = 0;
+    selectAnchor();
+    pushLayout();
+    syncUrl();
+  }
+
   function saveJpeg() {
     const bytes = api?.engine?.rule_bytes();
     if (!bytes) return;
@@ -335,7 +435,7 @@
     const sel = summary?.selected;
     const block = anchor ?? (sel && sel.component === 0 ? ([sel.bx, sel.by] as [number, number]) : undefined);
     layout = jpegLayout(stage, canvas.clientWidth, canvas.clientHeight, image.w, image.h, block);
-    api.patchVizConfig({ panels: toDevicePanels(layout.panels, dpr), cube_mix: cubeMix, dct_k: dctK, hover });
+    api.patchVizConfig({ panels: toDevicePanels(layout.panels, dpr), cube_mix: cubeMix, dct_k: dctK, hover, wipe, error_gain: errorGain });
   }
 
   function onDrop(e: DragEvent) {
@@ -442,7 +542,7 @@
   {#snippet overlay()}
     <div class="marks" bind:this={overlayEl}>
       {#each layout.panels as p (p.kind)}
-        <span class="caption" style:left="{p.rect.x}px" style:top="{p.rect.y - 20}px" style:max-width="{Math.max(p.rect.w, 120)}px">{p.label}</span>
+        <span class="caption" style:left="{p.rect.x}px" style:top="{p.rect.y - 20}px" style:max-width="{Math.max(p.rect.w, CAPTION_MIN)}px">{p.label}</span>
       {/each}
       {#if layout.image.w > 0}
         <button
@@ -505,6 +605,92 @@
           </label>
         {/if}
         <DctCharts rect={layout.slots.charts ?? { x: 0, y: 0, w: 0, h: 0 }} dct={sel.dct} shifted={sel.shifted} k={dctK} />
+      {/if}
+
+      {#if stage === 'quantize' && sel}
+        {#each ['coeffs', 'quant'] as kind (kind)}
+          {@const r = panel(kind as Panel['kind'])}
+          {#if r}
+            <div
+              class="hover-area"
+              role="presentation"
+              style:left="{r.x}px"
+              style:top="{r.y}px"
+              style:width="{r.w}px"
+              style:height="{r.h}px"
+              onpointermove={(e) => onCellHover(e, r)}
+              onpointerdown={(e) => onCellHover(e, r)}
+              onpointerleave={clearHover}
+            ></div>
+            <CellNumbers rect={r} values={kind === 'coeffs' ? sel.dct : sel.quant} minCell={20} />
+          {/if}
+        {/each}
+        {#if layout.slots.qtable}
+          <QTable
+            rect={layout.slots.qtable}
+            table={sel.table}
+            which={sel.component === 0 ? 'Luma' : 'Chroma'}
+            custom={customTables !== null}
+            onapply={applyTable}
+            onstandard={standardTables}
+          />
+        {/if}
+        {#if layout.slots.rd && image}
+          <RdChart
+            rect={layout.slots.rd}
+            {image}
+            {imageTag}
+            {subsampling}
+            {huffman}
+            current={{ bytes: summary?.bytes ?? 0, psnr: summary?.psnr ?? null }}
+          />
+        {/if}
+      {/if}
+
+      {#if stage === 'zigzag' && sel}
+        {#if panel('zigzag')}
+          <CellNumbers rect={panel('zigzag')!} values={sel.quant} />
+        {/if}
+        {#if layout.slots.sequence}
+          <ZigzagStrip rect={layout.slots.sequence} zigzag={sel.zigzag} reached={zigReached} />
+        {/if}
+      {/if}
+
+      {#if stage === 'rle' && sel}
+        {#if panel('quant')}
+          <CellNumbers rect={panel('quant')!} values={sel.quant} minCell={20} />
+        {/if}
+        {#if layout.slots.tokens}
+          <TokenChips rect={layout.slots.tokens} {sel} />
+        {/if}
+      {/if}
+
+      {#if stage === 'huffman' && layout.slots.huffman}
+        <HuffmanView
+          rect={layout.slots.huffman}
+          tables={huffTables}
+          {segments}
+          {sel}
+          {otherBytes}
+          bytes={summary?.bytes ?? 0}
+          {huffman}
+        />
+      {/if}
+
+      {#if stage === 'decode' && layout.slots.resave && image}
+        <DecodeTools
+          rect={layout.slots.resave}
+          {image}
+          {quality}
+          {subsampling}
+          {huffman}
+          hints={summary?.hints ?? null}
+          {wipe}
+          gain={errorGain}
+          onwipe={onWipe}
+          ongain={onGain}
+          onpick={pickBlock}
+        />
       {/if}
 
       {#if loadError}

@@ -37,7 +37,15 @@ const size = (w: number, h: number) => ({
 Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1134, 0));
 Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 585));
 
-type Push = [{ image_id: string; quality: number; subsampling: string; huffman: string; max_iterations: number }, number, number, Uint8Array];
+type Config = {
+  image_id: string;
+  quality: number;
+  subsampling: string;
+  huffman: string;
+  max_iterations: number;
+  tables: [number[], number[]] | null;
+};
+type Push = [Config, number, number, Uint8Array];
 const pushes = () => updateRuleConfigWithImageSpy.mock.calls as Push[];
 const lastPush = () => pushes()[pushes().length - 1];
 const kinds = () => dispatchSpy.mock.calls.map(([c]) => (c as { kind: string }).kind);
@@ -61,7 +69,7 @@ describe('JpegLab.svelte', () => {
   it('encodes the default gradient as a typed array and plays the scan', async () => {
     await renderLab();
     const [cfg, w, h, rgba] = lastPush();
-    expect(cfg).toEqual({ image_id: 'gradient', quality: 50, subsampling: '420', huffman: 'optimized', max_iterations: 256 });
+    expect(cfg).toEqual({ image_id: 'gradient', quality: 50, subsampling: '420', huffman: 'optimized', max_iterations: 256, tables: null });
     expect([w, h, rgba.length]).toEqual([256, 256, 256 * 256 * 4]);
     expect(kinds()).toContain('Play');
     expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'SetSpeed', value: 64 });
@@ -118,15 +126,15 @@ describe('JpegLab.svelte', () => {
   });
 
   it('loads a shared link and rewrites junk to what loaded', async () => {
-    await renderLab('img=text&q=999&s=422&h=std&stage=huffman');
-    expect(lastPush()[0]).toEqual({ image_id: 'text', quality: 100, subsampling: '422', huffman: 'standard', max_iterations: 512 });
+    await renderLab('img=text&q=999&s=422&h=std&stage=nope');
+    expect(lastPush()[0]).toEqual({ image_id: 'text', quality: 100, subsampling: '422', huffman: 'standard', max_iterations: 512, tables: null });
     expect(route.query).toBe('img=text&q=100&s=422&h=std');
   });
 
   it('moves between ready stages with the rail and the arrow keys', async () => {
     const { getByRole, container } = await renderLab();
     expect(getByRole('button', { name: /Color/ }).getAttribute('aria-current')).toBe('step');
-    expect((getByRole('button', { name: /Huffman/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((getByRole('button', { name: /Huffman/ }) as HTMLButtonElement).disabled).toBe(false);
     await fireEvent.click(getByRole('button', { name: /DCT/ }));
     expect(route.query).toBe('stage=dct');
     await fireEvent.keyDown(window, { key: 'ArrowLeft' }); // a key on the window itself (no element target)
@@ -265,5 +273,74 @@ describe('JpegLab.svelte', () => {
     } finally {
       vi.mocked(loadVizCore).mockClear();
     }
+  });
+  it('applies an edited Q table to the selected plane and goes back to the standard tables', async () => {
+    const { getByLabelText, getByRole } = await renderLab('stage=quantize');
+    const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
+    await fireEvent.change(cell, { target: { value: '99' } });
+    await fireEvent.click(getByRole('button', { name: 'Apply to image' }));
+    const [luma, chroma] = lastPush()[0].tables!;
+    expect(luma[1]).toBe(99);
+    expect(luma.filter((v) => v !== 16)).toEqual([99]);
+    // The chroma plane keeps the table the encoder was using.
+    expect(chroma.every((v) => v === 17)).toBe(true);
+    await fireEvent.click(getByRole('button', { name: 'Standard' }));
+    expect(lastPush()[0].tables).toBeNull();
+  });
+
+  it('draws the rate–distortion curve from the kit', async () => {
+    const { container } = await renderLab('stage=quantize');
+    await vi.waitFor(() => expect(container.querySelector('.rd polyline')?.getAttribute('points')?.split(' ').length).toBe(100), {
+      timeout: 3000,
+    });
+    expect(container.querySelector('.rd figcaption')?.textContent).not.toContain('of 100');
+  });
+
+  it('lights the zigzag cells the viz path has reached', async () => {
+    const { container } = await renderLab('stage=zigzag');
+    await vi.waitFor(() => expect(container.querySelectorAll('.seq li.lit')).toHaveLength(10));
+    expect(container.querySelector('.strip .head')?.textContent).toContain('#1 of 64');
+    expect(container.querySelectorAll('.seq li.tail')).toHaveLength(63);
+  });
+
+  it('spells out the selected block as tokens and their bits', async () => {
+    const { container } = await renderLab('stage=rle');
+    const chips = await vi.waitFor(() => {
+      const c = container.querySelectorAll('.tokens li');
+      expect(c).toHaveLength(2);
+      return c;
+    });
+    expect(chips[0].textContent).toContain('DC +2');
+    expect(chips[0].textContent).toContain('01110');
+    expect(chips[1].textContent).toContain('EOB');
+    expect(container.querySelector('.tokens .head')?.textContent).toContain('2 tokens and 9 bits');
+  });
+
+  it('shows the Huffman tables, the block bits, the file and what the other tables would cost', async () => {
+    const { container, getByRole } = await renderLab('stage=huffman');
+    await vi.waitFor(() => expect(container.querySelectorAll('[role="tab"]')).toHaveLength(4));
+    expect(getByRole('tab', { name: 'AC · luma' }).getAttribute('aria-selected')).toBe('true');
+    await vi.waitFor(() => expect(container.querySelector('p.stat')?.textContent).toContain('5000'));
+    expect(container.querySelector('p.stat')?.textContent).toContain('With standard tables');
+    expect(container.querySelector('.huff .bits')?.textContent).toBe('011101010');
+    expect(container.querySelectorAll('.file .seg')).toHaveLength(4);
+    await vi.waitFor(() => expect(container.querySelectorAll('circle.leaf')).toHaveLength(2));
+  });
+
+  it('jumps to the artifact hints, sets the wipe and error gain, and re-saves twenty times', async () => {
+    const { getByRole, getByLabelText, container } = await renderLab('stage=decode');
+    await vi.waitFor(() => getByRole('button', { name: 'Ringing' }));
+    ruleActionSpy.mockClear();
+    await fireEvent.click(getByRole('button', { name: 'Ringing' }));
+    expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 0, bx: 5, by: 6 });
+    expect(route.query).toContain('b=5,6');
+    await fireEvent.input(getByLabelText('Decoded share of the comparison'), { target: { value: '0.25' } });
+    expect(lastViz().wipe).toBe(0.25);
+    await fireEvent.input(getByLabelText('Error brightness'), { target: { value: '9' } });
+    expect(lastViz().error_gain).toBe(9);
+    await fireEvent.click(getByRole('button', { name: /Re-save/ }));
+    await vi.waitFor(() => expect(container.querySelector('.resave')?.textContent).toContain('gen 20'), { timeout: 3000 });
+    // Each fake generation drifts one level further, so generation 20 is off by 20 in every channel.
+    expect(container.querySelector('.resave')?.textContent).toContain(`${(20 * Math.log10(255 / 20)).toFixed(2)} dB`);
   });
 });

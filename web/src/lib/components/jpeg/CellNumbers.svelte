@@ -13,15 +13,15 @@
     digits?: number;
     /** Text colour: dark on light cells, light on dark ones. */
     shade?: (v: number) => 'dark' | 'light';
+    /** Below this cell width (CSS px) the numbers are hidden; short whole numbers fit in less. */
+    minCell?: number;
   }
 
-  let { rect, values, digits = 0, shade = () => 'light' }: Props = $props();
+  let { rect, values, digits = 0, shade = () => 'light', minCell = 26 }: Props = $props();
 
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
   const boxes = $derived(cells(rect, dpr));
-  /** Below this cell width the numbers would overlap. */
-  const MIN_CELL = 26;
-  const show = $derived(boxes.length > 0 && boxes[0].w >= MIN_CELL);
+  const show = $derived(boxes.length > 0 && boxes[0].w >= minCell);
   const fontPx = $derived(Math.max(9, Math.min(14, (boxes[0]?.w ?? 0) * 0.3)));
   const fmt = (v: number) => {
     const s = v.toFixed(digits);

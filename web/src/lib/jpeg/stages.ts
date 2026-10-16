@@ -34,11 +34,11 @@ export const STAGES: readonly StageInfo[] = [
   { id: 'subsample', mark: '2', title: 'Subsample', subtitle: 'Keep less colour than brightness', ready: true },
   { id: 'blocks', mark: '3', title: 'Blocks', subtitle: 'Cut each plane into 8 × 8 tiles', ready: true },
   { id: 'dct', mark: '4', title: 'DCT', subtitle: 'Rewrite a tile as 64 cosine patterns', ready: true },
-  { id: 'quantize', mark: '5', title: 'Quantize', subtitle: 'Round the patterns coarsely', ready: false },
-  { id: 'zigzag', mark: '6', title: 'Zigzag', subtitle: 'Low frequencies first', ready: false },
-  { id: 'rle', mark: '7', title: 'Run-length', subtitle: 'Count the zeros', ready: false },
-  { id: 'huffman', mark: '8', title: 'Huffman', subtitle: 'Short codes for common symbols', ready: false },
-  { id: 'decode', mark: '↺', title: 'Decode', subtitle: 'Undo it all and compare', ready: false },
+  { id: 'quantize', mark: '5', title: 'Quantize', subtitle: 'Round the patterns coarsely', ready: true },
+  { id: 'zigzag', mark: '6', title: 'Zigzag', subtitle: 'Low frequencies first', ready: true },
+  { id: 'rle', mark: '7', title: 'Run-length', subtitle: 'Count the zeros', ready: true },
+  { id: 'huffman', mark: '8', title: 'Huffman', subtitle: 'Short codes for common symbols', ready: true },
+  { id: 'decode', mark: '↺', title: 'Decode', subtitle: 'Undo it all and compare', ready: true },
 ];
 
 /** The stage a link without `stage=` opens on. */
