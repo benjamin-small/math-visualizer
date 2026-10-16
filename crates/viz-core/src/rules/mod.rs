@@ -1,6 +1,7 @@
 pub mod color_cycle;
 pub mod fourier_epicycles;
 pub mod jpeg;
+pub mod jpeg_hints;
 pub mod midpoint_on_circle;
 pub mod notes;
 pub mod rng;
