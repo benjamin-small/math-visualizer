@@ -121,14 +121,17 @@ function columns(r: Rect, n: number, gap: number): Rect[] {
 }
 
 /**
- * The overview: the picture before and after JPEG side by side in a top band
- * (58% of the height after margins), the stats slot across the full width
- * below. The same structure serves phones. Clicks pick a block on the original.
+ * The overview: the picture before and after JPEG side by side in a top band,
+ * the stats slot across the full width below. The band is at most 58% of the
+ * height after margins and no taller than the pictures need (their caption
+ * included), so a narrow phone hands the rest to the statistics. Clicks pick a
+ * block on the original.
  */
 function overviewLayout(cssW: number, cssH: number, imgW: number, imgH: number): StageLayout {
   const m = MARGIN;
   const area: Rect = { x: m, y: m, w: cssW - 2 * m, h: cssH - 2 * m };
-  const topH = area.h * 0.58;
+  const colW = (area.w - m) / 2;
+  const topH = Math.min(area.h * 0.58, colW * (imgH / imgW) + LABEL);
   const [left, right] = columns({ x: area.x, y: area.y, w: area.w, h: topH }, 2, m);
   const original = fit(belowLabel(left), imgW, imgH);
   const decoded = fit(belowLabel(right), imgW, imgH);
@@ -162,6 +165,7 @@ export function jpegLayout(
   if (!(cssW > 2 * m + 40 && cssH > 2 * m + LABEL + 40 && imgW > 0 && imgH > 0)) {
     return { image: ZERO, panels: [], slots: {} };
   }
+  if (stage === 'overview') return overviewLayout(cssW, cssH, imgW, imgH);
   let imageArea: Rect;
   let focus: Rect;
   if (cssW >= PORTRAIT_BELOW) {
@@ -173,7 +177,6 @@ export function jpegLayout(
     imageArea = { x: m, y: m, w: cssW - 2 * m, h: rowH };
     focus = { x: m, y: 2 * m + rowH, w: cssW - 2 * m, h: cssH - 3 * m - rowH };
   }
-  if (stage === 'overview') return overviewLayout(cssW, cssH, imgW, imgH);
   const image = fit(belowLabel(imageArea), imgW, imgH);
   const panels: Panel[] = [
     { kind: stage === 'blocks' ? 'image_grid' : 'image', rect: image, label: 'The image — click a block' },

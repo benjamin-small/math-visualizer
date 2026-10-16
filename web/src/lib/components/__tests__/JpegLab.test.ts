@@ -154,9 +154,23 @@ describe('JpegLab.svelte', () => {
     expect(select.value).toBe('spring');
   });
 
+  it('falls back to the gradient, with the alert, when the very first picture cannot load', async () => {
+    vi.mocked(loadPicture).mockImplementationOnce(() =>
+      Promise.reject(new Error('Could not load the picture "Grand Prismatic Spring" (the server answered 404).')),
+    );
+    const { getByLabelText, findByRole, container } = await renderLab('b=3,4');
+    expect(lastPush()[0].image_id).toBe('gradient');
+    expect((await findByRole('alert')).textContent).toContain('the server answered 404');
+    expect((getByLabelText('Picture') as HTMLSelectElement).value).toBe('gradient');
+    // The shared link now names what is on screen, and the block that belonged to the lost picture is not carried over.
+    expect(route.query).toBe('img=gradient');
+    // On the overview the alert sits at the top, clear of the credit and the axes.
+    expect(container.querySelector('.error')?.classList.contains('top')).toBe(true);
+  });
+
   it('picks a picture from the gallery', async () => {
     const { getByRole } = await renderLab();
-    await fireEvent.click(getByRole('button', { name: 'Cosines' }));
+    await fireEvent.click(getByRole('button', { name: 'Made of cosines' }));
     await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('cosines'));
     expect(route.query).toBe('img=cosines');
   });
