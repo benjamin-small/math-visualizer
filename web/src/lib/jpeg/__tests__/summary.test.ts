@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { formatBytes, readSummary, readoutOf } from '../summary';
 import { busiestLine, cumulativeEnergy, mirrored, periodic, termsFor } from '../math';
 import { chromaKept, samplesKept, stageTex, NOTICE } from '../formulas';
-import { fitWithin } from '../images';
+import { decodeUpload, fitWithin } from '../images';
 import { jpegSummaryFixture } from '../../test/fakeViz';
 
 describe('readSummary', () => {
@@ -95,5 +95,39 @@ describe('images', () => {
     expect(fitWithin(4000, 3000)).toEqual({ w: 512, h: 384 });
     expect(fitWithin(10, 4000)).toEqual({ w: 1, h: 512 });
     expect(fitWithin(0, 10)).toEqual({ w: 0, h: 0 });
+  });
+
+  describe('decodeUpload', () => {
+    const bitmap = () => ({ width: 4, height: 2, close: vi.fn() });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it('paints the canvas white before drawing, so transparent areas are not black', async () => {
+      const calls: string[] = [];
+      const ctx = {
+        fillStyle: '',
+        fillRect: vi.fn(() => calls.push(`fill ${ctx.fillStyle}`)),
+        drawImage: vi.fn(() => calls.push('draw')),
+        getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(4 * 2 * 4) })),
+      };
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+      const b = bitmap();
+      vi.stubGlobal('createImageBitmap', vi.fn(() => Promise.resolve(b)));
+      const img = await decodeUpload(new Blob(['x']));
+      expect(calls).toEqual(['fill #fff', 'draw']);
+      expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 4, 2);
+      expect([img.w, img.h]).toEqual([4, 2]);
+      expect(b.close).toHaveBeenCalled();
+    });
+
+    it('releases the bitmap when the canvas cannot be read', async () => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+      const b = bitmap();
+      vi.stubGlobal('createImageBitmap', vi.fn(() => Promise.resolve(b)));
+      await expect(decodeUpload(new Blob(['x']))).rejects.toThrow(/cannot read image pixels/);
+      expect(b.close).toHaveBeenCalled();
+    });
   });
 });

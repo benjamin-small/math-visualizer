@@ -22,6 +22,16 @@ describe('params', () => {
     expect(parseParams('b=1.5,2').block).toBeUndefined();
   });
 
+  it('treats a blank quality as missing and accepts only plain digits in a block', () => {
+    expect(parseParams('q=').quality).toBe(50);
+    expect(parseParams('q=%20').quality).toBe(50);
+    expect(parseParams('b=,').block).toBeUndefined();
+    expect(parseParams('b=1e1,2').block).toBeUndefined();
+    expect(parseParams('b=0x10,2').block).toBeUndefined();
+    expect(parseParams('b=%201,2').block).toBeUndefined();
+    expect(parseParams('b=10,2').block).toEqual([10, 2]);
+  });
+
   it('clamps quality to whole numbers 1–100', () => {
     expect(clampQuality(0)).toBe(1);
     expect(clampQuality(250)).toBe(100);
