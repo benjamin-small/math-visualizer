@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use jpeg::bits::BitSpan;
 use jpeg::blocks::level_shift;
 use jpeg::codec::{decode, encode, Encoded, HuffmanMode, Options};
+use jpeg::huffman::{canonical_codes, HuffTable};
 use jpeg::metrics::{entropy_bits, psnr};
 use jpeg::zigzag::to_zigzag;
 use jpeg::{Rgb8Image, Subsampling};
@@ -20,6 +21,7 @@ use serde_json::{json, Value};
 
 use crate::config::{number_property, ConfigSchema, NumberOpts};
 use crate::jpeg_images::builtin_image;
+use crate::rules::jpeg_hints::{find_hints, Hints};
 use crate::traits::{Capabilities, Rule, SceneState};
 
 /// Side of the generated built-ins when no pixels were pushed.
@@ -66,6 +68,11 @@ pub struct JpegConfig {
     /// The engine clock's length: the image's MCU count (the lab computes it).
     #[serde(default = "default_max_iterations")]
     pub max_iterations: u32,
+    /// Custom `[luma, chroma]` quantization tables (64 entries each, row-major,
+    /// 1–255) used instead of the quality-scaled standard ones; `None` for the
+    /// standard tables.
+    #[serde(default)]
+    pub tables: Option<[Vec<u16>; 2]>,
     /// The image installed by `apply_image`.
     #[serde(skip)]
     pub pixels: Option<Rgb8Image>,
@@ -89,6 +96,7 @@ impl ConfigSchema for JpegConfig {
                 }),
                 "subsampling": { "type": "string", "title": "Subsampling", "enum": ["444", "422", "420"], "default": "420", "x-cosmetic": false },
                 "huffman": { "type": "string", "title": "Huffman tables", "enum": ["optimized", "standard"], "default": "optimized", "x-cosmetic": false },
+                "tables": { "title": "Custom quantization tables", "default": null, "x-cosmetic": false },
                 "max_iterations": number_property(NumberOpts {
                     label: "MCUs",
                     default: default_max_iterations() as f64,
@@ -110,6 +118,7 @@ impl ConfigSchema for JpegConfig {
             "quality": default_quality(),
             "subsampling": default_subsampling(),
             "huffman": default_huffman(),
+            "tables": null,
             "max_iterations": default_max_iterations(),
         })
     }
@@ -139,9 +148,21 @@ pub fn mcu_count(w: usize, h: usize, s: Subsampling) -> usize {
     w.div_ceil(8 * fh) * h.div_ceil(8 * fv)
 }
 
-/// The encoder options a config asks for.
-pub fn options_of(cfg: &JpegConfig) -> Options {
-    Options {
+/// The encoder options a config asks for. Custom tables must have 64
+/// entries each; their values are checked by the encoder (1–255).
+pub fn options_of(cfg: &JpegConfig) -> Result<Options, String> {
+    let tables = match &cfg.tables {
+        None => None,
+        Some([luma, chroma]) => {
+            let table = |t: &Vec<u16>| -> Result<[u16; 64], String> {
+                t.as_slice()
+                    .try_into()
+                    .map_err(|_| format!("a quantization table needs 64 entries, got {}", t.len()))
+            };
+            Some([table(luma)?, table(chroma)?])
+        }
+    };
+    Ok(Options {
         quality: cfg.quality,
         subsampling: parse_subsampling(&cfg.subsampling),
         huffman: if cfg.huffman == "standard" {
@@ -149,8 +170,9 @@ pub fn options_of(cfg: &JpegConfig) -> Options {
         } else {
             HuffmanMode::Optimized
         },
+        tables,
         ..Options::default()
-    }
+    })
 }
 
 /// The block every stage follows: component (0 = Y, 1 = Cb, 2 = Cr) and its
@@ -184,6 +206,8 @@ pub struct JpegState {
     pub version: u32,
     /// Why the encode failed, if it did.
     pub error: Option<String>,
+    /// Where each compression artifact is worst (None if the encode failed).
+    pub hints: Option<Hints>,
 }
 
 impl SceneState for JpegState {
@@ -218,6 +242,7 @@ impl JpegState {
                 bx: 0,
                 by: 0,
             });
+        let hints = decoded.as_ref().and_then(|d| find_hints(&original, d));
         Self {
             original,
             encoded,
@@ -227,6 +252,26 @@ impl JpegState {
             selection,
             version,
             error,
+            hints,
+        }
+    }
+
+    /// A state that could not be encoded: the picture, no file, and why.
+    pub fn failed(original: Rgb8Image, error: String) -> Self {
+        Self {
+            original,
+            encoded: None,
+            decoded: None,
+            psnr: 0.0,
+            n: 0,
+            selection: Selection {
+                component: 0,
+                bx: 0,
+                by: 0,
+            },
+            version: NEXT_VERSION.fetch_add(1, Ordering::Relaxed),
+            error: Some(error),
+            hints: None,
         }
     }
 
@@ -274,6 +319,27 @@ fn span_json(s: BitSpan) -> Value {
     json!([s.start_bit, s.len])
 }
 
+/// `code`'s low `len` bits as '0'/'1' (empty when the symbol has no code).
+fn code_string(t: &HuffTable, symbol: u8) -> String {
+    let len = t.len[symbol as usize] as usize;
+    if len == 0 {
+        return String::new();
+    }
+    format!("{:0len$b}", t.code[symbol as usize], len = len)
+}
+
+/// The `size` amplitude bits of `v` as '0'/'1'.
+fn amp_string(v: i32) -> String {
+    let (bits, size) = jpeg::rle::amplitude_bits(v);
+    if size == 0 {
+        return String::new();
+    }
+    format!("{:0size$b}", bits, size = size as usize)
+}
+
+/// The names `inspect("huffman")` gives the four tables, in trace order.
+pub const TABLE_NAMES: [&str; 4] = ["dc_luma", "ac_luma", "dc_chroma", "ac_chroma"];
+
 fn selected_json(state: &JpegState) -> Value {
     let Some(e) = &state.encoded else {
         return Value::Null;
@@ -284,11 +350,24 @@ fn selected_json(state: &JpegState) -> Value {
         return Value::Null;
     };
     let table = t.tables[(component > 0) as usize];
+    let (dc_slot, ac_slot) = if component == 0 { (0, 1) } else { (2, 3) };
+    let codes = |slot: usize| canonical_codes(&t.huffman[slot]).ok();
+    let (dc_codes, ac_codes) = (codes(dc_slot), codes(ac_slot));
     let tokens: Vec<Value> = b
         .tokens
         .iter()
-        .map(|tk| json!({ "run": tk.run, "size": tk.size, "amp": tk.amp, "symbol": tk.symbol() }))
+        .map(|tk| {
+            json!({
+                "run": tk.run,
+                "size": tk.size,
+                "amp": tk.amp,
+                "symbol": tk.symbol(),
+                "code": ac_codes.as_ref().map(|c| code_string(c, tk.symbol())).unwrap_or_default(),
+                "amp_bits": amp_string(tk.amp),
+            })
+        })
         .collect();
+    let dc_size = jpeg::rle::size_category(b.dc_diff);
     json!({
         "component": component,
         "bx": bx,
@@ -302,6 +381,9 @@ fn selected_json(state: &JpegState) -> Value {
         "zigzag": to_zigzag(&b.quant).to_vec(),
         "dc_prev": b.dc_prev,
         "dc_diff": b.dc_diff,
+        "dc_size": dc_size,
+        "dc_code": dc_codes.as_ref().map(|c| code_string(c, dc_size)).unwrap_or_default(),
+        "dc_amp_bits": amp_string(b.dc_diff),
         "tokens": tokens,
         "bit_span": span_json(b.bits),
         "bits": t.bit_string(b.bits),
@@ -332,7 +414,10 @@ impl Rule for JpegRule {
                 .or_else(|| builtin_image("gradient", BUILTIN_SIDE, BUILTIN_SIDE))
                 .expect("the gradient built-in always generates")
         });
-        JpegState::build(original, &options_of(cfg))
+        match options_of(cfg) {
+            Ok(opts) => JpegState::build(original, &opts),
+            Err(e) => JpegState::failed(original, e),
+        }
     }
 
     fn advance_to(&self, state: &mut Self::State, _cfg: &Self::Config, _seed: u64, n: u32) {
@@ -383,6 +468,7 @@ impl Rule for JpegRule {
             "mcu": layout,
             "grids": grids,
             "selected": selected_json(state),
+            "hints": state.hints,
             "error": state.error,
         })
     }
@@ -432,13 +518,70 @@ impl Rule for JpegRule {
         }
     }
 
-    /// `"tables"` → `{ "luma": [64], "chroma": [64] }` (row-major).
+    /// On-demand views:
+    /// - `"tables"` → `{ "luma": [64], "chroma": [64] }` (row-major).
+    /// - `"huffman"` → the four tables in `TABLE_NAMES` order, each
+    ///   `{ name, bits: [16], vals, codes: [{ symbol, code }], counts: [[symbol, count]],
+    ///   entropy_bits, actual_bits }` (counts only for symbols that occur;
+    ///   `actual_bits` = Σ count × code length, amplitude bits excluded).
+    /// - `"segments"` → `[{ marker, kind, offset, len }]` for the file's
+    ///   marker segments (SOS's `len` includes the scan data).
     fn inspect(&self, state: &Self::State, key: &str) -> Value {
-        match (key, &state.encoded) {
-            ("tables", Some(e)) => json!({
-                "luma": e.trace.tables[0].to_vec(),
-                "chroma": e.trace.tables[1].to_vec(),
+        let Some(e) = &state.encoded else {
+            return Value::Null;
+        };
+        let t = &e.trace;
+        match key {
+            "tables" => json!({
+                "luma": t.tables[0].to_vec(),
+                "chroma": t.tables[1].to_vec(),
             }),
+            "huffman" => Value::Array(
+                (0..4)
+                    .map(|slot| {
+                        let spec = &t.huffman[slot];
+                        let freq = &t.frequencies[slot];
+                        let codes = canonical_codes(spec).ok();
+                        let len = |s: u8| codes.as_ref().map_or(0, |c| c.len[s as usize] as u64);
+                        let counts: Vec<Value> = freq
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, &c)| c > 0)
+                            .map(|(sym, &c)| json!([sym, c]))
+                            .collect();
+                        let actual: u64 = freq
+                            .iter()
+                            .enumerate()
+                            .map(|(sym, &c)| c as u64 * len(sym as u8))
+                            .sum();
+                        json!({
+                            "name": TABLE_NAMES[slot],
+                            "bits": spec.bits.to_vec(),
+                            "vals": spec.vals,
+                            "codes": spec.vals.iter().map(|&v| json!({
+                                "symbol": v,
+                                "code": codes.as_ref().map(|c| code_string(c, v)).unwrap_or_default(),
+                            })).collect::<Vec<_>>(),
+                            "counts": counts,
+                            "entropy_bits": entropy_bits(freq),
+                            "actual_bits": actual,
+                        })
+                    })
+                    .collect(),
+            ),
+            "segments" => Value::Array(
+                t.segments
+                    .iter()
+                    .map(|sg| {
+                        json!({
+                            "marker": sg.marker,
+                            "kind": format!("{:?}", sg.kind),
+                            "offset": sg.offset,
+                            "len": sg.len,
+                        })
+                    })
+                    .collect(),
+            ),
             _ => Value::Null,
         }
     }
@@ -503,12 +646,12 @@ mod tests {
         c.quality = 90;
         c.subsampling = "444".into();
         c.huffman = "standard".into();
-        let o = options_of(&c);
+        let o = options_of(&c).unwrap();
         assert_eq!(o.quality, 90);
         assert_eq!(o.subsampling, Subsampling::S444);
         assert_eq!(o.huffman, HuffmanMode::Standard);
         c.subsampling = "nonsense".into();
-        assert_eq!(options_of(&c).subsampling, Subsampling::S420);
+        assert_eq!(options_of(&c).unwrap().subsampling, Subsampling::S420);
     }
 
     #[test]
@@ -636,5 +779,107 @@ mod tests {
         let a = JpegRule.init(&cfg(), 0);
         let b = JpegRule.init(&cfg(), 0);
         assert_ne!(a.version, b.version);
+    }
+
+    #[test]
+    fn custom_tables_travel_in_the_config() {
+        let mut c = cfg();
+        c.tables = Some([vec![1; 64], vec![255; 64]]);
+        let s = JpegRule.init(&c, 0);
+        assert!(s.error.is_none());
+        assert_eq!(
+            s.encoded.as_ref().unwrap().trace.tables,
+            [[1; 64], [255; 64]]
+        );
+        let json = serde_json::to_value(&c).unwrap();
+        assert_eq!(json["tables"][1][0], 255);
+        // Wrong length: refused before encoding, with a reason.
+        c.tables = Some([vec![1; 63], vec![1; 64]]);
+        let s = JpegRule.init(&c, 0);
+        assert!(s.encoded.is_none());
+        assert!(s.error.as_deref().unwrap().contains("64 entries"));
+        assert_eq!(JpegRule.summary(&s)["total"], 0);
+        // Out-of-range entries: refused by the encoder.
+        c.tables = Some([vec![0; 64], vec![1; 64]]);
+        assert!(JpegRule.init(&c, 0).error.is_some());
+    }
+
+    #[test]
+    fn the_selected_blocks_codes_spell_out_its_bits() {
+        let s = JpegRule.init(&cfg(), 0);
+        let sel = &JpegRule.summary(&s)["selected"];
+        let mut spelled = String::new();
+        spelled += sel["dc_code"].as_str().unwrap();
+        spelled += sel["dc_amp_bits"].as_str().unwrap();
+        for t in sel["tokens"].as_array().unwrap() {
+            spelled += t["code"].as_str().unwrap();
+            spelled += t["amp_bits"].as_str().unwrap();
+        }
+        assert_eq!(spelled, sel["bits"].as_str().unwrap());
+        assert!(!sel["dc_code"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn huffman_view_lists_four_tables_above_their_entropy_bound() {
+        let s = JpegRule.init(&cfg(), 0);
+        let h = JpegRule.inspect(&s, "huffman");
+        let tables = h.as_array().unwrap();
+        assert_eq!(tables.len(), 4);
+        assert_eq!(tables[0]["name"], "dc_luma");
+        // One DC symbol per luma block: 32 × 32 blocks.
+        let dc_count: u64 = tables[0]["counts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c[1].as_u64().unwrap())
+            .sum();
+        assert_eq!(dc_count, 1024);
+        for t in tables {
+            assert_eq!(
+                t["codes"].as_array().unwrap().len(),
+                t["vals"].as_array().unwrap().len()
+            );
+            let (actual, bound) = (
+                t["actual_bits"].as_f64().unwrap(),
+                t["entropy_bits"].as_f64().unwrap(),
+            );
+            assert!(actual + 1e-6 >= bound, "{}: {actual} < {bound}", t["name"]);
+        }
+    }
+
+    #[test]
+    fn segments_view_walks_the_file() {
+        let s = JpegRule.init(&cfg(), 0);
+        let segs = JpegRule.inspect(&s, "segments");
+        let kinds: Vec<&str> = segs
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["kind"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, ["Soi", "App0", "Dqt", "Sof0", "Dht", "Sos", "Eoi"]);
+        let last = &segs.as_array().unwrap()[6];
+        let bytes = JpegRule.bytes(&s).unwrap().len() as u64;
+        assert_eq!(
+            last["offset"].as_u64().unwrap() + last["len"].as_u64().unwrap(),
+            bytes
+        );
+    }
+
+    #[test]
+    fn hints_point_inside_the_grid() {
+        let s = JpegRule.init(&cfg(), 0);
+        let v = JpegRule.summary(&s);
+        for key in ["blocking", "bleed"] {
+            let b = &v["hints"][key];
+            assert!(
+                b[0].as_u64().unwrap() < 32 && b[1].as_u64().unwrap() < 32,
+                "{key}"
+            );
+        }
+        let mut c = cfg();
+        c.image_id = "text".into();
+        let t = JpegRule.init(&c, 0);
+        assert!(JpegRule.summary(&t)["hints"]["ringing"].is_array());
     }
 }

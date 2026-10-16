@@ -166,6 +166,55 @@ fn every_panel_kind_renders_without_a_gl_error() {
 }
 
 #[wasm_bindgen_test]
+fn custom_tables_and_the_huffman_views_cross_the_boundary() {
+    make_canvas("jpeg-tables");
+    let mut engine = Engine::new("jpeg-tables", Some("jpeg".into())).unwrap();
+    let default_bytes = num(&engine.rule_summary(), "bytes");
+    let ones = vec!["1"; 64].join(",");
+    let rgba: Vec<u8> = (0..32 * 32 * 4).map(|i| (i * 13 % 256) as u8).collect();
+    engine
+        .update_rule_config_with_image(
+            js(&format!(
+                r#"{{"image_id":"upload","quality":50,"subsampling":"420","huffman":"optimized","max_iterations":4,"tables":[[{ones}],[{ones}]]}}"#
+            )),
+            32,
+            32,
+            &rgba,
+        )
+        .expect("config accepted");
+    let tables = engine.rule_inspect("tables");
+    assert_eq!(
+        js_sys::Array::from(&get(&tables, "luma")).get(63).as_f64(),
+        Some(1.0)
+    );
+    let huffman = js_sys::Array::from(&engine.rule_inspect("huffman"));
+    assert_eq!(huffman.length(), 4);
+    assert_eq!(
+        get(&huffman.get(0), "name").as_string().as_deref(),
+        Some("dc_luma")
+    );
+    let segments = js_sys::Array::from(&engine.rule_inspect("segments"));
+    assert_eq!(
+        get(&segments.get(0), "kind").as_string().as_deref(),
+        Some("Soi")
+    );
+    let summary = engine.rule_summary();
+    assert!(get(&summary, "hints").is_object());
+    assert!(num(&summary, "bytes") > 0.0 && num(&summary, "bytes") != default_bytes);
+
+    // A table that is not 64 entries is reported in the summary, not thrown.
+    engine
+        .update_rule_config_with_image(
+            js(r#"{"image_id":"upload","quality":50,"subsampling":"420","huffman":"optimized","max_iterations":4,"tables":[[1,2,3],[1]]}"#),
+            32,
+            32,
+            &rgba,
+        )
+        .expect("config accepted");
+    assert!(get(&engine.rule_summary(), "error").as_string().is_some());
+}
+
+#[wasm_bindgen_test]
 fn panels_render_after_a_re_encode() {
     let canvas = make_canvas("jpeg-reencode");
     let mut engine = Engine::new("jpeg-reencode", Some("jpeg".into())).unwrap();
