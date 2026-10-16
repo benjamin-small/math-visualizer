@@ -5,23 +5,33 @@
 import { buildQuery } from '../router';
 import { DEFAULT_STAGE, readyStage, type StageId } from './stages';
 
+/** A built-in picture. */
 export type ImageId = 'gradient' | 'text' | 'bars';
+/** Chroma subsampling mode, as in the share link. */
 export type SubsamplingId = '444' | '422' | '420';
+/** Where the Huffman code lengths come from. */
 export type HuffmanId = 'optimized' | 'standard';
 
+/** Every built-in picture id, in picker order. */
 export const IMAGE_IDS: readonly ImageId[] = ['gradient', 'text', 'bars'];
 
+/** Everything a share link carries. */
 export interface JpegParams {
+  /** Which built-in picture. */
   img: ImageId;
   /** 1–100. */
   quality: number;
+  /** Chroma subsampling mode. */
   subsampling: SubsamplingId;
+  /** Where the Huffman code lengths come from. */
   huffman: HuffmanId;
+  /** The stage on screen. */
   stage: StageId;
-  /** The selected luma block `[bx, by]`; undefined → the encoder's default (the centre). */
+  /** The selected luma block `[bx, by]`; undefined → the encoder's default (the luma block with the most AC energy). */
   block?: [number, number];
 }
 
+/** The settings an empty link means; they are left out of written links. */
 export const DEFAULTS: JpegParams = {
   img: 'gradient',
   quality: 50,
@@ -32,11 +42,13 @@ export const DEFAULTS: JpegParams = {
 
 /** Quality from a link or a slider: a whole number in 1–100 (50 when unreadable). */
 export function clampQuality(v: unknown): number {
-  const n = typeof v === 'number' ? v : Number(v);
+  // `Number('')` is 0, which would clamp a blank `q=` to 1 rather than leave it unset.
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() === '' ? NaN : Number(v);
   if (!Number.isFinite(n)) return DEFAULTS.quality;
   return Math.min(100, Math.max(1, Math.round(n)));
 }
 
+/** Read a link's query string; every field that is missing or malformed takes its default. */
 export function parseParams(query: string): JpegParams {
   const p = new URLSearchParams(query);
   const img = p.get('img');
@@ -44,7 +56,7 @@ export function parseParams(query: string): JpegParams {
   const block = p
     .get('b')
     ?.split(',')
-    .map((v) => Number(v));
+    .map((v) => (/^\d+$/.test(v) ? Number(v) : NaN));
   return {
     img: (IMAGE_IDS as readonly string[]).includes(img ?? '') ? (img as ImageId) : DEFAULTS.img,
     quality: p.has('q') ? clampQuality(p.get('q')) : DEFAULTS.quality,
@@ -58,6 +70,7 @@ export function parseParams(query: string): JpegParams {
   };
 }
 
+/** Write the query string for `p`, leaving out the defaults. */
 export function buildParams(p: JpegParams): string {
   return buildQuery({
     img: p.img === DEFAULTS.img ? undefined : p.img,

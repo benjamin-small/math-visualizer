@@ -7,8 +7,11 @@ import type { ImageId } from './params';
 
 /** RGBA pixels, 4 bytes each, top row first. */
 export interface RgbaImage {
+  /** Width in pixels. */
   w: number;
+  /** Height in pixels. */
   h: number;
+  /** `w × h × 4` bytes, row-major. */
   rgba: Uint8Array;
 }
 
@@ -17,6 +20,7 @@ export const BUILTIN_SIDE = 256;
 /** Uploads are scaled down so neither side exceeds this. */
 export const MAX_SIDE = 512;
 
+/** The built-in pictures the lab offers, in picker order, with the line shown on hover. */
 export const IMAGES: readonly { id: ImageId; label: string; title: string }[] = [
   { id: 'gradient', label: 'Gradient', title: 'A smooth sky: low quality shows blocks' },
   { id: 'text', label: 'Text', title: 'Hard black-on-white edges: low quality rings' },
@@ -53,7 +57,13 @@ export async function decodeUpload(file: Blob): Promise<RgbaImage> {
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) throw new Error('This browser cannot read image pixels.');
+  if (!ctx) {
+    bitmap.close();
+    throw new Error('This browser cannot read image pixels.');
+  }
+  // JPEG has no alpha: paint white first so transparent areas are not black.
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
   ctx.drawImage(bitmap, 0, 0, w, h);
   bitmap.close();
   const data = ctx.getImageData(0, 0, w, h).data;
