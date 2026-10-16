@@ -18,9 +18,12 @@ pub const EDGE_STEP: f32 = 64.0;
 /// Luma block coordinates `[bx, by]` of each artifact's worst block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Hints {
+    /// The block whose right or bottom border gained the largest mean step
+    /// (luma block coordinates).
     pub blocking: [usize; 2],
     /// `None` when the picture has no hard edges at all.
     pub ringing: Option<[usize; 2]>,
+    /// The block with the largest mean Cb + Cr error.
     pub bleed: [usize; 2],
 }
 
@@ -131,10 +134,12 @@ mod tests {
 
     #[test]
     fn blocking_finds_the_step_compression_added() {
-        let orig = img(32, 16, |_, _| [100, 100, 100]);
-        // The decoded copy jumps at x = 16 inside the top row of blocks only.
-        let dec = img(32, 16, |x, y| {
-            if x >= 16 && y < 8 {
+        // One block row, so every block's bottom border is the image's edge
+        // and only right borders can score. The decoded copy jumps at x = 16,
+        // the right border of block (1, 0); no other border changed.
+        let orig = img(32, 8, |_, _| [100, 100, 100]);
+        let dec = img(32, 8, |x, _| {
+            if x >= 16 {
                 [130, 130, 130]
             } else {
                 [100, 100, 100]
@@ -206,5 +211,24 @@ mod tests {
         assert_eq!(find_hints(&a, &b), None);
         let odd = img(13, 5, |x, _| [x as u8 * 10, 0, 0]);
         assert!(find_hints(&odd, &odd).is_some());
+    }
+
+    #[test]
+    fn a_single_block_has_no_border_to_score() {
+        let orig = img(8, 8, |_, _| [100, 100, 100]);
+        let dec = img(8, 8, |_, _| [130, 130, 130]);
+        // One block and no neighbour: nothing scores, so the first block stays.
+        assert_eq!(find_hints(&orig, &dec).unwrap().blocking, [0, 0]);
+    }
+
+    #[test]
+    fn an_empty_image_has_no_hints() {
+        // `Rgb8Image::new` rejects zero sizes, but the fields are public.
+        let empty = Rgb8Image {
+            w: 0,
+            h: 0,
+            rgba: Vec::new(),
+        };
+        assert_eq!(find_hints(&empty, &empty), None);
     }
 }
