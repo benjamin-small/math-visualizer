@@ -2,44 +2,73 @@
 // Rust's `None` over as `undefined`, so every optional field is checked with
 // `== null` (null or undefined), never `=== null`.
 
+/** One run-length token of a block's AC coefficients. */
 export interface AcToken {
+  /** Zeros before the coefficient (0–15). */
   run: number;
+  /** Bits needed for `amp` (0 for ZRL and EOB). */
   size: number;
+  /** The coefficient value (0 for ZRL and EOB). */
   amp: number;
+  /** The Huffman symbol, `run << 4 | size`. */
   symbol: number;
 }
 
+/** The block the stages follow, with every intermediate form of it. */
 export interface SelectedBlock {
   /** 0 = Y, 1 = Cb, 2 = Cr. */
   component: number;
+  /** Block column in that component's grid. */
   bx: number;
+  /** Block row in that component's grid. */
   by: number;
+  /** Index of the MCU the block belongs to (its place in the scan). */
   mcu: number;
   /** The 64 coded samples (0–255), row-major. */
   pixels: number[];
   /** `pixels − 128`. */
   shifted: number[];
+  /** The 64 DCT coefficients, row-major (index `u + 8v`). */
   dct: number[];
+  /** The quantized coefficients, row-major. */
   quant: number[];
+  /** The quantization table in use, row-major. */
   table: number[];
+  /** The quantized coefficients in zigzag order. */
   zigzag: number[];
+  /** The quantized DC of the previous block of this component (0 for the first). */
   dcPrev: number;
+  /** This block's quantized DC minus `dcPrev`: the value that gets coded. */
   dcDiff: number;
+  /** The AC coefficients as run/size tokens (ending with EOB unless the last coefficient is non-zero). */
   tokens: AcToken[];
+  /** `[start bit, length]` of this block's bits in the entropy-coded payload. */
   bitSpan: [number, number];
+  /** This block's bits, as a string of 0s and 1s. */
   bits: string;
 }
 
+/** The rule's per-frame summary: the encode's totals, the scan position and the selected block. */
 export interface JpegSummary {
+  /** Changes on every re-encode. */
   version: number;
+  /** MCUs scanned so far. */
   n: number;
+  /** MCUs in the image. */
   total: number;
+  /** Image width in pixels. */
   width: number;
+  /** Image height in pixels. */
   height: number;
+  /** Size of the JPEG file. */
   bytes: number;
+  /** Size of the same image as raw RGB. */
   rawBytes: number;
+  /** Payload bits written for the MCUs scanned so far. */
   bitsSoFar: number;
+  /** Payload bits of the whole scan. */
   payloadBits: number;
+  /** Shannon's bound for the scan's symbols: the fewest bits any code could spend on them. */
   entropyBits: number;
   /** dB; null for a perfect copy. */
   psnr: number | null;
@@ -50,6 +79,7 @@ export interface JpegSummary {
   /** Block grid `[cols, rows]` per component. */
   grids: [number, number][];
   selected: SelectedBlock | null;
+  /** Why the encode failed, or null. */
   error: string | null;
 }
 

@@ -2,6 +2,7 @@
 // shows all of them; a stage is `ready` once its screen exists (the rest are
 // shown, disabled, so the whole pipeline is visible from the start).
 
+/** A pipeline stage's id, as written in the link and used by the rail. */
 export type StageId =
   | 'color'
   | 'subsample'
@@ -13,16 +14,21 @@ export type StageId =
   | 'huffman'
   | 'decode';
 
+/** A stage as the rail and the story card describe it. */
 export interface StageInfo {
+  /** The stage's id. */
   id: StageId;
   /** What the rail prints in the step's circle: 1–8, then ↺ for decode. */
   mark: string;
+  /** Name on the rail and the story card. */
   title: string;
   /** One line under the title. */
   subtitle: string;
+  /** Whether the stage has a screen yet (the rest show disabled on the rail). */
   ready: boolean;
 }
 
+/** All nine stages in pipeline order. */
 export const STAGES: readonly StageInfo[] = [
   { id: 'color', mark: '1', title: 'Color', subtitle: 'RGB turns into brightness + two colour differences', ready: true },
   { id: 'subsample', mark: '2', title: 'Subsample', subtitle: 'Keep less colour than brightness', ready: true },
@@ -35,8 +41,10 @@ export const STAGES: readonly StageInfo[] = [
   { id: 'decode', mark: '↺', title: 'Decode', subtitle: 'Undo it all and compare', ready: false },
 ];
 
+/** The stage a link without `stage=` opens on. */
 export const DEFAULT_STAGE: StageId = 'color';
 
+/** Whether `s` names a stage (ready or not). */
 export function isStageId(s: unknown): s is StageId {
   return typeof s === 'string' && STAGES.some((st) => st.id === s);
 }

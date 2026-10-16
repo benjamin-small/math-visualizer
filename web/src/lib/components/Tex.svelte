@@ -6,6 +6,7 @@
   import { onMount } from 'svelte';
 
   interface Props {
+    /** The TeX source; only numbers may be interpolated into it. */
     tex: string;
     /** Display (block) math; inline when false. */
     display?: boolean;
