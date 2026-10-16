@@ -11,6 +11,7 @@ pub mod line_batch;
 pub mod line_batch_3d;
 pub mod sdf_circle;
 pub mod shader;
+pub mod texture_quad;
 
 pub use camera_2d::{pixel_projection, Camera2D};
 pub use camera_3d::Camera3D;
