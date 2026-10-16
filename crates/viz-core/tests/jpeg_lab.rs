@@ -152,8 +152,13 @@ fn every_panel_kind_renders_without_a_gl_error() {
                 {"kind":"atlas","rect":[150,100,50,50]},
                 {"kind":"coeffs","rect":[200,100,50,50]},
                 {"kind":"rebuild","rect":[250,100,50,50]},
+                {"kind":"quant","rect":[300,100,50,50]},
+                {"kind":"dequant_rebuild","rect":[350,100,50,50]},
+                {"kind":"zigzag","rect":[0,200,80,80]},
+                {"kind":"wipe","rect":[80,200,100,100]},
+                {"kind":"error","rect":[180,200,100,100]},
                 {"kind":"unknown","rect":[0,0,1,1]}
-            ],"cube_mix":0.5,"dct_k":6,"hover":[1,2]}"#))
+            ],"cube_mix":0.5,"dct_k":6,"hover":[1,2],"zigzag_speed":30,"wipe":0.3,"error_gain":8}"#))
         .expect("panels accepted");
     engine
         .forward_input(js(
@@ -162,7 +167,11 @@ fn every_panel_kind_renders_without_a_gl_error() {
         .unwrap();
     engine.frame(0.0);
     engine.frame(16.0);
+    engine.frame(116.0);
     assert_eq!(gl_of(&canvas).get_error(), WebGl2RenderingContext::NO_ERROR);
+    // The zigzag path has moved on: 30 cells/s over the frames since it started.
+    let zig = num(&engine.viz_readout(), "zigzag");
+    assert!(zig > 0.0 && zig <= 64.0, "zigzag readout {zig}");
 }
 
 #[wasm_bindgen_test]
