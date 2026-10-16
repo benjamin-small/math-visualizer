@@ -82,7 +82,7 @@ A first-time visitor should see what JPEG *did* before they see how. The lab ope
   - The raw histogram counts the RGB samples, not alpha.
   - The JPEG histogram counts the whole file, headers included.
 - **Doge's caption gets checked before shipping**, since the research didn't read its overlay text. The builder judges it: it must be ordinary Doge-style words with nothing offensive or pointed at a real person. If it fails, the builder recaptions the public-domain base photo `Shiba_inu_taiki.jpg` in Doge style and updates the credits.
-- **The cartoon's caption is drawn as outlined paths in the SVG.** No font file ships; Impact itself is not redistributable.
+- **The cartoon is drawn by a script, not by hand in an SVG.** `scripts/jpeg-gallery/make_cartoon.py` (Pillow) draws flat shapes with bold outlines. It renders the captions "SAVED IT AS JPEG" / "NEEDS MORE JPEG" in Impact, which is installed with macOS, onto a 320 × 240 PNG. Only the PNG ships; no font file is redistributed. The script is committed so the art can be regenerated.
 - **The byte histograms are honest.** The JPEG histogram counts the whole file, so header and byte-stuffing spikes show. The entropy number in bits per byte carries the "looks like noise" message. If the headers dominate on tiny files, a "scan data only" toggle may be added; measure this in the prototype.
 - **Old links without `img=` now open on the spring** rather than the gradient. That is acceptable for a lab this new. Links that name a picture are unaffected.
 
@@ -106,6 +106,7 @@ All measured at quality 50, 4:2:0, optimized Huffman, with the repo's own encode
 | STS-135 | 256 × 256 | 196,608 | 6,973 | 28.9 dB | 7.02 | 4.51 | 7.94 |
 | Doge | 272 × 320 | 261,120 | 9,118 | 27.1 dB | 7.61 | 4.81 | 7.94 |
 | Honest work | 320 × 203 | 194,880 | 9,912 | 30.5 dB | 7.65 | 5.08 | 7.95 |
+| Cartoon meme (original) | 320 × 240 | 230,400 | 11,132 | 28.9 dB | 5.09 | 2.72 | 7.95 |
 | Made of cosines | 256 × 256 | 196,608 | 2,461 | 38.4 dB | 7.09 | n/a | 7.39 |
 | Cosines, shifted 4 px | 256 × 256 | 196,608 | 17,027 | 25.3 dB | 7.09 | n/a | 7.92 |
 | Pure noise | 256 × 256 | 196,608 | 25,317 | 11.8 dB | 8.00 | n/a | 7.95 |
