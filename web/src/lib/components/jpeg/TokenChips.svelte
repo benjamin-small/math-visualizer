@@ -5,13 +5,16 @@
   // the Huffman code, then the amplitude bits.
   import type { Rect } from '../../jpeg/layout';
   import type { SelectedBlock } from '../../jpeg/summary';
+  import { tooltip, type TooltipController } from './tooltip.svelte';
 
   interface Props {
     rect: Rect;
     sel: SelectedBlock;
+    /** The page's cards: the bit count and each chip explain themselves. */
+    ctl: TooltipController;
   }
 
-  let { rect, sel }: Props = $props();
+  let { rect, sel, ctl }: Props = $props();
 
   /** What a token stands for, in words. */
   function label(t: SelectedBlock['tokens'][number]): string {
@@ -20,25 +23,22 @@
     return `(${t.run}, ${t.size}) ${t.amp}`;
   }
 
-  function title(t: SelectedBlock['tokens'][number]): string {
-    if (t.size === 0 && t.run === 0) return 'End of block: every remaining coefficient is zero';
-    if (t.size === 0 && t.run === 15) return 'Sixteen zeros in a row';
-    return `Skip ${t.run} zero${t.run === 1 ? '' : 's'}, then ${t.amp} (needs ${t.size} bit${t.size === 1 ? '' : 's'})`;
-  }
-
   const bitCount = $derived(sel.bits.length);
 </script>
 
 {#if rect.w > 120}
   <div class="tokens" style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
-    <div class="head">64 numbers become {sel.tokens.length + 1} tokens and {bitCount} bits</div>
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="head" tabindex="0" use:tooltip={{ ctl, target: { id: 'rle.bits' } }}>64 numbers become {sel.tokens.length + 1} tokens and {bitCount} bits</div>
     <ul>
-      <li class="chip dc" title="DC: this block's average, stored as the change from the previous block's ({sel.dcPrev})">
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+      <li class="chip dc" tabindex="0" use:tooltip={{ ctl, target: { id: 'rle.dc' } }}>
         <span class="what">DC {sel.dcDiff >= 0 ? '+' : ''}{sel.dcDiff}</span>
         <span class="bits mono"><span class="code">{sel.dcCode}</span><span class="amp">{sel.dcAmpBits}</span></span>
       </li>
       {#each sel.tokens as t, i (i)}
-        <li class="chip" class:end={t.size === 0} title={title(t)}>
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+        <li class="chip" class:end={t.size === 0} tabindex="0" use:tooltip={{ ctl, target: { id: 'rle.token', i } }}>
           <span class="what">{label(t)}</span>
           <span class="bits mono"><span class="code">{t.code}</span><span class="amp">{t.ampBits}</span></span>
         </li>
@@ -51,6 +51,7 @@
 <style>
   .tokens { position: absolute; display: flex; flex-direction: column; gap: 8px; overflow: auto; color: rgba(255, 255, 255, 0.72); font-size: 12px; pointer-events: auto; }
   .head { white-space: nowrap; }
+  .head:focus-visible, .chip:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
   .chip {
     display: flex;

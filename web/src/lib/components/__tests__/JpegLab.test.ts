@@ -852,6 +852,157 @@ describe('JpegLab.svelte cards', () => {
     expect(document.querySelector('[data-testid="tooltip-pinned"]')).toBeNull(); // an input acts: no pin
   });
 
+  describe('the colour, block and coding stages', () => {
+    it('explains a token chip on the run-length stage', async () => {
+      const { container, findByTestId } = await renderLab('stage=rle');
+      const chips = await vi.waitFor(() => {
+        const c = container.querySelectorAll<HTMLElement>('.tokens li');
+        expect(c).toHaveLength(2);
+        return c;
+      });
+      expect(chips[1].querySelector('title')).toBeNull();
+      expect(chips[1].hasAttribute('title')).toBe(false);
+      await fireEvent(chips[1], ptr('pointermove', 0, 0));
+      const card = await findByTestId('tooltip-hover');
+      expect(card.textContent).toContain('every remaining number is zero');
+      expect(card.textContent).toContain('1010');
+    });
+
+    it('explains the DC chip and the bit count', async () => {
+      const { container, findByTestId } = await renderLab('stage=rle');
+      const dc = await vi.waitFor(() => {
+        const el = container.querySelector<HTMLElement>('.tokens li.dc');
+        expect(el).toBeTruthy();
+        return el!;
+      });
+      await fireEvent(dc, ptr('pointermove', 0, 0));
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('8 − 6 = 2');
+      await fireEvent(container.querySelector('.tokens .head')!, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('2 tokens, 9 bits'));
+    });
+
+    it('explains a zigzag cell, the last non-zero figure and the grid', async () => {
+      const { container, findByTestId } = await renderLab('stage=zigzag');
+      const cells = await vi.waitFor(() => {
+        const c = container.querySelectorAll<HTMLElement>('.seq li');
+        expect(c).toHaveLength(64);
+        return c;
+      });
+      await fireEvent(cells[5], ptr('pointermove', 0, 0));
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('in the zero tail');
+      await fireEvent(container.querySelector('.strip .head')!, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('#1 of 64'));
+      const area = await areaOf(container, 'zigzag', 'zigzag');
+      const c = centreOf('zigzag', 'zigzag', 1, 0);
+      await fireEvent(area, ptr('pointermove', c.x, c.y));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('#2 of 64'));
+    });
+
+    it('reaches a sequence cell from the keyboard, one stop for the whole strip', async () => {
+      const { container, findByTestId } = await renderLab('stage=zigzag');
+      const cells = await vi.waitFor(() => {
+        const c = container.querySelectorAll<HTMLElement>('.seq li');
+        expect(c).toHaveLength(64);
+        return c;
+      });
+      expect([...cells].filter((c) => c.tabIndex === 0)).toHaveLength(1);
+      cells[0].focus();
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('#1 of 64');
+      await fireEvent.keyDown(cells[0], { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(cells[1]);
+    });
+
+    it('explains a block cell from the canvas panel', async () => {
+      const { container, findByTestId } = await renderLab('stage=blocks');
+      const area = await areaOf(container, 'blocks', 'block');
+      const c = centreOf('blocks', 'block', 0, 0);
+      await fireEvent(area, ptr('pointermove', c.x, c.y));
+      const card = await findByTestId('tooltip-hover');
+      expect(card.textContent).toContain('100');
+      expect(card.textContent).toContain('−128 → −28');
+    });
+
+    it('explains the plane switch and the shift, and both keep their click', async () => {
+      const { container, findByTestId, getByRole } = await renderLab('stage=blocks');
+      const cb = await vi.waitFor(() => getByRole('button', { name: 'Cb' }));
+      expect(cb.hasAttribute('title')).toBe(false);
+      await fireEvent(cb, ptr('pointermove', 0, 0));
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('block (21, 17)');
+      const shift = getByRole('button', { name: '− 128' });
+      expect(shift.hasAttribute('title')).toBe(false);
+      await fireEvent(shift, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('−128 on every sample'));
+      expect(shift.getAttribute('aria-pressed')).toBe('true'); // the shift is shown to begin with
+      await fireEvent.click(shift);
+      await vi.waitFor(() => expect(shift.getAttribute('aria-pressed')).toBe('false'));
+      expect(container.querySelector('[data-testid="tooltip-pinned"]')).toBeNull();
+    });
+
+    it('explains the colour cube, a plane and the axes slider', async () => {
+      const { container, findByTestId, getByLabelText } = await renderLab('stage=color');
+      const areas = await vi.waitFor(() => {
+        const a = container.querySelectorAll<HTMLElement>('.hover-area');
+        expect(a).toHaveLength(4);
+        return [...a];
+      });
+      const rectOf = (kind: string) => layoutOf('color').panels.find((p) => p.kind === kind)!.rect;
+      const at = (kind: string) => ({ x: rectOf(kind).x + rectOf(kind).w / 2, y: rectOf(kind).y + rectOf(kind).h / 2 });
+      const area = (kind: string) => areas.find((a) => Math.abs(parseFloat(a.style.left) - rectOf(kind).x) < 0.01 && Math.abs(parseFloat(a.style.top) - rectOf(kind).y) < 0.01)!;
+      await fireEvent(area('cube'), ptr('pointermove', at('cube').x, at('cube').y));
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('grey diagonal');
+      await fireEvent(area('plane_cb'), ptr('pointermove', at('plane_cb').x, at('plane_cb').y));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toMatch(/Cb = \d+/));
+      await fireEvent(getByLabelText('RGB axes to YCbCr axes'), ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('brightness and colour-difference axes'));
+    });
+
+    it('explains the samples-kept figure', async () => {
+      const { container, findByTestId } = await renderLab('stage=subsample');
+      const kept = await vi.waitFor(() => {
+        const el = container.ownerDocument.querySelector<HTMLElement>('.stage-card .kept');
+        expect(el).toBeTruthy();
+        return el!;
+      });
+      await fireEvent(kept, ptr('pointermove', 0, 0));
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('50% of all samples');
+    });
+
+    it('explains the Huffman tabs, bars, leaves, cost line, bits and segments', async () => {
+      const { container, findByTestId, getByRole } = await renderLab('stage=huffman');
+      await vi.waitFor(() => expect(container.querySelectorAll('[role="tab"]')).toHaveLength(4));
+      await vi.waitFor(() => expect(container.querySelectorAll('circle.leaf')).toHaveLength(2));
+      expect(container.querySelector('.huff title')).toBeNull();
+      expect(container.querySelector('.huff [title]')).toBeNull();
+      await fireEvent(container.querySelector('.huff .col')!, ptr('pointermove', 0, 0));
+      const bar = await findByTestId('tooltip-hover');
+      expect(bar.textContent).toContain('appears 30 times');
+      expect(bar.textContent).toContain('its code is 00 (2 bits)');
+      await fireEvent(container.querySelector('circle.leaf')!, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect((document.querySelector('[data-testid="tooltip-hover"]') as HTMLElement).textContent).toContain('EOB = 00'));
+      await fireEvent(container.querySelector('.huff .cost')!, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('80 bits against 32.5'));
+      await fireEvent(container.querySelector('.huff .bits span')!, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('Bits 100-102'));
+      const tab = getByRole('tab', { name: 'DC · luma' });
+      await fireEvent(tab, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('DC · luma'));
+      await fireEvent.click(tab);
+      expect(tab.getAttribute('aria-selected')).toBe('true'); // an acting target keeps its click
+      expect(container.querySelector('[data-testid="tooltip-pinned"]')).toBeNull();
+    });
+
+    it('pins a file segment on click', async () => {
+      const { container, findByTestId } = await renderLab('stage=huffman');
+      const segs = await vi.waitFor(() => {
+        const s = container.querySelectorAll<HTMLElement>('.file .seg');
+        expect(s).toHaveLength(4);
+        return s;
+      });
+      await fireEvent(segs[2], ptr('click', 5, 5, { detail: 1 }));
+      expect((await findByTestId('tooltip-pinned')).textContent).toContain('the scan: 3,958 bytes');
+    });
+  });
+
   describe('the bezel, readout, rail and pictures', () => {
     /** A touch pointer event (jsdom has none): a MouseEvent that says it is a finger. */
     const touch = (type: string, x = 5, y = 5) => {
