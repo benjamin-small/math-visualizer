@@ -112,6 +112,13 @@
     const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : 1);
     rove = Math.min(100, Math.max(1, roveQuality + step)); // the chart's action shows the new quality's card
   }
+
+  /** The dot takes the arrows for itself, so they do not bubble up and switch the stage. */
+  function onDotKey(e: KeyboardEvent) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
 </script>
 
 {#if rect.w > 120 && rect.h > 90}
@@ -144,6 +151,7 @@
         role="img"
         tabindex="0"
         aria-label="Where you are now"
+        onkeydown={onDotKey}
         use:tooltip={{ ctl, target: { id: 'quantize.dot' } }}
       />
     </svg>
