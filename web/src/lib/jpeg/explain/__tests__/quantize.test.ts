@@ -92,7 +92,7 @@ describe('Quantize cards', () => {
     dct[1] = -23.9999; // -1.49999 (a hair under a tie): stored -1
     quant[1] = -1;
     const near = { ...base, summary: { ...base.summary!, selected: { ...base.summary!.selected!, dct, quant } } };
-    expect(explain({ id: 'quantize.after', u: 1, v: 0 }, near)!.consequence).toBe('At quality 50: −24.0 ÷ 16 = ≈−1.5 → rounds to −1 (kept).');
+    expect(explain({ id: 'quantize.after', u: 1, v: 0 }, near)!.consequence).toBe('At quality 50: −24.0 ÷ 16 ≈ −1.5 → rounds to −1 (kept).');
     dct[1] = -24; // exactly -1.5: halves go away from zero
     quant[1] = -2;
     expect(explain({ id: 'quantize.after', u: 1, v: 0 }, near)!.consequence).toBe('At quality 50: −24.0 ÷ 16 = −1.5 → rounds to −2 (kept).');

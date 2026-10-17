@@ -11,6 +11,8 @@ describe('Colour, subsample and blocks cards', () => {
     expect(e.consequence).toContain('−128 → −28');
     expect(e.body).toContain('block (21, 17)');
     expect(explain({ id: 'blocks.cell', x: 8, y: 0 }, makeContext())).toBeNull();
+    // Counted from 1, and said so, next to the 0-based block and pixel coordinates.
+    expect(e.title).toMatch(/column 1 of 8, row 1 of 8/);
   });
 
   it('says where a colour block sits in the picture', () => {

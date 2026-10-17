@@ -34,8 +34,18 @@ describe('Decode cards', () => {
     expect(e.consequence).toContain('strongest tint');
     const rows = JSON.stringify(e.details);
     expect(rows).toContain('(e, 0.55e, 0.25e) × gain');
-    expect(rows).toContain('16, 9, 4'); // 4 × 4, 4 × 0.55 × 4, 4 × 0.25 × 4
+    expect(rows).toContain('16, 8, 4'); // round(3.67), round(3.67 × 0.55), round(3.67 × 0.25), each times 4
     expect(rows).toContain('Largest single difference');
+  });
+
+  it('rounds as the viz does: the unrounded mean times the tint, stored whole, then the gain', () => {
+    const image = { w: 256, h: 256, rgba: new Uint8Array(256 * 256 * 4).fill(100) };
+    const decoded = new Uint8Array(256 * 256 * 4).fill(100);
+    decoded.set([103, 105, 101, 255], 0); // differences 3, 5, 1: the mean is 3
+    const e = explain({ id: 'decode.error', x: 0, y: 0 }, ctx({ image, decoded, errorGain: 8 }))!;
+    expect(e.value).toBe('3 levels');
+    expect(JSON.stringify(e.details)).toContain('24, 16, 8'); // 3 -> 24; round(1.65) = 2 -> 16; round(0.75) = 1 -> 8
+    expect(e.consequence).toContain('drawn at 24 of 255');
   });
 
   it('says the copy is still being decoded rather than guess the error', () => {
@@ -107,6 +117,8 @@ describe('Decode cards', () => {
     const same = explain({ id: 'decode.resave', generation: 2 }, ctx({ resave: [30, 30, 30] }))!;
     expect(same.consequence).toContain('almost nothing');
     expect(explain({ id: 'decode.resave', generation: 4 }, ctx({ resave: [30, 28, 27] }))).toBeNull();
+    expect(first.body).toContain('opening the picture once with');
+    expect(e.body).toContain('opening the picture 3 times in a row with');
     expect(explain({ id: 'decode.resave', generation: 1 }, ctx({ resave: [Infinity] }))!.value).toBe('Generation 1: ∞ dB');
   });
 

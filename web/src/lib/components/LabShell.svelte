@@ -33,6 +33,8 @@
     playback?: boolean;
     /** Show the zoom cluster in the bezel (default true). */
     zoom?: boolean;
+    /** Put native `title` tooltips on the shell's own buttons and readout (default true); a lab that draws its own cards sets false. */
+    nativeTitles?: boolean;
   }
 
   let {
@@ -48,6 +50,7 @@
     speedRamp,
     playback = true,
     zoom = true,
+    nativeTitles = true,
   }: Props = $props();
 
   // The engine is created once for this component's lifetime; later prop
@@ -68,6 +71,9 @@
     cancelRamp();
     engine.destroy();
   });
+
+  /** A native tooltip, unless the lab turned them off. */
+  const tip = (text: string) => (nativeTitles ? text : undefined);
 
   const fmt = (n: number) => n.toLocaleString('en-US');
   const progressPct = $derived(
@@ -226,14 +232,14 @@
     <div class="bezel">
       {#if playback}
         <div class="group transport">
-          <button class="btn" onclick={onReset} title="Back to iteration 0"><Icon name="rotate-ccw" />Reset</button>
-          <button class="btn" onclick={onStepBack} title="Step back one iteration"><Icon name="skip-back" />Back</button>
+          <button class="btn" onclick={onReset} title={tip('Back to iteration 0')}><Icon name="rotate-ccw" />Reset</button>
+          <button class="btn" onclick={onStepBack} title={tip('Step back one iteration')}><Icon name="skip-back" />Back</button>
           <button class="btn primary" onclick={onTogglePlay}>
             <Icon name={api.snapshot.playing ? 'pause' : 'play'} />{api.snapshot.playing ? 'Pause' : 'Play'}
           </button>
-          <button class="btn" onclick={onStepForward} title="Step forward one iteration"><Icon name="skip-forward" />Forward</button>
+          <button class="btn" onclick={onStepForward} title={tip('Step forward one iteration')}><Icon name="skip-forward" />Forward</button>
         </div>
-        <span class="readout mono" title="Iteration / total">{fmt(api.snapshot.iteration)} <span class="of">/ {fmt(api.snapshot.max_iterations)}</span></span>
+        <span class="readout mono" title={tip('Iteration / total')}>{fmt(api.snapshot.iteration)} <span class="of">/ {fmt(api.snapshot.max_iterations)}</span></span>
       {/if}
 
       {@render controls?.(api)}
@@ -241,9 +247,9 @@
       {#if zoom}
         <div class="zoom">
           <span class="label">Zoom</span>
-          <button class="btn icon" onclick={zoomOut} aria-label="Zoom out" title="Zoom out"><Icon name="zoom-out" /></button>
+          <button class="btn icon" onclick={zoomOut} aria-label="Zoom out" title={tip('Zoom out')}><Icon name="zoom-out" /></button>
           <span class="level mono">{zoomLevel.toFixed(2)}×</span>
-          <button class="btn icon" onclick={zoomIn} aria-label="Zoom in" title="Zoom in"><Icon name="zoom-in" /></button>
+          <button class="btn icon" onclick={zoomIn} aria-label="Zoom in" title={tip('Zoom in')}><Icon name="zoom-in" /></button>
           {#if zoomLevel !== 1}<button class="btn quiet" onclick={zoomReset}>Reset zoom</button>{/if}
         </div>
       {/if}

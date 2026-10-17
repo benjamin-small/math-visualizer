@@ -14,6 +14,8 @@ export const LONG_PRESS_MS = 500;
 const LONG_PRESS_SLOP = 10;
 /** How far a press may move and still count as a click: further is a drag, and a drag's closing click pins nothing. */
 const DRAG_SLOP = 4;
+/** The same for a finger, which is blunter than a mouse. */
+const TOUCH_DRAG_SLOP = 12;
 
 /** The id of the host's hidden element holding the shown card's compact text. */
 export const TOOLTIP_LIVE_ID = 'jpeg-tooltip-live';
@@ -223,7 +225,7 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
   let swallowClick = false;
   let pointerDown = false;
   /** Where the last press began, to tell a click from the end of a drag. */
-  let downAt: { x: number; y: number } | null = null;
+  let downAt: { x: number; y: number; slop: number } | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   const resolve = (e: MouseEvent): Target | null => (typeof params.target === 'function' ? params.target(e) : params.target);
@@ -258,7 +260,7 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
 
   const onPointerDown = (e: PointerEvent) => {
     pointerDown = true;
-    downAt = { x: e.clientX, y: e.clientY };
+    downAt = { x: e.clientX, y: e.clientY, slop: isTouch(e) ? TOUCH_DRAG_SLOP : DRAG_SLOP };
     clearSwallow();
     if (!isTouch(e) || !params.acts) return;
     const t = resolve(e);
@@ -296,7 +298,7 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
     // The click that ends a drag (orbiting the cube, scrubbing a slider) is not a request for a card.
     const from = downAt;
     downAt = null;
-    if (from && e.detail > 0 && Math.hypot(e.clientX - from.x, e.clientY - from.y) > DRAG_SLOP) return;
+    if (from && e.detail > 0 && Math.hypot(e.clientX - from.x, e.clientY - from.y) > from.slop) return;
     const t = resolve(e);
     if (!t) return;
     // A real pointer click pins beside the pointer (a canvas box is the whole canvas); a keyboard click beside the element.
@@ -342,6 +344,8 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
   const onKeyDown = (e: KeyboardEvent) => {
     pointerDown = false;
     clearSwallow();
+    // A key typed in something nested inside this node (a dot on a chart, a slider in a label) belongs to that.
+    if (e.target !== node) return;
     const key = e.key;
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => refreshKeyed(key), 0);

@@ -40,7 +40,7 @@ describe('Zigzag cards', () => {
   it('names the last non-zero number and the tail after it', () => {
     const e = explain({ id: 'zigzag.last' }, dcOnly({ stage: 'zigzag' }))!;
     expect(e.value).toBe('#1 of 64');
-    expect(e.consequence).toBe('At quality 50 63 numbers after it are zero and dropped from the file.');
+    expect(e.consequence).toBe('At quality 50, 63 numbers after it are zero and dropped from the file.');
   });
 });
 

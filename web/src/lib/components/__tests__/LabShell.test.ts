@@ -61,6 +61,17 @@ describe('LabShell layout', () => {
     expect(container.querySelector('.playback-bar')).toBeNull();
   });
 
+  it('keeps its native tooltips unless a lab turns them off', async () => {
+    const on = render(LabShellHost);
+    await vi.waitFor(() => expect(on.container.textContent).toMatch(/360/));
+    expect(on.getByRole('button', { name: 'Reset' }).getAttribute('title')).toBe('Back to iteration 0');
+    expect(on.container.querySelector('.readout')?.getAttribute('title')).toBe('Iteration / total');
+    on.unmount();
+    const off = render(LabShellHost, { props: { nativeTitles: false } });
+    await vi.waitFor(() => expect(off.container.textContent).toMatch(/360/));
+    expect(off.container.querySelectorAll('[title]')).toHaveLength(0);
+  });
+
   it('fills the clock line with playback progress', async () => {
     const { container } = render(LabShellHost);
     await vi.waitFor(() => expect(container.textContent).toMatch(/360/));

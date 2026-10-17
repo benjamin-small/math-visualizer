@@ -106,6 +106,7 @@
 
   /** Left and right walk the curve one quality at a time (shift: ten); the card follows. */
   function onKey(e: KeyboardEvent) {
+    if (e.target !== e.currentTarget) return; // the dot inside the chart has its own keys
     if (e.altKey || e.metaKey || e.ctrlKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
     e.preventDefault(); // not also a stage switch
     const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : 1);

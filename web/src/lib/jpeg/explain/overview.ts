@@ -59,7 +59,7 @@ function countsFor(kind: Kind, ctx: ExplainContext): Counts | null {
 function room(bits: number): string {
   const save = 1 - bits / 8;
   if (save < 0.05) return 'almost no room left to squeeze';
-  return `${save < 0.3 ? 'some' : 'plenty of'} room to squeeze: up to ${percent(save)} smaller`;
+  return `${save < 0.3 ? 'some' : 'plenty of'} room to squeeze, up to ${percent(save)} smaller`;
 }
 
 const KIND_NAME: Record<Kind, string> = { raw: 'Raw bytes', diff: 'Neighbour differences', jpeg: 'JPEG file' };
@@ -148,7 +148,7 @@ function sizesCard(ctx: ExplainContext): Explanation | null {
     title: 'File size against the raw pixels',
     value: `${formatBytes(file)} of ${formatBytes(raw)}`,
     body: `The long bar is the picture as raw pixels (${rawText}). The short bar is the JPEG file, drawn to the same scale.`,
-    consequence: `${settings(ctx)}, the file is ${((100 * file) / raw).toFixed(1)}% of the raw size: ${ratio.toFixed(1)} : 1.`,
+    consequence: `${settings(ctx)}, the file is ${percent(file / raw)} of the raw size: ${ratio.toFixed(1)} : 1.`,
     details: [
       {
         kind: 'text',

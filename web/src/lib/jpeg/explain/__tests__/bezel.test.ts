@@ -159,6 +159,83 @@ describe('bezel.speed', () => {
   });
 });
 
+describe('the transport controls and the position readout', () => {
+  const play = { id: 'bezel.play' } as const;
+  const reset = { id: 'bezel.reset' } as const;
+  const back = { id: 'bezel.step', dir: 'back' } as const;
+  const forward = { id: 'bezel.step', dir: 'forward' } as const;
+  const position = { id: 'bezel.position' } as const;
+
+  it('Play says what playing does to the scan and where it is', () => {
+    const e = card(play, makeContext({ speed: 64 }));
+    expect(e.acts).toBe(true);
+    expect(e.title).toBe('Play the scan');
+    expect(e.value).toBe('Paused at step 64 of 256');
+    expect(e.consequence).toContain('16 × 16-pixel patch at 4:2:0');
+    expect(e.consequence).toContain('3 s'); // 192 steps left at 64 a second
+  });
+
+  it('turns into Pause while the scan runs', () => {
+    const e = card(play, makeContext({ playing: true }));
+    expect(e.title).toBe('Pause the scan');
+    expect(e.value).toBe('Playing: step 64 of 256');
+    expect(e.body).toMatch(/stays/);
+  });
+
+  it('says so at the end of the scan', () => {
+    const s = makeContext().summary!;
+    const e = card(play, makeContext({ summary: { ...s, n: 256 } }));
+    expect(e.body).toMatch(/end/);
+    expect(e.consequence).not.toMatch(/NaN|Infinity/);
+  });
+
+  it('Reset rewinds the scan and leaves the picture encoded', () => {
+    const e = card(reset);
+    expect(e.acts).toBe(true);
+    expect(e.body).toMatch(/rewinds the scan to the start/i);
+    expect(e.body).toMatch(/stays encoded/);
+    expect(e.consequence).toContain('step 64 of 256');
+    const s = makeContext().summary!;
+    expect(card(reset, makeContext({ summary: { ...s, n: 0 } })).consequence).toMatch(/already at the start/i);
+  });
+
+  it('Back and Forward move one step, which is one patch', () => {
+    const b = card(back);
+    const f = card(forward);
+    expect(b.acts && f.acts).toBe(true);
+    expect(b.title).toBe('Step back');
+    expect(f.title).toBe('Step forward');
+    expect(b.body).toContain('one step');
+    expect(b.body).toContain('16 × 16-pixel patch at 4:2:0');
+    expect(b.consequence).toContain('step 63 of 256');
+    expect(f.consequence).toContain('step 65 of 256');
+    expect(card(back, makeContext({ subsampling: '444' })).body).toContain('8 × 8-pixel patch at 4:4:4');
+  });
+
+  it('Back and Forward say when there is nowhere to go', () => {
+    const s = makeContext().summary!;
+    expect(card(back, makeContext({ summary: { ...s, n: 0 } })).consequence).toMatch(/already at the start/i);
+    expect(card(forward, makeContext({ summary: { ...s, n: 256 } })).consequence).toMatch(/already at the end/i);
+  });
+
+  it('the readout explains "n of total steps scanned"', () => {
+    const e = card(position);
+    expect(e.acts).toBeFalsy();
+    expect(e.value).toBe('64 of 256 steps');
+    expect(e.body).toContain('64 of 256 steps scanned');
+    expect(e.consequence).toContain('25%');
+    expect(e.consequence).toContain('16 × 16-pixel patch at 4:2:0');
+  });
+
+  it('keep to steps, not blocks, and say nothing wrong before the first encode', () => {
+    for (const t of [play, reset, back, forward, position]) {
+      expect(text(card(t))).not.toMatch(/blocks|iteration|MCU/);
+      const none = explain(t, makeContext({ summary: null }));
+      expect(none === null || !JSON.stringify(none).match(/NaN|undefined/)).toBe(true);
+    }
+  });
+});
+
 describe('bezel.save and bezel.upload', () => {
   it('names the file and its size', () => {
     const e = card({ id: 'bezel.save' });
@@ -222,8 +299,10 @@ describe('readout', () => {
 
   it('gives the ratio as a share of the raw size', () => {
     const e = card({ id: 'readout.ratio' });
-    expect(text(e)).toContain('1/48');
+    expect(e.body).toContain('48.0 times the space');
     expect(e.value).toBe('48.0 : 1');
+    // One format for the ratio on every card: the readout's one decimal.
+    expect(text(card({ id: 'bezel.picture' }))).toContain('48.0 times smaller');
   });
 
   it('says what a pixel costs', () => {
@@ -277,12 +356,30 @@ describe('chip.custom', () => {
   });
 });
 
+describe('the run-length rail card counts tokens as the stage does', () => {
+  it('counts the change in the average as one, like the stage head and the bits card', () => {
+    // The fixture block has one AC token; the DC change makes two, as "64 numbers become 2 tokens" says.
+    const rail = card({ id: 'rail.stage', stage: 'rle' });
+    expect(rail.consequence).toContain('written as 2 tokens');
+    expect(rail.consequence).toContain("the change in the block's average plus 1 token, a run of zeros and the number after it");
+    expect(card({ id: 'rle.bits' }).details.map((d) => (d.kind === 'rows' ? d.rows.map((r) => r.join(' ')).join(' ') : '')).join(' ')).toContain('Tokens (the DC change counts as one) 2');
+  });
+
+  it('says "each" once there are several', () => {
+    const base = makeContext();
+    const sel = base.summary!.selected!;
+    const three = { ...base, summary: { ...base.summary!, selected: { ...sel, tokens: [sel.tokens[0], sel.tokens[0], sel.tokens[0]] } } };
+    expect(card({ id: 'rail.stage', stage: 'rle' }, three).consequence).toContain('written as 4 tokens');
+    expect(card({ id: 'rail.stage', stage: 'rle' }, three).consequence).toContain('plus 3 tokens, each a run of zeros and the number after it');
+  });
+});
+
 describe('rail.stage', () => {
   it('explains every stage, with its own words', () => {
     const seen = new Set<string>();
     for (const s of STAGES) {
       const e = card({ id: 'rail.stage', stage: s.id });
-      expect(e.title).toContain(s.title);
+      expect(e.title).toContain(s.title.replace('Color', 'Colour'));
       expect(e.acts).toBe(true);
       expect(e.consequence).toBeTruthy();
       seen.add(e.body);

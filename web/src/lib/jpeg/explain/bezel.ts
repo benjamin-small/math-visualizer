@@ -228,13 +228,18 @@ function seconds(t: number): string {
   return t >= 10 ? String(Math.round(t)) : oneDecimal(t);
 }
 
+/** `1 step per second`, `64 steps per second`. */
+function stepsPerSecond(speed: number): string {
+  const n = ratio(speed);
+  return `${n} ${n === '1' ? 'step' : 'steps'} per second`;
+}
+
 function speedCard(ctx: ExplainContext): Explanation {
   const s = ctx.summary;
-  const n = ratio(ctx.speed);
   const secs = s && s.total > 0 && ctx.speed > 0 ? seconds(s.total / ctx.speed) : null;
   const [pw, ph] = mcuSize(ctx.subsampling);
   const patch = `${pw} × ${ph}-pixel patch`;
-  const steps = `${n} ${n === '1' ? 'step' : 'steps'} per second`;
+  const steps = stepsPerSecond(ctx.speed);
   return {
     title: 'Scan speed',
     value: steps,
@@ -252,13 +257,102 @@ function speedCard(ctx: ExplainContext): Explanation {
   };
 }
 
+// --- Transport: play, reset, step, and the position readout -------------------------
+
+/** The scan as the transport buttons see it: where it is, how long it is, and what one step is. */
+function scanFacts(ctx: ExplainContext) {
+  const s = ctx.summary;
+  const [pw, ph] = mcuSize(ctx.subsampling);
+  return {
+    n: s?.n ?? 0,
+    total: s?.total ?? 0,
+    known: !!s && s.total > 0,
+    patch: `${pw} × ${ph}-pixel patch at ${MODES[ctx.subsampling].name}`,
+  };
+}
+
+const STEP_DETAIL: Detail = {
+  kind: 'text',
+  text: 'The scan replays the way the file is written, one patch of the picture at a time. A step is a 16 × 16-pixel patch at 4:2:0 (8 × 8 at 4:4:4, 16 × 8 at 4:2:2): the smallest piece the file is written in. Its technical name is an MCU. These buttons only move the replay; the file never changes.',
+};
+
+function playCard(ctx: ExplainContext): Explanation {
+  const f = scanFacts(ctx);
+  const done = f.known && f.n >= f.total;
+  const left = f.total - f.n;
+  const secs = f.known && ctx.speed > 0 && left > 0 ? seconds(left / ctx.speed) : null;
+  const where = f.known ? `step ${count(f.n)} of ${count(f.total)}` : null;
+  let body: string;
+  if (ctx.playing) body = 'Pauses the scan where it is. The part of the picture scanned so far stays on screen.';
+  else if (done) body = 'The scan has reached the end of the picture. The picture stays as it is.';
+  else body = 'Plays the scan: the lab walks across the picture one step at a time, in the order the file is written.';
+  let consequence = `Each step scans a ${f.patch}.`;
+  if (where && done) consequence = `${consequence} All ${count(f.total)} steps are done.`;
+  else if (where) consequence = `${count(f.n)} of ${count(f.total)} steps done; each step scans a ${f.patch}${secs ? `, so the rest takes ${secs} s at ${stepsPerSecond(ctx.speed)}` : ''}.`;
+  return {
+    title: ctx.playing ? 'Pause the scan' : 'Play the scan',
+    value: where ? `${ctx.playing ? 'Playing:' : 'Paused at'} ${where}` : undefined,
+    body,
+    consequence,
+    acts: true,
+    details: [STEP_DETAIL],
+  };
+}
+
+function resetCard(ctx: ExplainContext): Explanation {
+  const f = scanFacts(ctx);
+  return {
+    title: 'Back to the start',
+    value: f.known ? `Step ${count(f.n)} of ${count(f.total)}` : undefined,
+    body: 'Rewinds the scan to the start. The picture stays encoded; only the replay goes back.',
+    consequence: !f.known
+      ? `Each step scans a ${f.patch}.`
+      : f.n === 0
+        ? 'The scan is already at the start.'
+        : `The scan is at step ${count(f.n)} of ${count(f.total)}; Reset puts it at step 0. ${lead(ctx)} the file does not change.`,
+    acts: true,
+    details: [STEP_DETAIL],
+  };
+}
+
+function stepCard(dir: 'back' | 'forward', ctx: ExplainContext): Explanation {
+  const f = scanFacts(ctx);
+  const back = dir === 'back';
+  const blocked = f.known && (back ? f.n <= 0 : f.n >= f.total);
+  const to = f.n + (back ? -1 : 1);
+  return {
+    title: back ? 'Step back' : 'Step forward',
+    value: f.known ? `Step ${count(f.n)} of ${count(f.total)}` : undefined,
+    body: `Moves the scan ${back ? 'back' : 'on'} by one step: one ${f.patch}, the smallest piece the file is written in.`,
+    consequence: !f.known
+      ? `Each step is a ${f.patch}.`
+      : blocked
+        ? `The scan is already at the ${back ? 'start' : 'end'}.`
+        : `From step ${count(f.n)} to step ${count(to)} of ${count(f.total)}.`,
+    acts: true,
+    details: [STEP_DETAIL],
+  };
+}
+
+function positionCard(ctx: ExplainContext): Explanation | null {
+  const f = scanFacts(ctx);
+  if (!f.known) return null;
+  return {
+    title: 'Scan position',
+    value: `${count(f.n)} of ${count(f.total)} steps`,
+    body: `${count(f.n)} of ${count(f.total)} steps scanned: how far the replay has got through the picture.`,
+    consequence: `${percent(f.n / f.total)} of the picture is scanned; each step is a ${f.patch}, and it takes ${count(f.total)} of them to cover this picture.`,
+    details: [STEP_DETAIL],
+  };
+}
+
 // --- Pictures ----------------------------------------------------------------
 
 /** The line about the picture in use: what the settings make of it. */
 function inUse(ctx: ExplainContext): string | null {
   const s = ctx.summary;
   if (!s) return null;
-  return `${lead(ctx)} it compresses to ${formatBytes(s.bytes)} (${oneDecimal(s.rawBytes / Math.max(1, s.bytes))} times smaller than the raw pixels).`;
+  return `${lead(ctx)} it compresses to ${formatBytes(s.bytes)} (${(s.rawBytes / Math.max(1, s.bytes)).toFixed(1)} times smaller than the raw pixels).`;
 }
 
 function ownPicture(ctx: ExplainContext): Explanation {
@@ -332,11 +426,11 @@ function ratioCard(ctx: ExplainContext): Explanation | null {
   const s = ctx.summary;
   if (!s || s.bytes <= 0) return null;
   const r = readoutOf(s);
-  const times = oneDecimal(s.rawBytes / s.bytes);
+  const times = (s.rawBytes / s.bytes).toFixed(1);
   return {
     title: 'Compression ratio',
     value: r.ratio,
-    body: `The file is 1/${times} of the raw size: the raw pixels take ${times} times the space.`,
+    body: `The raw pixels would take ${times} times the space of this file.`,
     consequence: `${settings(ctx)}. Lower quality makes this number bigger and the picture rougher.`,
     details: [
       { kind: 'rows', rows: [['Raw pixels', `${count(s.rawBytes)} bytes`], ['File', `${count(s.bytes)} bytes`], ['Raw ÷ file', r.ratio]] },
@@ -487,7 +581,10 @@ function stageLines(stage: StageId, ctx: ExplainContext): { body: string; conseq
       const n = b?.sel.tokens.length;
       return {
         body: 'Runs of zeros are replaced by a count, so a long stretch of nothing costs a few bits.',
-        consequence: n != null ? `This block is written as ${plural(n, 'token')}, each a run of zeros and the number after it.` : 'Each token is a run of zeros and the number after it.',
+        consequence:
+          n != null
+            ? `This block is written as ${plural(n + 1, 'token')}: the change in the block's average plus ${plural(n, 'token')}, ${n === 1 ? 'a' : 'each a'} run of zeros and the number after it.`
+            : 'Each token is a run of zeros and the number after it.',
       };
     }
     case 'huffman':
@@ -505,18 +602,22 @@ function stageLines(stage: StageId, ctx: ExplainContext): { body: string; conseq
   }
 }
 
+/** Card copy spells it "colour". */
+const british = (s: string) => s.replace(/\bColor\b/g, 'Colour').replace(/\bcolor\b/g, 'colour');
+
 function railCard(stage: StageId, ctx: ExplainContext): Explanation | null {
   const info = STAGES.find((x) => x.id === stage);
   if (!info) return null;
   const { body, consequence } = stageLines(stage, ctx);
   const here = ctx.stage === stage;
   return {
-    title: /^[1-8]$/.test(info.mark) ? `Step ${info.mark}: ${info.title}` : info.title,
+    // The rail's own labels are American ("Color"); card copy is British like the rest of the lab.
+    title: /^[1-8]$/.test(info.mark) ? `Step ${info.mark}: ${british(info.title)}` : british(info.title),
     body,
     consequence: `${here ? 'You are here. ' : ''}${consequence}`,
     acts: true,
     details: [
-      { kind: 'text', text: `${info.subtitle}.${info.ready ? '' : ' Coming soon.'} Click to go there, or use the left and right arrow keys to walk the pipeline.` },
+      { kind: 'text', text: `${british(info.subtitle)}.${info.ready ? '' : ' Coming soon.'} Click to go there, or use the left and right arrow keys to walk the pipeline.` },
     ],
   };
 }
@@ -590,6 +691,14 @@ export function explainBezel(t: Target, ctx: ExplainContext): Explanation | null
       return saveCard(ctx);
     case 'bezel.speed':
       return speedCard(ctx);
+    case 'bezel.play':
+      return playCard(ctx);
+    case 'bezel.reset':
+      return resetCard(ctx);
+    case 'bezel.step':
+      return stepCard(t.dir, ctx);
+    case 'bezel.position':
+      return positionCard(ctx);
     case 'rail.stage':
       return railCard(t.stage, ctx);
     case 'readout.size':

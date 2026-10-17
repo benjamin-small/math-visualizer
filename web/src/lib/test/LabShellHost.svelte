@@ -8,16 +8,17 @@
     playback?: boolean;
     zoom?: boolean;
     showOverlay?: boolean;
+    nativeTitles?: boolean;
   }
 
-  let { playback, zoom, showOverlay = false }: Props = $props();
+  let { playback, zoom, showOverlay = false, nativeTitles }: Props = $props();
 </script>
 
 {#snippet overlayContent(api: LabApi)}
   <div data-testid="overlay-content">overlay {api.snapshot.iteration}</div>
 {/snippet}
 
-<LabShell labId="sierpinski" title="Test lab" thesis="A thesis." {playback} {zoom} overlay={showOverlay ? overlayContent : undefined}>
+<LabShell labId="sierpinski" title="Test lab" thesis="A thesis." {playback} {zoom} {nativeTitles} overlay={showOverlay ? overlayContent : undefined}>
   {#snippet legend()}
     <span class="item"><i class="swatch"></i>Legend item</span>
   {/snippet}

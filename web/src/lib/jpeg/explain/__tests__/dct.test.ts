@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { explain } from '..';
 import { TARGET_IDS, scopeKey, type Target } from '../targets';
+import { stepAtQuality } from '../quality';
 import { makeContext } from './fixture';
 
 describe('DCT cards', () => {
@@ -88,6 +89,51 @@ describe('DCT cards', () => {
     expect(mir.consequence).toMatch(/no jump/);
     expect(explain({ id: 'dct.cosines', chart: 'nope', i: 0 }, makeContext())).toBeNull();
     expect(explain({ id: 'dct.cosines', chart: 'dft', i: 24 }, makeContext())).toBeNull();
+  });
+});
+
+describe('near ties in the other-quality rows', () => {
+  it('writes "÷ step ≈ x" for a hair under a tie, never "= ≈"', () => {
+    const base = makeContext({ quality: 50 });
+    // Quality 20 scales the step: find it, then put the amount a hair under 1.5 steps.
+    const step = stepAtQuality(0, 1, base.summary!.selected!.table[1], 50, 20);
+    const dct = [...base.summary!.selected!.dct];
+    dct[1] = -(1.5 * step - 0.0001);
+    const near = { ...base, summary: { ...base.summary!, selected: { ...base.summary!.selected!, dct } } };
+    const all = JSON.stringify(explain({ id: 'dct.coeff', u: 1, v: 0 }, near)!.details);
+    expect(all).not.toContain('= ≈');
+    expect(all).toContain(`÷ ${step} ≈ −1.5 → −1 (kept)`);
+  });
+});
+
+describe('the why-cosines seam', () => {
+  /** A block whose busiest line is a row (or a column) with fractional ends: 10.4 to 14.2, a jump of 3.8. */
+  function lineCtx(axis: 'row' | 'column', end = 14.2) {
+    const ctx = makeContext();
+    const line = [10.4, 30, 50, 70, 90, 110, 120, end];
+    // Every row (or column) is the same line, so the busiest one is the first.
+    const shifted = Array.from({ length: 64 }, (_, k) => line[axis === 'row' ? k % 8 : Math.floor(k / 8)]);
+    const s = ctx.summary!;
+    return { ...ctx, summary: { ...s, selected: { ...s.selected!, shifted } } };
+  }
+
+  it('rounds the jump it prints, with the unit from the rounded value', () => {
+    const e = explain({ id: 'dct.cosines', chart: 'dft', i: 8 }, lineCtx('row'))!;
+    expect(e.consequence).toContain('jumps 4 levels at every seam');
+    expect(e.consequence).not.toMatch(/3\.8/);
+    // A jump of 0.6 rounds to one level, and says "level".
+    expect(explain({ id: 'dct.cosines', chart: 'dft', i: 8 }, lineCtx('row', 11))!.consequence).toContain('jumps 1 level at every seam');
+  });
+
+  it('says "row" or "column" in the details, as the busiest line is', () => {
+    const word = (axis: 'row' | 'column', chart: 'dft' | 'dct') => {
+      const e = explain({ id: 'dct.cosines', chart, i: 8 }, lineCtx(axis))!;
+      return JSON.stringify(e.details.filter((d) => d.kind === 'text'));
+    };
+    expect(word('row', 'dft')).toMatch(/the row as one period/);
+    expect(word('column', 'dft')).toMatch(/the column as one period/);
+    expect(word('row', 'dct')).toMatch(/the row as mirrored/);
+    expect(word('column', 'dct')).toMatch(/the column as mirrored/);
   });
 });
 
