@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, within } from '@testing-library/svelte';
 import {
   installRafPolyfill,
@@ -8,9 +8,13 @@ import {
   updateVizConfigSpy,
   snapshotFixture,
   jpegSummaryFixture,
+  jpegDecodeSpy,
 } from '../../test/fakeViz';
 import { navigate, route } from '../../router.svelte';
 import { decodeUpload, loadPicture } from '../../jpeg/images';
+import { cells, jpegLayout } from '../../jpeg/layout';
+import { RD_PSNR_CAP } from '../../jpeg/rd';
+import type { StageId } from '../../jpeg/stages';
 
 installRafPolyfill();
 
@@ -682,5 +686,187 @@ describe('JpegLab.svelte', () => {
       Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1134, 0));
       Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 585));
     }
+  });
+});
+
+// The cards (hover, pin, keyboard) on the DCT and Quantize stages. The fake engine's summary follows each push, as
+// the real one does: a new version, and the quality that was asked for.
+describe('JpegLab.svelte cards', () => {
+  const saved = { quality: jpegSummaryFixture.quality, version: jpegSummaryFixture.version };
+
+  beforeEach(() => {
+    dispatchSpy.mockClear();
+    ruleActionSpy.mockClear();
+    updateRuleConfigWithImageSpy.mockReset();
+    updateRuleConfigWithImageSpy.mockImplementation((cfg: Config) => {
+      jpegSummaryFixture.version += 1;
+      jpegSummaryFixture.quality = cfg.quality;
+    });
+    updateVizConfigSpy.mockClear();
+    jpegDecodeSpy.mockClear();
+  });
+
+  afterEach(() => {
+    updateRuleConfigWithImageSpy.mockReset();
+    Object.assign(jpegSummaryFixture, saved);
+  });
+
+  /** jsdom has no PointerEvent: a MouseEvent of that type carries the coordinates (relative to the overlay, which sits at 0, 0). */
+  const ptr = (type: string, x: number, y: number, init: MouseEventInit = {}) =>
+    new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, ...init });
+
+  const layoutOf = (stage: StageId) => jpegLayout(stage, 1134, 585, 256, 256, [21, 17]);
+  /** The centre of cell `(u, v)` of a stage's panel. */
+  function centreOf(stage: StageId, kind: string, u: number, v: number) {
+    const rect = layoutOf(stage).panels.find((p) => p.kind === kind)!.rect;
+    const c = cells(rect, 1)[u + 8 * v];
+    return { x: c.x + c.w / 2, y: c.y + c.h / 2 };
+  }
+  /** The hover area laid over a stage's panel. */
+  const areaOf = (container: HTMLElement, stage: StageId, kind: string) =>
+    vi.waitFor(() => {
+      const rect = layoutOf(stage).panels.find((p) => p.kind === kind)!.rect;
+      const a = [...container.querySelectorAll<HTMLElement>('.hover-area')].find(
+        (el) => Math.abs(parseFloat(el.style.left) - rect.x) < 0.01 && Math.abs(parseFloat(el.style.top) - rect.y) < 0.01,
+      );
+      expect(a).toBeTruthy();
+      return a!;
+    });
+
+  it('explains a DCT coefficient on hover', async () => {
+    const { container, queryByTestId, findByTestId } = await renderLab('stage=dct');
+    const area = await areaOf(container, 'dct', 'coeffs');
+    const c = centreOf('dct', 'coeffs', 1, 0);
+    await fireEvent(area, ptr('pointermove', c.x, c.y));
+    expect(queryByTestId('tooltip-hover')).toBeNull(); // the card waits 150 ms
+    const card = await findByTestId('tooltip-hover');
+    expect(card.textContent).toContain('F(1,0)');
+    expect(card.textContent).toContain('rounds to');
+  });
+
+  it('pins a quantize cell on click and unfolds the details', async () => {
+    const { container, findByTestId, getByRole } = await renderLab('stage=quantize');
+    const area = await areaOf(container, 'quantize', 'quant');
+    const c = centreOf('quantize', 'quant', 1, 0);
+    await fireEvent(area, ptr('click', c.x, c.y, { detail: 1 }));
+    const pinned = await findByTestId('tooltip-pinned');
+    expect(pinned.textContent).toContain('Pattern (1, 0), rounded');
+    expect(pinned.querySelector('[data-testid="tooltip-details"]')).toBeNull();
+    await fireEvent.click(getByRole('button', { name: 'More' }));
+    expect((await findByTestId('tooltip-details')).textContent).toContain('Decoder multiplies back');
+  });
+
+  it('updates a pinned quantize card as quality changes', async () => {
+    const { container, findByTestId, getByLabelText, getByTestId } = await renderLab('stage=quantize');
+    const area = await areaOf(container, 'quantize', 'quant');
+    const c = centreOf('quantize', 'quant', 1, 0);
+    const pushed = pushes().length;
+    await fireEvent(area, ptr('click', c.x, c.y, { detail: 1 }));
+    expect((await findByTestId('tooltip-pinned')).textContent).toContain('quality 50');
+    expect(pushes().length).toBe(pushed); // a card never encodes
+    await fireEvent.input(getByLabelText('Quality'), { target: { value: '20' } });
+    await vi.waitFor(() => expect(pushes().length).toBe(pushed + 1)); // only the encode the slider itself causes
+    await vi.waitFor(() => expect(getByTestId('tooltip-pinned').textContent).toContain('quality 20'));
+    expect(pushes().length).toBe(pushed + 1);
+  });
+
+  it('decodes the current file once per encode', async () => {
+    const { container, findByTestId, getByLabelText } = await renderLab('stage=dct');
+    await vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalledTimes(1));
+    expect(Array.from(jpegDecodeSpy.mock.calls[0][0] as Uint8Array)).toEqual([0xff, 0xd8, 0xff, 0xd9]);
+    // Hovering, and a card appearing, decode nothing.
+    const area = await areaOf(container, 'dct', 'coeffs');
+    for (const u of [1, 2, 3]) {
+      const c = centreOf('dct', 'coeffs', u, 0);
+      await fireEvent(area, ptr('pointermove', c.x, c.y));
+    }
+    await findByTestId('tooltip-hover');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(jpegDecodeSpy).toHaveBeenCalledTimes(1);
+    await fireEvent.input(getByLabelText('Quality'), { target: { value: '20' } });
+    await vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalledTimes(2));
+  });
+
+  it('an acting target keeps its click', async () => {
+    const { findByRole, queryByTestId } = await renderLab('stage=dct');
+    const pick = await findByRole('button', { name: /Pick a block/ });
+    const image = layoutOf('dct').image;
+    ruleActionSpy.mockClear();
+    await fireEvent(pick, ptr('click', image.x + image.w / 2, image.y + image.h / 2, { detail: 1 }));
+    expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 16, by: 16 });
+    expect(queryByTestId('tooltip-pinned')).toBeNull(); // the image picks a block; it does not pin a card
+  });
+
+  it('explains a rebuilt sample of the Quantize stage from the canvas', async () => {
+    const { container, findByTestId } = await renderLab('stage=quantize');
+    await vi.waitFor(() => expect(container.querySelector('.hover-area')).toBeTruthy());
+    const canvas = container.querySelector('canvas')!;
+    const c = centreOf('quantize', 'dequant_rebuild', 3, 2);
+    await fireEvent(canvas, ptr('pointermove', c.x, c.y));
+    expect((await findByTestId('tooltip-hover')).textContent).toContain('Rebuilt sample (3, 2)');
+  });
+
+  it('lets the keyboard step through the coefficients', async () => {
+    const { getByLabelText, findByTestId } = await renderLab('stage=dct');
+    const grid = await vi.waitFor(() => getByLabelText(/How much of each this block uses/) as HTMLElement);
+    expect(grid.tabIndex).toBe(0);
+    grid.focus();
+    expect((await findByTestId('tooltip-hover')).textContent).toContain('F(0,0)');
+    await fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('F(1,0)'));
+    expect(route.query).toBe('stage=dct'); // the arrow moved a cell; it did not change stage
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('F(1,1)'));
+    await fireEvent.keyDown(grid, { key: 'Enter' });
+    expect((await findByTestId('tooltip-pinned')).textContent).toContain('F(1,1)');
+  });
+
+  it('explains a Q-table cell when it is focused, and keeps typing for itself', async () => {
+    const { getByLabelText, findByTestId } = await renderLab('stage=quantize');
+    const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
+    cell.focus();
+    const card = await findByTestId('tooltip-hover');
+    expect(card.textContent).toContain('Edit step (1, 0)');
+    await fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(document.querySelector('[data-testid="tooltip-pinned"]')).toBeNull(); // an input acts: no pin
+  });
+
+  describe('the rate–distortion curve', () => {
+    /** Where quality `q` sits in the chart's own pixels once the whole sweep is in (the fake sizes: 1000 + 40 q bytes, 20 + q / 5 dB). */
+    function pointAt(q: number) {
+      const slot = layoutOf('quantize').slots.rd!;
+      const W = slot.w - 8;
+      const H = slot.h - 40;
+      const maxBytes = Math.max(1000 + 40 * 100, jpegSummaryFixture.bytes);
+      return { x: ((1000 + 40 * q) / maxBytes) * W, y: H - (Math.min(20 + q / 5, RD_PSNR_CAP) / RD_PSNR_CAP) * H, W, H, maxBytes };
+    }
+    async function chart() {
+      const r = await renderLab('stage=quantize');
+      await vi.waitFor(() => expect(r.container.querySelector('.rd figcaption')?.textContent).not.toContain('of 100'), { timeout: 3000 });
+      return { ...r, svg: r.container.querySelector('.rd svg') as SVGElement };
+    }
+
+    it('explains the nearest curve point under the pointer', async () => {
+      const { svg, findByTestId } = await chart();
+      const p = pointAt(30);
+      await fireEvent(svg, ptr('pointermove', p.x + 1, p.y - 1));
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('Quality 30');
+    });
+
+    it('explains the dot as where you are now', async () => {
+      const { svg, findByTestId } = await chart();
+      const hit = svg.querySelector('.dot-hit')!;
+      await fireEvent(hit, ptr('pointermove', 0, 0));
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('You are here');
+    });
+
+    it('lets the keyboard walk the curve from the current quality', async () => {
+      const { svg, findByTestId } = await chart();
+      (svg as unknown as HTMLElement).focus();
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('Quality 50');
+      await fireEvent.keyDown(svg, { key: 'ArrowRight' });
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('Quality 51'));
+      expect(route.query).toBe('stage=quantize');
+    });
   });
 });

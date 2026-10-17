@@ -25,6 +25,8 @@ export const updateRuleConfigWithPathSpy = vi.fn();
 export const updateRuleConfigWithImageSpy = vi.fn();
 /** Records every `Engine.update_viz_config(cfg)` call. */
 export const updateVizConfigSpy = vi.fn();
+/** Records every kit `jpeg_decode(bytes)` call, so tests can assert the lab decodes once per encode. */
+export const jpegDecodeSpy = vi.fn();
 /** Records every `Engine.rule_action(action)` call; the fake always accepts (returns true). */
 export const ruleActionSpy = vi.fn();
 /**
@@ -231,6 +233,11 @@ export function makeVizMock() {
     jpeg_builtin_image: (_id: string, w: number, h: number) => new Uint8Array(w * h * 4).fill(128),
     jpeg_zigzag_order: () => Uint8Array.from({ length: 64 }, (_, i) => i),
     jpeg_dct_1d: (x: Float32Array) => Float32Array.from(x, (_, i) => (i === 0 ? 10 : 0)),
+    // The decoded copy: one RGBA pixel per picture pixel (the summary fixture's size), all zero.
+    jpeg_decode: (bytes: Uint8Array) => {
+      jpegDecodeSpy(bytes);
+      return new Uint8Array(jpegSummaryFixture.width * jpegSummaryFixture.height * 4);
+    },
     jpeg_dft_1d: (x: Float32Array) => new Float32Array(x.length * 2).fill(1),
     // Size grows and PSNR climbs with quality; the other Huffman mode costs 5000 bytes at any quality.
     jpeg_encode_stats: (_rgba: Uint8Array, _w: number, _h: number, q: number, _s: string, huffman: string) => ({
