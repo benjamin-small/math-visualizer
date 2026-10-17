@@ -4,6 +4,8 @@
   // what the codes cost against Shannon's bound; below, the selected block's
   // bits coloured by part and the whole file as a bar of its segments.
   import { onMount } from 'svelte';
+  import { bitParts } from '../../jpeg/explain/coding';
+  import { tooltip, type TooltipController } from './tooltip.svelte';
   import { loadVizCore, type VizCore } from '../../wasm/loader';
   import type { Rect } from '../../jpeg/layout';
   import type { SelectedBlock } from '../../jpeg/summary';
@@ -26,9 +28,11 @@
     otherBytes: number | null;
     bytes: number;
     huffman: string;
+    /** The page's cards: every part of this view explains itself. */
+    ctl: TooltipController;
   }
 
-  let { rect, tables, segments, sel, otherBytes, bytes, huffman }: Props = $props();
+  let { rect, tables, segments, sel, otherBytes, bytes, huffman, ctl }: Props = $props();
 
   let kit = $state<VizCore | null>(null);
   onMount(() => {
@@ -55,20 +59,27 @@
       return [];
     }
   });
+  const leaves = $derived(tree.filter((n) => n.symbol != null));
   const maxDepth = $derived(Math.max(1, ...tree.map((n) => n.depth)));
-  const codeOf = $derived(new Map(table?.codes.map((c) => [c.symbol, c.code]) ?? []));
   const fileBytes = $derived(Math.max(1, segments.reduce((s, g) => s + g.len, 0)));
 
-  /** The selected block's bits split by part, in file order. */
-  const parts = $derived.by(() => {
-    if (!sel) return [] as { text: string; kind: 'code' | 'amp' }[];
-    const out: { text: string; kind: 'code' | 'amp' }[] = [
-      { text: sel.dcCode, kind: 'code' },
-      { text: sel.dcAmpBits, kind: 'amp' },
-    ];
-    for (const t of sel.tokens) out.push({ text: t.code, kind: 'code' }, { text: t.ampBits, kind: 'amp' });
-    return out.filter((p) => p.text.length > 0);
-  });
+  /** The selected block's bits split by part, in file order (the same list the cards index into). */
+  const parts = $derived(sel ? bitParts(sel) : []);
+
+  /** Arrow keys move along a row of focusable marks (`selector` within the same svg); only one is in the tab order. */
+  function walk(e: KeyboardEvent, selector: string) {
+    if (e.altKey || e.metaKey || e.ctrlKey) return;
+    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (d === 0) return;
+    e.preventDefault();
+    e.stopPropagation(); // not also a stage switch
+    const row = [...(e.currentTarget as Element).closest('svg, .bits')!.querySelectorAll<SVGElement | HTMLElement>(selector)];
+    row[row.indexOf(e.currentTarget as SVGElement) + d]?.focus();
+  }
+  /** Which bar and which leaf the Tab key reaches (by index). */
+  let barRove = $state(0);
+  let leafRove = $state(0);
+  let partRove = $state(0);
 
   const W = $derived(Math.max(0, rect.w));
   const chartH = $derived(Math.max(0, Math.min(220, rect.h - 190)));
@@ -83,7 +94,13 @@
   <div class="huff" style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
     <div class="tabs" role="tablist" aria-label="Huffman tables">
       {#each tables as t, i (t.name)}
-        <button role="tab" class="chip" aria-selected={i === tab} onclick={() => (tab = i)}>{TABLE_LABELS[t.name] ?? t.name}</button>
+        <button
+          role="tab"
+          class="chip"
+          aria-selected={i === tab}
+          onclick={() => (tab = i)}
+          use:tooltip={{ ctl, target: { id: 'huffman.tab', table: i }, acts: true }}
+        >{TABLE_LABELS[t.name] ?? t.name}</button>
       {/each}
     </div>
 
@@ -94,9 +111,19 @@
           <svg width={half} height={chartH} aria-label="Symbol counts">
             {#each bars as [symbol, count], i}
               {@const h = (count / maxCount) * (chartH - LABELS - 4)}
-              <rect class="bar" x={i * bw + 1} y={chartH - LABELS - h} width={Math.max(1, bw - 2)} height={h}>
-                <title>{symbolLabel(table.name, symbol)}: {count} times, code {codeOf.get(symbol) ?? ''}</title>
-              </rect>
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+              <g
+                class="col"
+                role="img"
+                aria-label="{symbolLabel(table.name, symbol)}: {count} times"
+                tabindex={i === Math.min(barRove, bars.length - 1) ? 0 : -1}
+                onfocus={() => (barRove = i)}
+                onkeydown={(e) => walk(e, '.col')}
+                use:tooltip={{ ctl, target: { id: 'huffman.bar', table: tab, symbol } }}
+              >
+                <rect class="slot" x={i * bw} y="0" width={Math.max(1, bw)} height={chartH - LABELS} />
+                <rect class="bar" x={i * bw + 1} y={chartH - LABELS - h} width={Math.max(1, bw - 2)} height={h} />
+              </g>
               {#if bw >= 28}
                 <text class="sym" x={i * bw + bw / 2} y={chartH - 2}>{symbolLabel(table.name, symbol).replace('size ', '')}</text>
               {/if}
@@ -113,17 +140,32 @@
                 <line class="edge" x1={px} y1={py + 3} x2={x} y2={y + 3} />
               {/if}
             {/each}
-            {#each tree.filter((n) => n.symbol != null) as n (n.code)}
+            {#each leaves as n, li (n.code)}
               {@const [x, y] = nodeXY(n.code, half, chartH - 6, maxDepth)}
-              <circle class="leaf" cx={x} cy={y + 3} r="2.5"><title>{symbolLabel(table.name, n.symbol ?? 0)} = {n.code}</title></circle>
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+              <circle
+                class="leaf"
+                cx={x}
+                cy={y + 3}
+                r="2.5"
+                role="img"
+                aria-label="{symbolLabel(table.name, n.symbol ?? 0)} = {n.code}"
+                tabindex={li === Math.min(leafRove, leaves.length - 1) ? 0 : -1}
+                onfocus={() => (leafRove = li)}
+                onkeydown={(e) => walk(e, '.leaf')}
+                use:tooltip={{ ctl, target: { id: 'huffman.leaf', table: tab, symbol: n.symbol ?? 0 } }}
+              />
             {/each}
           </svg>
         </figure>
       </div>
       <p class="stat">
-        This table: <span class="mono">{Math.round(table.actualBits)}</span> bits of codes against
-        <span class="mono">{Math.round(table.entropyBits)}</span> at the entropy limit
-        ({table.entropyBits > 0 ? ((100 * table.actualBits) / table.entropyBits - 100).toFixed(1) : '0.0'}% over).
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+        <span class="cost" tabindex="0" use:tooltip={{ ctl, target: { id: 'huffman.cost', table: tab } }}>
+          This table: <span class="mono">{Math.round(table.actualBits)}</span> bits of codes against
+          <span class="mono">{Math.round(table.entropyBits)}</span> at the entropy limit
+          ({table.entropyBits > 0 ? ((100 * table.actualBits) / table.entropyBits - 100).toFixed(1) : '0.0'}% over).
+        </span>
         {#if otherBytes != null}
           With {huffman === 'optimized' ? 'standard' : 'optimized'} tables the file would be
           <span class="mono">{otherBytes}</span> bytes instead of <span class="mono">{bytes}</span>.
@@ -133,14 +175,27 @@
 
     {#if sel}
       <div class="bits mono" aria-label="The selected block's bits">
-        {#each parts as p, i (i)}<span class={p.kind}>{p.text}</span>{/each}
+        {#each parts as p, i (i)}<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions --><span
+            class={p.kind}
+            role="img"
+            aria-label="{p.kind === 'code' ? 'Code' : 'Value'} bits {p.text}"
+            tabindex={i === Math.min(partRove, parts.length - 1) ? 0 : -1}
+            onfocus={() => (partRove = i)}
+            onkeydown={(e) => walk(e, 'span')}
+            use:tooltip={{ ctl, target: { id: 'huffman.bits', part: i } }}>{p.text}</span>{/each}
       </div>
     {/if}
 
     {#if segments.length}
       <div class="file" aria-label="The file's segments">
-        {#each segments as s (s.offset)}
-          <span class="seg" class:scan={s.kind === 'Sos'} style:flex-grow={Math.max(s.len / fileBytes, 0.02)} title="{s.kind}: {s.len} bytes at {s.offset}">{s.kind}</span>
+        {#each segments as s, i (s.offset)}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+          <span
+            class="seg"
+            class:scan={s.kind === 'Sos'}
+            style:flex-grow={Math.max(s.len / fileBytes, 0.02)}
+            tabindex="0"
+            use:tooltip={{ ctl, target: { id: 'huffman.segment', i } }}>{s.kind}</span>
         {/each}
       </div>
     {/if}
@@ -165,10 +220,17 @@
   figure { margin: 0; }
   figcaption { margin-bottom: 4px; white-space: nowrap; }
   svg { display: block; overflow: visible; }
-  .bar { fill: #e27a52; }
+  .bar { fill: #e27a52; pointer-events: none; }
+  .slot { fill: transparent; }
+  .col { cursor: default; }
+  .col:focus { outline: none; }
+  .col:focus-visible .slot { stroke: var(--accent); stroke-dasharray: 3 2; }
+  .cost:focus-visible, .seg:focus-visible, .bits span:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   .sym { fill: rgba(255, 255, 255, 0.6); font-size: 10px; text-anchor: middle; }
   .edge { stroke: rgba(255, 255, 255, 0.25); }
-  .leaf { fill: #8fb7f2; }
+  .leaf { fill: #8fb7f2; stroke: transparent; stroke-width: 10px; paint-order: stroke; }
+  .leaf:focus { outline: none; }
+  .leaf:focus-visible { stroke: var(--accent); stroke-width: 2px; }
   .stat { margin: 0; line-height: 1.5; }
   .bits { font-size: 11px; line-height: 1.5; word-break: break-all; max-height: 4.5em; overflow: auto; }
   .bits .code { color: #e9a07c; }

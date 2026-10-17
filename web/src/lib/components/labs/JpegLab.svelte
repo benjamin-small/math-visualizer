@@ -485,6 +485,31 @@
     return { id: 'image.pixel', x: Math.min(image.w - 1, bx * 8), y: Math.min(image.h - 1, by * 8) };
   }
 
+  /** The colour and subsample panels that carry a card but are not cell grids. */
+  const COLOUR_PANELS: ReadonlySet<Panel['kind']> = new Set(['cube', 'plane_y', 'plane_cb', 'plane_cr', 'coded_cb', 'coded_cr']);
+
+  /** For the keyboard: the card of a colour panel, about the block being followed. */
+  function panelKey(kind: Panel['kind']): Target | null {
+    if (kind === 'cube') return { id: 'color.cube' };
+    const f = followedPixel();
+    if (!f || f.id !== 'image.pixel') return null;
+    const { x, y } = f;
+    switch (kind) {
+      case 'plane_y':
+        return stage === 'color' ? { id: 'color.plane', plane: 0, x, y } : null;
+      case 'plane_cb':
+      case 'plane_cr': {
+        const plane = kind === 'plane_cb' ? 1 : 2;
+        return stage === 'color' ? { id: 'color.plane', plane, x, y } : { id: 'subsample.plane', which: 'full', plane, x, y };
+      }
+      case 'coded_cb':
+      case 'coded_cr':
+        return { id: 'subsample.plane', which: 'coded', plane: kind === 'coded_cb' ? 1 : 2, x, y };
+      default:
+        return null;
+    }
+  }
+
   /** The stage's own listener: only the bare canvas is hit-tested here; overlay elements carry their own cards. */
   const canvasHit = (e: MouseEvent): Target | null => (e.target instanceof HTMLCanvasElement ? hitTarget(e) : null);
 
@@ -831,27 +856,65 @@
         ></button>
       {/if}
 
+      {#if stage === 'color' || stage === 'subsample'}
+        {#each layout.panels.filter((p) => COLOUR_PANELS.has(p.kind)) as p (p.kind)}
+          <!-- A picture panel: focusable so the keyboard can reach its card; the pointer hit-tests the panel as the canvas does. -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+          <div
+            class="hover-area"
+            role="img"
+            tabindex="0"
+            aria-label={p.label}
+            style:left="{p.rect.x}px"
+            style:top="{p.rect.y}px"
+            style:width="{p.rect.w}px"
+            style:height="{p.rect.h}px"
+            use:tooltip={{ ctl, target: hitTarget, keyTarget: () => panelKey(p.kind) }}
+          ></div>
+        {/each}
+      {/if}
+
       {#if stage === 'overview' && layout.slots.stats && image}
         <Overview rect={layout.slots.stats} {image} jpeg={jpegBytes} {quality} custom={customTables !== null} {credit} errors={alerts} />
       {/if}
 
       {#if stage === 'color' && panel('cube')}
         {@const r = panel('cube')!}
-        <label class="ctl" style:left="{r.x}px" style:top="{r.y + r.h - 34}px" style:width="{r.w}px">
+        <label class="ctl" style:left="{r.x}px" style:top="{r.y + r.h - 34}px" style:width="{r.w}px" use:tooltip={{ ctl, target: { id: 'color.axes' }, acts: true }}>
           <span>RGB axes</span>
-          <input type="range" min="0" max="1" step="0.01" value={cubeMix} oninput={onCubeMix} aria-label="RGB axes to YCbCr axes" />
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={cubeMix}
+            oninput={onCubeMix}
+            aria-label="RGB axes to YCbCr axes"
+            use:tooltip={{ ctl, target: { id: 'color.axes' }, acts: true }}
+          />
           <span>YCbCr axes</span>
         </label>
       {/if}
 
       {#if stage === 'blocks' && panel('block') && sel}
         {@const r = panel('block')!}
+        {@render cellGrid('block', r)}
         <CellNumbers rect={r} values={showShifted ? sel.shifted : sel.pixels} shade={(v) => sampleShade(showShifted ? v + 128 : v)} />
         <div class="ctl tools" style:left="{r.x}px" style:top="{r.y + r.h + 10}px">
           {#each ['Y', 'Cb', 'Cr'] as name, c (name)}
-            <button class="chip" aria-pressed={component === c} onclick={() => setComponent(c)}>{name}</button>
+            <button
+              class="chip"
+              aria-pressed={component === c}
+              onclick={() => setComponent(c)}
+              use:tooltip={{ ctl, target: { id: 'blocks.component' }, acts: true }}>{name}</button
+            >
           {/each}
-          <button class="chip" aria-pressed={showShifted} onclick={() => (showShifted = !showShifted)} title="Centre the samples on zero">− 128</button>
+          <button
+            class="chip"
+            aria-pressed={showShifted}
+            onclick={() => (showShifted = !showShifted)}
+            use:tooltip={{ ctl, target: { id: 'blocks.shift' }, acts: true }}>− 128</button
+          >
         </div>
       {/if}
 
@@ -910,10 +973,11 @@
 
       {#if stage === 'zigzag' && sel}
         {#if panel('zigzag')}
+          {@render cellGrid('zigzag', panel('zigzag')!)}
           <CellNumbers rect={panel('zigzag')!} values={sel.quant} />
         {/if}
         {#if layout.slots.sequence}
-          <ZigzagStrip rect={layout.slots.sequence} zigzag={sel.zigzag} reached={zigReached} />
+          <ZigzagStrip rect={layout.slots.sequence} zigzag={sel.zigzag} reached={zigReached} {ctl} />
         {/if}
       {/if}
 
@@ -922,7 +986,7 @@
           <CellNumbers rect={panel('quant')!} values={sel.quant} minCell={20} />
         {/if}
         {#if layout.slots.tokens}
-          <TokenChips rect={layout.slots.tokens} {sel} />
+          <TokenChips rect={layout.slots.tokens} {sel} {ctl} />
         {/if}
       {/if}
 
@@ -935,6 +999,7 @@
           {otherBytes}
           bytes={summary?.bytes ?? 0}
           {huffman}
+          {ctl}
         />
       {/if}
 
@@ -973,8 +1038,14 @@
     <section class="stage-card" aria-live="polite">
       <h2><span class="mark">{stageInfo.mark}</span> {stageInfo.title}</h2>
       <p class="sub">{stageInfo.subtitle}</p>
-      {#each stageTex(stage, summary, hover) as tex}
-        <Tex {tex} />
+      {#each stageTex(stage, summary, hover) as tex, ti}
+        {#if stage === 'subsample' && ti === 1}
+          <!-- The "samples kept" figure explains itself. -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+          <div class="kept" tabindex="0" use:tooltip={{ ctl, target: { id: 'subsample.kept' } }}><Tex {tex} /></div>
+        {:else}
+          <Tex {tex} />
+        {/if}
       {/each}
       <p class="tip">{NOTICE[stage]}</p>
       {#if stage === 'overview' && credit}
@@ -1057,6 +1128,7 @@
   }
   .hit { position: absolute; padding: 0; border: 0; background: none; cursor: crosshair; pointer-events: auto; }
   .hover-area { position: absolute; pointer-events: auto; }
+  .kept:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   .hover-area:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   /* The cell the arrow keys are on; shown only while the grid has the keyboard. */
   .rove { display: none; position: absolute; box-sizing: border-box; border: 2px solid var(--accent); pointer-events: none; }
