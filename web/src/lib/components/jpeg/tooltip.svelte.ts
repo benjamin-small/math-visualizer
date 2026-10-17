@@ -215,6 +215,7 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
   let press: { x: number; y: number } | null = null;
   let swallowClick = false;
   let pointerDown = false;
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   const resolve = (e: MouseEvent): Target | null => (typeof params.target === 'function' ? params.target(e) : params.target);
   /** The target for focus and keys: a hit-tested element has none unless its owner names one. */
@@ -301,15 +302,45 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
   };
   const onBlur = () => params.ctl.leave(owner);
 
+  /**
+   * A hit-tested node with a `keyTarget` (a roving cell): after a key that may have moved it, show the card for
+   * where it is now, as this node's own card. Runs on a timer, after the owner's own key handler (which Svelte
+   * delegates to the document, so it runs after this node's listeners) has moved its state.
+   * Only when this node owns the shown card, or the key is a navigation key on the focused node (the keyboard
+   * takes over a card some other node's pointer put up).
+   */
+  const refreshKeyed = (key: string) => {
+    if (typeof params.target !== 'function' || !params.keyTarget) return;
+    if (key === 'Escape' || key === 'Enter' || key === '?' || key === 'Tab') return;
+    const own = params.ctl.hovered?.owner === owner;
+    if (!own && !(document.activeElement === node && /^(Arrow|Home$|End$|Page)/.test(key))) return;
+    const t = params.keyTarget();
+    if (!t) {
+      if (own) params.ctl.retarget(owner, null);
+      return;
+    }
+    const open = params.ctl.hovered;
+    if (own && open && keyOf(open.target) === keyOf(t)) return;
+    const r = elementBox();
+    params.ctl.showNow(t, r.left, r.bottom, r, owner);
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     pointerDown = false;
     clearSwallow();
+    const key = e.key;
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => refreshKeyed(key), 0);
     if (e.key !== 'Enter' && e.key !== '?') return;
     if (e.key === '?' && isTextEntry(e.target)) return;
     const t = keyed();
     if (!t) return;
     if (e.key === 'Enter') {
-      if (!params.acts) params.ctl.pin(t, elementBox(), node);
+      if (!params.acts) {
+        // The pin moves focus onto the card's Close button; the Enter must not carry on there and close it.
+        e.preventDefault();
+        params.ctl.pin(t, elementBox(), node);
+      }
     } else {
       params.ctl.pin(t, elementBox(), node);
       params.ctl.unfold();
@@ -340,6 +371,7 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
       params.ctl.retarget(owner, typeof next.target === 'function' ? null : next.target);
     },
     destroy() {
+      clearTimeout(refreshTimer);
       cancelPress();
       clearSwallow();
       // No pointerleave comes for a node removed under the pointer, so release its card here.

@@ -122,6 +122,12 @@
     return { destroy: () => ro.disconnect() };
   }
 
+  /** Moves the card to the end of `<body>`, clear of any page or lab styles and stacking, and takes it away again on destroy. */
+  function portal(node: HTMLElement) {
+    document.body.append(node);
+    return { destroy: () => node.remove() };
+  }
+
   function swatch(g: number): string {
     return `rgb(${g},${g},${g})`;
   }
@@ -147,6 +153,7 @@
     data-tooltip-card
     style:left="{hoverPos.x}px"
     style:top="{hoverPos.y}px"
+    use:portal
     use:measure={(w, h) => ((hoverW = w), (hoverH = h))}
     onpointerenter={() => ctl.hold()}
     onpointerleave={(e) => {
@@ -172,6 +179,7 @@
     data-tooltip-card
     style:left="{pinPos.x}px"
     style:top="{pinPos.y}px"
+    use:portal
     use:measure={(w, h) => ((pinW = w), (pinH = h))}
     bind:this={pinEl}
   >
