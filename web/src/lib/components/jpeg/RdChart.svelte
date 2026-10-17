@@ -9,7 +9,7 @@
   import type { RgbaImage } from '../../jpeg/images';
   import { RD_PSNR_CAP, addPoint, cachedCurve, missing, rdKey, rdPolyline, sweepFrame, type RdPoint } from '../../jpeg/rd';
   import type { Target } from '../../jpeg/explain';
-  import { boxOf, tooltip, type TooltipController } from './tooltip.svelte';
+  import { tooltip, type TooltipController } from './tooltip.svelte';
 
   interface Props {
     rect: Rect;
@@ -106,31 +106,27 @@
 
   /** Left and right walk the curve one quality at a time (shift: ten); the card follows. */
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Enter') e.preventDefault(); // the pin moves focus onto its Close button; the keypress must not follow it there
     if (e.altKey || e.metaKey || e.ctrlKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
     e.preventDefault(); // not also a stage switch
     const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : 1);
-    rove = Math.min(100, Math.max(1, roveQuality + step));
-    const r = (e.currentTarget as Element).getBoundingClientRect();
-    // The card the focus showed becomes this quality's, still the chart's own.
-    ctl.showNow(keyTarget(), r.left, r.bottom, boxOf(r.left, r.top, r.width, r.height), ctl.hovered?.owner);
+    rove = Math.min(100, Math.max(1, roveQuality + step)); // the chart's action shows the new quality's card
   }
 </script>
 
 {#if rect.w > 120 && rect.h > 90}
   <figure class="rd" style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
     <figcaption>Size against quality, q = 1…100 {points.length < 100 ? `(${points.length} of 100)` : ''}</figcaption>
+    <!-- The curve is a focusable chart: the arrow keys walk its qualities, and its action shows each one's card. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <svg
       width={W}
       height={H}
-      role="slider"
+      role="group"
+      aria-roledescription="chart"
       tabindex="0"
-      aria-label="Rate–distortion curve: the arrow keys walk the qualities"
-      aria-valuemin={1}
-      aria-valuemax={100}
-      aria-valuenow={roveQuality}
+      aria-label="Rate–distortion curve. The arrow keys walk the qualities."
       onkeydown={onKey}
-      onblur={() => ((rove = null), ctl.leave())}
+      onblur={() => (rove = null)}
       use:tooltip={{ ctl, target: nearestQuality, keyTarget }}
     >
       <line class="axis" x1="0" y1={H} x2={W} y2={H} />
@@ -147,7 +143,6 @@
         role="img"
         tabindex="0"
         aria-label="Where you are now"
-        onkeydown={(e) => e.key === 'Enter' && e.preventDefault()}
         use:tooltip={{ ctl, target: { id: 'quantize.dot' } }}
       />
     </svg>

@@ -21,7 +21,7 @@
   import Overview from '../jpeg/Overview.svelte';
   import Gallery from '../jpeg/Gallery.svelte';
   import TooltipHost from '../jpeg/TooltipHost.svelte';
-  import { TooltipController, boxOf, tooltip } from '../jpeg/tooltip.svelte';
+  import { TooltipController, tooltip } from '../jpeg/tooltip.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
   import { route, replaceQuery } from '../../router.svelte';
@@ -47,6 +47,8 @@
 
   /** MCUs scanned per second by default: the 256² gradient (256 MCUs) scans in four seconds. */
   const DEFAULT_SPEED = 64;
+  /** The decoded copy is made this long after the last encode, so a quality drag decodes once. */
+  const DECODE_DELAY_MS = 120;
 
   const linked = parseParams(route.query);
   // The first picture starts loading now, not when the engine is ready, so the fetch overlaps the WASM load.
@@ -198,6 +200,7 @@
 
   // The finished file and its decoded copy, read once per encode (a new picture is a new encode too).
   // The overview draws from the file; the cards read the decoded pixels.
+  // The decode waits for the encodes to settle, so a quality drag decodes once, after it, not once per frame.
   $effect(() => {
     void version;
     const engine = api?.engine;
@@ -207,18 +210,21 @@
     decoded = null;
     if (!bytes) return;
     let alive = true;
-    loadVizCore()
-      .then((v) => {
-        if (!alive) return;
-        try {
-          decoded = v.jpeg_decode(bytes);
-        } catch {
-          decoded = null;
-        }
-      })
-      .catch(() => {});
+    const timer = setTimeout(() => {
+      loadVizCore()
+        .then((v) => {
+          if (!alive) return;
+          try {
+            decoded = v.jpeg_decode(bytes);
+          } catch {
+            decoded = null;
+          }
+        })
+        .catch(() => {});
+    }, DECODE_DELAY_MS);
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   });
 
@@ -474,25 +480,29 @@
 
   const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
-  /** The arrow keys move the roving cell of a coefficient grid and show its card; the hover outline follows. */
-  function onGridKey(e: KeyboardEvent, kind: Panel['kind']) {
-    if (e.key === 'Enter') e.preventDefault(); // the pin moves focus onto its Close button; the keypress must not follow it there
+  /** The arrow keys move the roving cell of a coefficient grid; the hover outline follows, and the grid's action shows the cell's card. */
+  function onGridKey(e: KeyboardEvent) {
     if (e.altKey || e.metaKey || e.ctrlKey) return;
     const d = ARROWS[e.key];
     if (!d) return;
     e.preventDefault(); // not also a stage switch or a page scroll
     rove = [Math.min(7, Math.max(0, rove[0] + d[0])), Math.min(7, Math.max(0, rove[1] + d[1]))];
     setHover(rove);
-    const t = cellTarget(stage, kind, rove[0], rove[1]);
-    if (!t) return;
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    // The card the grid's focus showed becomes this cell's, still the grid's own.
-    ctl.showNow(t, r.left, r.bottom, boxOf(r.left, r.top, r.width, r.height), ctl.hovered?.owner);
+  }
+
+  /** Keyboard focus lights the roving cell's pattern as the pointer does (a mouse press has just lit its own cell). */
+  function onGridFocus(e: FocusEvent) {
+    let keyboard = true;
+    try {
+      keyboard = (e.currentTarget as HTMLElement).matches(':focus-visible');
+    } catch {
+      // an engine without :focus-visible: treat the focus as the keyboard's
+    }
+    if (keyboard) setHover(rove);
   }
 
   function onGridBlur() {
     clearHover();
-    ctl.leave();
   }
 
   function onCubeMix(e: Event) {
@@ -717,9 +727,11 @@
     <!-- A coefficient grid: pointer hovers and clicks give cards, and the arrow keys rove from cell to cell. -->
     {#snippet cellGrid(kind: Panel['kind'], r: Rect)}
       {@const mark = cells(r, window.devicePixelRatio || 1)[rove[0] + 8 * rove[1]]}
+      <!-- A roving-cell group: focusable so the keyboard can explore the numbers; its cards come from the tooltip action. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
       <div
         class="hover-area"
-        role="grid"
+        role="group"
         tabindex="0"
         aria-label="{layout.panels.find((p) => p.kind === kind)?.label}. The arrow keys move between cells."
         style:left="{r.x}px"
@@ -729,7 +741,8 @@
         onpointermove={(e) => onCellHover(e, r)}
         onpointerdown={(e) => onCellHover(e, r)}
         onpointerleave={onHoverLeave}
-        onkeydown={(e) => onGridKey(e, kind)}
+        onkeydown={onGridKey}
+        onfocus={onGridFocus}
         onblur={onGridBlur}
         use:tooltip={{ ctl, target: hitTarget, keyTarget: () => cellTarget(stage, kind, rove[0], rove[1]) }}
       >

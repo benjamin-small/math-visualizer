@@ -772,7 +772,7 @@ describe('JpegLab.svelte cards', () => {
 
   it('decodes the current file once per encode', async () => {
     const { container, findByTestId, getByLabelText } = await renderLab('stage=dct');
-    await vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalledTimes(1), { timeout: 2000 }); // the decode waits for the encodes to settle
     expect(Array.from(jpegDecodeSpy.mock.calls[0][0] as Uint8Array)).toEqual([0xff, 0xd8, 0xff, 0xd9]);
     // Hovering, and a card appearing, decode nothing.
     const area = await areaOf(container, 'dct', 'coeffs');
@@ -784,7 +784,21 @@ describe('JpegLab.svelte cards', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(jpegDecodeSpy).toHaveBeenCalledTimes(1);
     await fireEvent.input(getByLabelText('Quality'), { target: { value: '20' } });
-    await vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalledTimes(2), { timeout: 2000 });
+  });
+
+  it('decodes once after a quality drag, not once per frame', async () => {
+    const { getByLabelText } = await renderLab('stage=dct');
+    await vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    const before = pushes().length;
+    for (const v of ['20', '30', '40']) {
+      await fireEvent.input(getByLabelText('Quality'), { target: { value: v } });
+      await new Promise((r) => setTimeout(r, 20)); // a frame each, well inside the settling time
+    }
+    await vi.waitFor(() => expect(pushes().length).toBeGreaterThan(before + 1));
+    await vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(jpegDecodeSpy).toHaveBeenCalledTimes(2);
   });
 
   it('an acting target keeps its click', async () => {
@@ -810,7 +824,14 @@ describe('JpegLab.svelte cards', () => {
     const { getByLabelText, findByTestId } = await renderLab('stage=dct');
     const grid = await vi.waitFor(() => getByLabelText(/How much of each this block uses/) as HTMLElement);
     expect(grid.tabIndex).toBe(0);
+    expect(grid.getAttribute('role')).toBe('group');
+    updateVizConfigSpy.mockClear();
     grid.focus();
+    // Keyboard focus lights the roving cell's pattern, as the pointer does.
+    await vi.waitFor(() => expect(lastViz().hover).toEqual([0, 0]));
+    await fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    await vi.waitFor(() => expect(lastViz().hover).toEqual([1, 0]));
+    await fireEvent.keyDown(grid, { key: 'ArrowLeft' });
     expect((await findByTestId('tooltip-hover')).textContent).toContain('F(0,0)');
     await fireEvent.keyDown(grid, { key: 'ArrowRight' });
     await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('F(1,0)'));
@@ -862,6 +883,8 @@ describe('JpegLab.svelte cards', () => {
 
     it('lets the keyboard walk the curve from the current quality', async () => {
       const { svg, findByTestId } = await chart();
+      expect(svg.getAttribute('role')).toBe('group');
+      expect(svg.getAttribute('aria-roledescription')).toBe('chart');
       (svg as unknown as HTMLElement).focus();
       expect((await findByTestId('tooltip-hover')).textContent).toContain('Quality 50');
       await fireEvent.keyDown(svg, { key: 'ArrowRight' });

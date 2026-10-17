@@ -328,6 +328,21 @@ describe('keyboard', () => {
     expect(screen.getByTestId('tooltip-details')).toBeTruthy();
   });
 
+  it('Enter on a non-acting target is handled (default prevented, so it cannot reach the Close button the pin focuses); on an acting target it is left alone', async () => {
+    const pins = target({ target: T10 }, 'span');
+    pins.focus();
+    const enter = () => new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    const a = enter();
+    pins.dispatchEvent(a);
+    expect(a.defaultPrevented).toBe(true);
+    ctl.close();
+    const acts = target({ target: T20, acts: true }, 'span');
+    acts.focus();
+    const b = enter();
+    acts.dispatchEvent(b);
+    expect(b.defaultPrevented).toBe(false);
+  });
+
   it('Enter does not pin an acting target, but ? unfolds its card', async () => {
     const el = target({ target: T10, acts: true });
     el.focus();
@@ -360,6 +375,22 @@ describe('keyboard', () => {
     expect(live.textContent).toContain(VALUE_10);
     expect(live.textContent).toContain('At quality 50 it rounds to');
     expect(el.getAttribute('aria-describedby')).toBe(live.id);
+  });
+});
+
+describe('the cards sit in the body', () => {
+  it('portals the hover and pinned cards to the end of <body>, and takes them away again', async () => {
+    const el = target({ target: T10 });
+    el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(150);
+    expect(hoverCard()!.parentElement).toBe(document.body);
+    el.click();
+    await tick();
+    expect(pinnedCard()!.parentElement).toBe(document.body);
+    ctl.close();
+    await tick();
+    expect(pinnedCard()).toBeNull();
+    expect(hoverCard()).toBeNull();
   });
 });
 
@@ -524,6 +555,83 @@ describe('keyTarget', () => {
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await tick();
     expect(ctl.pinned?.target).toEqual(T20);
+  });
+
+  const arrow = (key = 'ArrowRight') => new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+
+  it('an arrow key on a focused roving node shows the card for the cell it moved to', async () => {
+    let cell: Target = T10;
+    const grid = target({ target: () => null, keyTarget: () => cell }, 'span');
+    grid.focus();
+    await tick();
+    expect(hoverCard()!.textContent).toContain('F(1,0)');
+    cell = T20; // the owner's own key handler moves its state; the action then re-reads keyTarget
+    grid.dispatchEvent(arrow());
+    await advance(0);
+    expect(hoverCard()!.textContent).toContain('F(2,0)');
+    cell = { id: 'dct.coeff', u: 2, v: 1 };
+    grid.dispatchEvent(arrow('ArrowDown'));
+    await advance(0);
+    expect(hoverCard()!.textContent).toContain('F(2,1)');
+  });
+
+  it("reads the cell after a handler delegated to the document has moved it (Svelte's onkeydown)", async () => {
+    let cell: Target = T10;
+    const grid = target({ target: () => null, keyTarget: () => cell }, 'span');
+    const move = () => (cell = T20);
+    document.addEventListener('keydown', move);
+    destroyers.push(() => document.removeEventListener('keydown', move));
+    grid.focus();
+    await tick();
+    grid.dispatchEvent(arrow());
+    await advance(0);
+    expect(hoverCard()!.textContent).toContain('F(2,0)');
+  });
+
+  it("the grid's refreshed card is its own: another node's pointer leaving does not hide it", async () => {
+    let cell: Target = T10;
+    const grid = target({ target: () => null, keyTarget: () => cell }, 'span');
+    const other = mounted({ target: T20 }, 'span');
+    grid.focus();
+    await tick();
+    other.el.dispatchEvent(ptr('pointerenter', { bubbles: false })); // a pointer on another node takes the card
+    await tick();
+    expect(hoverCard()!.textContent).toContain('F(2,0)');
+    cell = { id: 'dct.coeff', u: 3, v: 0 };
+    grid.dispatchEvent(arrow());
+    await advance(0);
+    expect(hoverCard()!.textContent).toContain('F(3,0)');
+    other.el.dispatchEvent(ptr('pointerleave', { bubbles: false }));
+    await advance(500);
+    expect(hoverCard()!.textContent).toContain('F(3,0)');
+  });
+
+  it('an arrow key shows the card again for a focused node whose card was hidden, but Escape and Tab do not', async () => {
+    let cell: Target = T10;
+    const grid = target({ target: () => null, keyTarget: () => cell }, 'span');
+    grid.focus();
+    await tick();
+    grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await advance(0);
+    expect(hoverCard()).toBeNull();
+    grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    await advance(0);
+    expect(hoverCard()).toBeNull();
+    cell = T20;
+    grid.dispatchEvent(arrow());
+    await advance(0);
+    expect(hoverCard()!.textContent).toContain('F(2,0)');
+  });
+
+  it('hides the card when the moved-to cell has none', async () => {
+    let cell: Target | null = T10;
+    const grid = target({ target: () => null, keyTarget: () => cell }, 'span');
+    grid.focus();
+    await tick();
+    cell = null;
+    grid.dispatchEvent(arrow());
+    await advance(0);
+    expect(hoverCard()).toBeNull();
   });
 
   it('shows nothing on focus for a hit-tested element without one, or when it returns null', async () => {
