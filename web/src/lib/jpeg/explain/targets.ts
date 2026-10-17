@@ -1,12 +1,15 @@
 // Everything in the JPEG lab that can carry a card, named by a stable id. The
 // inventory in the design maps one line to one id; `TARGET_IDS` lists them all
 // so a coverage test can check each is registered and explained.
-import type { ImageId } from '../params';
+import type { HuffmanId, ImageId, SubsamplingId } from '../params';
 import type { StageId } from '../stages';
 import type { ExplainContext } from './context';
 
 export type Target =
-  | { id: 'bezel.picture' | 'bezel.upload' | 'bezel.quality' | 'bezel.chroma' | 'bezel.huffman' | 'bezel.save' | 'bezel.speed' }
+  | { id: 'bezel.picture' | 'bezel.upload' | 'bezel.quality' | 'bezel.save' | 'bezel.speed' }
+  /** `mode` is the option being pointed at; without it, the one in use. */
+  | { id: 'bezel.chroma'; mode?: SubsamplingId }
+  | { id: 'bezel.huffman'; mode?: HuffmanId }
   | { id: 'rail.stage'; stage: StageId }
   | { id: 'readout.size' | 'readout.ratio' | 'readout.bpp' | 'readout.psnr' | 'chip.custom' }
   | { id: 'image.pixel'; x: number; y: number }

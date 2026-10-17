@@ -852,6 +852,134 @@ describe('JpegLab.svelte cards', () => {
     expect(document.querySelector('[data-testid="tooltip-pinned"]')).toBeNull(); // an input acts: no pin
   });
 
+  describe('the bezel, readout, rail and pictures', () => {
+    /** A touch pointer event (jsdom has none): a MouseEvent that says it is a finger. */
+    const touch = (type: string, x = 5, y = 5) => {
+      const e = ptr(type, x, y);
+      Object.defineProperty(e, 'pointerType', { value: 'touch' });
+      return e;
+    };
+    const enter = (el: Element) => fireEvent(el, new MouseEvent('pointerenter', { clientX: 5, clientY: 5 }));
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    it('explains the quality slider in context', async () => {
+      const { getByLabelText, findByTestId, getByTestId } = await renderLab();
+      const slider = await vi.waitFor(() => getByLabelText('Quality') as HTMLInputElement);
+      slider.focus();
+      const card = await findByTestId('tooltip-hover');
+      expect(card.textContent).toContain('50');
+      expect(card.textContent).toContain('100%');
+      await fireEvent.input(slider, { target: { value: '20' } });
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('250%'));
+    });
+
+    it('the stage rail keeps its click; a long-press explains it', async () => {
+      const { getByRole, findByTestId } = await renderLab('stage=color');
+      const button = getByRole('button', { name: /Zigzag/ });
+      await fireEvent(button, touch('pointerdown'));
+      await wait(600);
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('Step 6: Zigzag');
+      await fireEvent(button, touch('pointerup'));
+      await fireEvent.click(button); // the click that ends the long-press is swallowed
+      expect(route.query).toBe('stage=color');
+      // An ordinary tap still switches.
+      await fireEvent(button, touch('pointerdown'));
+      await fireEvent(button, touch('pointerup'));
+      await fireEvent.click(button);
+      expect(route.query).toBe('stage=zigzag');
+    });
+
+    it('a long-press on the stage image shows the pixel card and does not pick a block', async () => {
+      const { findByRole, findByTestId } = await renderLab('stage=dct');
+      const pick = await findByRole('button', { name: /Pick a block/ });
+      const image = layoutOf('dct').image;
+      const [x, y] = [image.x + 2, image.y + 2];
+      ruleActionSpy.mockClear();
+      await fireEvent(pick, touch('pointerdown', x, y));
+      await wait(600);
+      const card = await findByTestId('tooltip-hover');
+      expect(card.textContent).toContain('Pixel (');
+      expect(card.textContent).toContain('RGB 128, 128, 128');
+      expect(card.textContent).toContain('follow this block');
+      await fireEvent(pick, touch('pointerup', x, y));
+      await fireEvent(pick, ptr('click', x, y, { detail: 1 }));
+      expect(ruleActionSpy).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'select_block' }));
+    });
+
+    it('explains each readout figure and pins it on click', async () => {
+      const { container, findByTestId } = await renderLab();
+      const stats = await vi.waitFor(() => {
+        const found = [...container.querySelectorAll<HTMLElement>('.stats .stat')];
+        expect(found).toHaveLength(4);
+        return found;
+      });
+      expect(stats.every((el) => el.tabIndex === 0)).toBe(true);
+      await enter(stats[0]);
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('4.0 KB of 192.0 KB');
+      await fireEvent(stats[3], ptr('click', 5, 5, { detail: 1 }));
+      const pinned = await findByTestId('tooltip-pinned');
+      expect(pinned.textContent).toContain('36.5 dB');
+      expect(pinned.textContent).toContain('higher is closer');
+    });
+
+    it('explains each chroma and Huffman option, in its own words', async () => {
+      const { getByLabelText, findByTestId, getByTestId } = await renderLab();
+      const radio = await vi.waitFor(() => getByLabelText('4:4:4') as HTMLInputElement);
+      radio.focus();
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('Keeps 100% of the colour detail');
+      (getByLabelText('Standard') as HTMLInputElement).focus();
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('example tables from the standard'));
+    });
+
+    it('explains the shell\'s speed slider', async () => {
+      const { container, findByTestId } = await renderLab();
+      const slider = await vi.waitFor(() => {
+        const el = container.querySelector<HTMLInputElement>('.speed input');
+        expect(el?.getAttribute('aria-describedby')).toContain('jpeg-tooltip-live');
+        return el!;
+      });
+      slider.focus();
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('blocks per second');
+    });
+
+    it('explains Save, Upload and the Picture select', async () => {
+      const { getByRole, getAllByRole, getByLabelText, findByTestId, getByTestId } = await renderLab();
+      await enter(getByRole('button', { name: /Save \.jpg/ }));
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('jpeg-lab-q50-420.jpg');
+      await enter(getAllByRole('button', { name: /Upload/ })[0]); // the bezel's; the gallery has a tile of the same name
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('never leaves your browser'));
+      await enter(getByLabelText('Picture'));
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('Vivid colour'));
+    });
+
+    it('explains a gallery tile on the overview', async () => {
+      const { getByRole, findByTestId } = await renderLab();
+      await enter(getByRole('button', { name: 'Doge' }));
+      const card = await findByTestId('tooltip-hover');
+      expect(card.textContent).toContain('A meme that has been re-saved too often');
+      expect(card.textContent).toContain('272 × 320');
+    });
+
+    it('explains the custom-tables chip, and Standard still goes back', async () => {
+      const { getByLabelText, getByRole, container, findByTestId } = await renderLab('stage=quantize');
+      const cell = await vi.waitFor(() => getByLabelText('Q(1, 0)') as HTMLInputElement);
+      await fireEvent.change(cell, { target: { value: '99' } });
+      await fireEvent.click(getByRole('button', { name: 'Apply to image' }));
+      const label = container.querySelector<HTMLElement>('.chip-label')!;
+      label.focus();
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('override quality');
+      await fireEvent.click(within(container.querySelector('.custom-chip') as HTMLElement).getByRole('button', { name: 'Standard' }));
+      expect(lastPush()[0].tables).toBeNull();
+    });
+
+    it('leaves no native tooltip on anything that has a card', async () => {
+      const { container } = await renderLab();
+      await vi.waitFor(() => expect(container.querySelector('.stats .stat')).toBeTruthy());
+      expect(container.querySelectorAll('[aria-describedby~="jpeg-tooltip-live"][title]')).toHaveLength(0);
+      expect(container.querySelectorAll('.bezel option[title], .bezel .stats [title], .gallery [title], nav[aria-label="JPEG pipeline"] [title]')).toHaveLength(0);
+    });
+  });
+
   describe('the rate–distortion curve', () => {
     /** Where quality `q` sits in the chart's own pixels once the whole sweep is in (the fake sizes: 1000 + 40 q bytes, 20 + q / 5 dB). */
     function pointAt(q: number) {

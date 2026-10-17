@@ -1,0 +1,309 @@
+import { describe, expect, it } from 'vitest';
+import { IMAGES } from '../../images';
+import { STAGES } from '../../stages';
+import { explain } from '../index';
+import { rgbToYcbcr, saveFileName } from '../bezel';
+import { makeContext } from './fixture';
+import type { Explanation } from '../types';
+import type { Target } from '../targets';
+
+const card = (t: Target, ctx = makeContext()): Explanation => {
+  const e = explain(t, ctx);
+  expect(e).not.toBeNull();
+  return e!;
+};
+const text = (e: Explanation) => [e.title, e.value, e.body, e.consequence].filter(Boolean).join(' | ');
+const detailText = (e: Explanation) =>
+  e.details.map((d) => (d.kind === 'text' ? d.text : d.kind === 'rows' ? d.rows.map((r) => r.join(' ')).join(' ') : '')).join(' ');
+
+describe('bezel.quality', () => {
+  it('says what the number does to the table', () => {
+    const e = card({ id: 'bezel.quality' });
+    expect(e.value).toBe('50');
+    expect(e.body).toContain('every table entry is scaled by 100%');
+    expect(card({ id: 'bezel.quality' }, makeContext({ quality: 20 })).body).toContain('250%');
+  });
+
+  it('counts the block patterns that survive, from the slider alone', () => {
+    // The fixture block: F(0,0)=120, F(1,0)=F(2,0)=-20, rest 0; steps 16, 11, 10 at quality 50.
+    expect(card({ id: 'bezel.quality' }).consequence).toContain('3 of 64');
+    // At quality 10 the steps are 5x larger: 120/80 -> 2, -20/55 -> 0, -20/50 -> 0.
+    expect(card({ id: 'bezel.quality' }, makeContext({ quality: 10 })).consequence).toContain('1 of 64');
+  });
+
+  it('says the slider is idle while custom tables are in use', () => {
+    const custom: [number[], number[]] = [Array(64).fill(3), Array(64).fill(7)];
+    const e = card({ id: 'bezel.quality' }, makeContext({ customTables: custom }));
+    expect(text(e)).toMatch(/override/i);
+    expect(e.consequence).toMatch(/Standard/);
+  });
+
+  it('unfolds to the scaling formula and the file at this quality', () => {
+    const e = card({ id: 'bezel.quality' });
+    expect(e.details.some((d) => d.kind === 'tex')).toBe(true);
+    expect(detailText(e)).toContain('4.0 KB');
+    expect(detailText(e)).toContain('36.5 dB');
+  });
+
+  it('uses other qualities from the cached curve only', () => {
+    const rd = [
+      { quality: 20, bytes: 2048, psnr: 30.2 },
+      { quality: 90, bytes: 20480, psnr: 45.1 },
+    ];
+    const withRd = detailText(card({ id: 'bezel.quality' }, makeContext({ rd })));
+    expect(withRd).toContain('2.0 KB');
+    expect(withRd).toContain('45.1 dB');
+    expect(detailText(card({ id: 'bezel.quality' }))).not.toContain('45.1 dB');
+  });
+});
+
+describe('bezel.chroma', () => {
+  it.each([
+    ['444', '100%'],
+    ['422', '50%'],
+    ['420', '25%'],
+  ] as const)('at %s keeps %s of the colour detail', (subsampling, share) => {
+    const e = card({ id: 'bezel.chroma' }, makeContext({ subsampling }));
+    expect(e.body).toContain(`Keeps ${share} of the colour detail`);
+    expect(e.body).toContain('brightness is kept in full');
+  });
+
+  it('counts the colour samples for this picture', () => {
+    const e = card({ id: 'bezel.chroma' });
+    expect(e.value).toBe('4:2:0');
+    expect(e.consequence).toContain('16,384');
+    expect(e.consequence).toContain('65,536');
+    expect(detailText(e)).toContain('32,768'); // 4:2:2
+  });
+});
+
+describe('options pointed at', () => {
+  it('describes the chroma option under the pointer, and says how to switch', () => {
+    const e = card({ id: 'bezel.chroma', mode: '444' });
+    expect(e.value).toBe('4:4:4');
+    expect(e.body).toContain('Keeps 100%');
+    expect(e.consequence).toContain('65,536 per colour plane');
+    expect(e.consequence).toContain('With 4:4:4, this 256 × 256 picture');
+    expect(e.consequence).toContain('Click to switch');
+    expect(card({ id: 'bezel.chroma', mode: '420' }).consequence).not.toContain('Click');
+  });
+
+  it('describes the Huffman option under the pointer', () => {
+    const e = card({ id: 'bezel.huffman', mode: 'standard' }, makeContext({ otherBytes: 4608 }));
+    expect(e.value).toBe('Standard');
+    expect(e.consequence).toContain('the file would be 4.5 KB instead of 4.0 KB');
+  });
+});
+
+describe('bezel.huffman', () => {
+  it('names the mode and what it means', () => {
+    expect(card({ id: 'bezel.huffman' }).body).toMatch(/own symbol counts/);
+    expect(card({ id: 'bezel.huffman' }, makeContext({ huffman: 'standard' })).body).toMatch(/example tables from the standard/);
+  });
+
+  it('gives the size difference only when it is known', () => {
+    expect(card({ id: 'bezel.huffman' }).consequence).toContain('4.0 KB');
+    const e = card({ id: 'bezel.huffman' }, makeContext({ otherBytes: 4608 }));
+    expect(e.consequence).toContain('512 B bigger');
+    expect(card({ id: 'bezel.huffman' }, makeContext({ otherBytes: 3584 })).consequence).toContain('512 B smaller');
+  });
+});
+
+describe('bezel.speed', () => {
+  it('scans the picture in a number of seconds', () => {
+    const e = card({ id: 'bezel.speed' }, makeContext({ speed: 64 }));
+    expect(e.body).toContain('64 blocks per second');
+    expect(e.body).toContain('scans in 4 s');
+  });
+
+  it('keeps one decimal for short scans', () => {
+    expect(card({ id: 'bezel.speed' }, makeContext({ speed: 100 })).body).toContain('scans in 2.6 s');
+  });
+});
+
+describe('bezel.save and bezel.upload', () => {
+  it('names the file and its size', () => {
+    const e = card({ id: 'bezel.save' });
+    expect(e.value).toBe('jpeg-lab-q50-420.jpg');
+    expect(e.body).toContain('4.0 KB');
+    expect(e.body).toMatch(/any image viewer/);
+    expect(card({ id: 'bezel.save' }, makeContext({ customTables: [Array(64).fill(1), Array(64).fill(1)] })).value).toBe('jpeg-lab-custom-420.jpg');
+    expect(saveFileName(null, '422', 80)).toBe('jpeg-lab-q80-422.jpg');
+  });
+
+  it('says what happens to an uploaded picture', () => {
+    const e = card({ id: 'bezel.upload' });
+    expect(e.body).toContain('512 px');
+    expect(e.body).toMatch(/never leaves your browser/);
+    expect(e.consequence).toContain('quality 50');
+    expect(e.acts).toBe(true);
+  });
+});
+
+describe('bezel.picture and gallery.tile', () => {
+  it('gives the catalog line and the size of the picture in use', () => {
+    const e = card({ id: 'bezel.picture' }, makeContext({ imageId: 'doge', image: { w: 272, h: 320, rgba: new Uint8Array(272 * 320 * 4) } }));
+    expect(e.title).toBe('Doge');
+    expect(e.body).toContain(IMAGES.find((im) => im.id === 'doge')!.title);
+    expect(e.value).toContain('272 × 320');
+    expect(detailText(e)).toContain('Euterpia');
+    expect(e.acts).toBe(true);
+  });
+
+  it('gives a tile the catalog title and the picture size, whichever picture is in use', () => {
+    const e = card({ id: 'gallery.tile', picture: 'doge' });
+    expect(e.body).toContain(IMAGES.find((im) => im.id === 'doge')!.title);
+    expect(e.value).toContain('272 × 320');
+    expect(e.consequence).toMatch(/Click/);
+    expect(card({ id: 'gallery.tile', picture: 'gradient' }).value).toContain('256 × 256');
+  });
+
+  it('says a tile is the picture in use', () => {
+    const e = card({ id: 'gallery.tile', picture: 'spring' });
+    expect(e.consequence).toContain('in use');
+    expect(e.consequence).toContain('4.0 KB');
+  });
+
+  it('explains the Upload tile as the upload button', () => {
+    expect(card({ id: 'gallery.tile', picture: 'upload' }).body).toContain('512 px');
+  });
+
+  it('explains an uploaded picture', () => {
+    const e = card({ id: 'bezel.picture' }, makeContext({ imageId: 'upload', image: { w: 300, h: 200, rgba: new Uint8Array(300 * 200 * 4) } }));
+    expect(e.value).toContain('300 × 200');
+    expect(e.body).toMatch(/your own/i);
+  });
+});
+
+describe('readout', () => {
+  it('compares the file with the raw pixels', () => {
+    const e = card({ id: 'readout.size' });
+    expect(e.value).toBe('4.0 KB of 192.0 KB');
+    expect(e.consequence).toContain('quality 50');
+  });
+
+  it('gives the ratio as a share of the raw size', () => {
+    const e = card({ id: 'readout.ratio' });
+    expect(text(e)).toContain('1/48');
+    expect(e.value).toBe('48.0 : 1');
+  });
+
+  it('says what a pixel costs', () => {
+    const e = card({ id: 'readout.bpp' });
+    expect(e.value).toBe('0.50 bits per pixel');
+    expect(e.body).toContain('24 bits');
+  });
+
+  it('says you cannot see the difference above 40 dB', () => {
+    const e = card({ id: 'readout.psnr' }, makeContext({ summary: { ...makeContext().summary!, psnr: 44.5 } }));
+    expect(e.value).toBe('44.5 dB');
+    expect(e.body).toContain("can't see the difference");
+  });
+
+  it('says the damage is obvious below 25 dB', () => {
+    const e = card({ id: 'readout.psnr' }, makeContext({ summary: { ...makeContext().summary!, psnr: 22 } }));
+    expect(e.body).toContain('obvious');
+    expect(e.body).toContain('higher is closer');
+  });
+
+  it('says a perfect copy is perfect', () => {
+    const e = card({ id: 'readout.psnr' }, makeContext({ summary: { ...makeContext().summary!, psnr: null } }));
+    expect(e.value).toBe('∞ dB');
+    expect(e.body).toMatch(/identical/);
+  });
+
+  it('has nothing to say before the first encode', () => {
+    expect(explain({ id: 'readout.psnr' }, makeContext({ summary: null }))).toBeNull();
+  });
+});
+
+describe('chip.custom', () => {
+  const custom: [number[], number[]] = [Array(64).fill(3), Array(64).fill(7)];
+
+  it('says the edited tables override quality, and how to go back', () => {
+    const e = card({ id: 'chip.custom' }, makeContext({ customTables: custom }));
+    expect(e.body).toContain('override quality');
+    expect(e.consequence).toContain('Standard');
+    expect(e.consequence).toContain('quality 50');
+    expect(e.acts).toBeUndefined();
+  });
+
+  it('still answers when the tables are standard', () => {
+    expect(card({ id: 'chip.custom' }).body).toContain('quality 50');
+  });
+});
+
+describe('rail.stage', () => {
+  it('explains every stage, with its own words', () => {
+    const seen = new Set<string>();
+    for (const s of STAGES) {
+      const e = card({ id: 'rail.stage', stage: s.id });
+      expect(e.title).toContain(s.title);
+      expect(e.acts).toBe(true);
+      expect(e.consequence).toBeTruthy();
+      seen.add(e.body);
+    }
+    expect(seen.size).toBe(STAGES.length);
+  });
+
+  it('mentions short codes for Huffman', () => {
+    expect(card({ id: 'rail.stage', stage: 'huffman' }).body).toMatch(/short codes/);
+  });
+
+  it('marks the stage you are on', () => {
+    expect(text(card({ id: 'rail.stage', stage: 'dct' }))).toContain('You are here');
+    expect(text(card({ id: 'rail.stage', stage: 'quantize' }))).not.toContain('You are here');
+  });
+
+  it('reads the picture for its numbers', () => {
+    expect(card({ id: 'rail.stage', stage: 'subsample' }).consequence).toContain('16,384');
+    expect(card({ id: 'rail.stage', stage: 'blocks' }).consequence).toContain('32 × 32');
+  });
+});
+
+describe('image.pixel', () => {
+  it('gives the pixel colour, its block and the click', () => {
+    const e = card({ id: 'image.pixel', x: 0, y: 0 });
+    expect(e.value).toBe('RGB 200, 200, 200');
+    expect(e.body).toContain('block (0, 0)');
+    expect(e.consequence).toContain('follow this block');
+    expect(e.acts).toBe(true);
+  });
+
+  it('puts the pixel in its block', () => {
+    expect(card({ id: 'image.pixel', x: 171, y: 140 }).body).toContain('block (21, 17)');
+  });
+
+  it('says how much of its colour is shared', () => {
+    expect(card({ id: 'image.pixel', x: 3, y: 3 }).consequence).toContain('2 × 2');
+    expect(card({ id: 'image.pixel', x: 3, y: 3 }, makeContext({ subsampling: '444' })).consequence).toContain('exactly');
+  });
+
+  it('knows when the block is already the one being followed', () => {
+    expect(card({ id: 'image.pixel', x: 171, y: 140 }).consequence).toMatch(/already/);
+  });
+
+  it('is silent for a pixel outside the picture or before the picture is in', () => {
+    expect(explain({ id: 'image.pixel', x: 256, y: 0 }, makeContext())).toBeNull();
+    expect(explain({ id: 'image.pixel', x: 0, y: 0 }, makeContext({ image: null }))).toBeNull();
+  });
+
+  it('shows the decoded copy in the details', () => {
+    expect(detailText(card({ id: 'image.pixel', x: 0, y: 0 }))).toContain('198, 198, 198');
+  });
+
+  it('converts colour as the encoder does (JFIF full-range BT.601)', () => {
+    const [yg, cbg, crg] = rgbToYcbcr(200, 200, 200);
+    expect(yg).toBeCloseTo(200, 6);
+    expect(cbg).toBeCloseTo(128, 6);
+    expect(crg).toBeCloseTo(128, 6);
+    const [y, cb, cr] = rgbToYcbcr(255, 0, 0);
+    expect(y).toBeCloseTo(76.245, 3);
+    expect(cb).toBeCloseTo(85.0, 1);
+    expect(cr).toBeCloseTo(255.5, 1);
+    const [yb, cbb, crb] = rgbToYcbcr(0, 0, 255);
+    expect(yb).toBeCloseTo(29.07, 2);
+    expect(cbb).toBeCloseTo(255.5, 1);
+    expect(crb).toBeCloseTo(107.27, 2);
+  });
+});

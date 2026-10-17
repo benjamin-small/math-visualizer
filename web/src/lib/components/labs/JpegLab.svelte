@@ -38,6 +38,7 @@
   import { GROUP_LABELS, IMAGES, decodeUpload, loadPicture, type PictureGroup, type RgbaImage } from '../../jpeg/images';
   import { BLANK_PANELS, CAPTION_MIN, blockAt, cellAt, cells, jpegLayout, toDevicePanels, type Panel, type Rect, type StageLayout } from '../../jpeg/layout';
   import type { ExplainContext, Target } from '../../jpeg/explain';
+  import { saveFileName } from '../../jpeg/explain/bezel';
   import { canvasTarget, cellTarget } from '../../jpeg/explain/hit';
   import { cachedCurve, rdKey } from '../../jpeg/rd';
   import { readSummary, readoutOf, type JpegSummary } from '../../jpeg/summary';
@@ -113,6 +114,8 @@
   const ctl = new TooltipController();
   /** Hit-tests the canvas for the stage (set once the engine is ready). */
   let stageCards: ReturnType<typeof tooltip> | undefined;
+  /** The shell's speed slider and its label, which the shell owns: they get their cards here once the page is up. */
+  let speedCards: ReturnType<typeof tooltip>[] = [];
 
   const stageInfo = $derived(STAGES.find((s) => s.id === stage)!);
   // Until the first picture is in, the summary is the engine's own stand-in gradient: show none of it.
@@ -475,6 +478,13 @@
     return canvasTarget(layout, stage, image, e.clientX - box.left, e.clientY - box.top, sel);
   }
 
+  /** For the keyboard: the card of the first pixel of the block being followed. */
+  function followedPixel(): Target | null {
+    if (!image) return null;
+    const [bx, by] = anchor ?? (sel && sel.component === 0 ? [sel.bx, sel.by] : [0, 0]);
+    return { id: 'image.pixel', x: Math.min(image.w - 1, bx * 8), y: Math.min(image.h - 1, by * 8) };
+  }
+
   /** The stage's own listener: only the bare canvas is hit-tested here; overlay elements carry their own cards. */
   const canvasHit = (e: MouseEvent): Target | null => (e.target instanceof HTMLCanvasElement ? hitTarget(e) : null);
 
@@ -555,7 +565,7 @@
     const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = customTables ? `jpeg-lab-custom-${subsampling}.jpg` : `jpeg-lab-q${quality}-${subsampling}.jpg`;
+    a.download = saveFileName(customTables, subsampling, quality);
     a.click();
     // Revoke after the browser has started the download, not in the same tick as the click.
     setTimeout(() => URL.revokeObjectURL(url), 0);
@@ -600,6 +610,10 @@
     window.addEventListener('resize', pushLayout);
     window.addEventListener('keydown', onKey);
     if (stageEl) stageCards = tooltip(stageEl, { ctl, target: canvasHit });
+    const lab = overlayEl?.closest('.lab');
+    for (const el of [lab?.querySelector<HTMLElement>('.speed'), lab?.querySelector<HTMLElement>('.speed input')]) {
+      if (el) speedCards.push(tooltip(el, { ctl, target: { id: 'bezel.speed' }, acts: true }));
+    }
     // Until the first picture is in, draw nothing (the viz would otherwise show its own stand-in gradient).
     a.patchVizConfig({ panels: toDevicePanels(BLANK_PANELS, 1) });
     const fellBack = await loadImage(() => firstPicture, linked.img, linked.block);
@@ -615,6 +629,8 @@
     stageEl?.removeEventListener('dragover', onDragOver);
     stageEl?.removeEventListener('drop', onDrop);
     stageCards?.destroy?.();
+    for (const card of speedCards) card?.destroy?.();
+    speedCards = [];
     window.removeEventListener('resize', pushLayout);
     window.removeEventListener('keydown', onKey);
   });
@@ -660,17 +676,24 @@
   {#snippet controls()}
     <div class="group">
       <span class="name">Picture</span>
-      <select class="picture" aria-label="Picture" value={imageId} onchange={onPicture} bind:this={pictureSelect}>
+      <select
+        class="picture"
+        aria-label="Picture"
+        value={imageId}
+        onchange={onPicture}
+        bind:this={pictureSelect}
+        use:tooltip={{ ctl, target: { id: 'bezel.picture' }, acts: true }}
+      >
         {#each GROUPS as group (group)}
           <optgroup label={GROUP_LABELS[group]}>
             {#each IMAGES.filter((im) => im.group === group) as im (im.id)}
-              <option value={im.id} title={im.title}>{im.label}</option>
+              <option value={im.id}>{im.label}</option>
             {/each}
           </optgroup>
         {/each}
         {#if imageId === 'upload'}<option value="upload">Uploaded picture</option>{/if}
       </select>
-      <button class="btn" onclick={() => fileInput?.click()} title="Use your own picture (scaled to fit 512 px); or drop one on the stage">
+      <button class="btn" onclick={() => fileInput?.click()} use:tooltip={{ ctl, target: { id: 'bezel.upload' }, acts: true }}>
         <Icon name="upload" />Upload
       </button>
       <input
@@ -681,44 +704,84 @@
         onchange={(e) => void onUpload((e.currentTarget as HTMLInputElement).files?.[0])}
       />
     </div>
-    <label class="field quality">
+    <label class="field quality" use:tooltip={{ ctl, target: { id: 'bezel.quality' }, acts: true }}>
       Quality
-      <input type="range" min="1" max="100" step="1" value={quality} oninput={onQuality} onchange={syncUrl} aria-label="Quality" />
+      <input
+        type="range"
+        min="1"
+        max="100"
+        step="1"
+        value={quality}
+        oninput={onQuality}
+        onchange={syncUrl}
+        aria-label="Quality"
+        use:tooltip={{ ctl, target: { id: 'bezel.quality' }, acts: true }}
+      />
       <span class="mono value">{quality}</span>
     </label>
     <div class="group" role="radiogroup" aria-labelledby="jpeg-sub-name">
       <span class="name" id="jpeg-sub-name">Chroma</span>
       {#each [['444', '4:4:4'], ['422', '4:2:2'], ['420', '4:2:0']] as [id, label] (id)}
         <label class="btn pill">
-          <input type="radio" name="jpeg-sub" value={id} checked={subsampling === id} onchange={() => setSubsampling(id as SubsamplingId)} />{label}
+          <input
+            type="radio"
+            name="jpeg-sub"
+            value={id}
+            checked={subsampling === id}
+            onchange={() => setSubsampling(id as SubsamplingId)}
+            use:tooltip={{ ctl, target: { id: 'bezel.chroma', mode: id as SubsamplingId }, acts: true }}
+          />{label}
         </label>
       {/each}
     </div>
     <div class="group" role="radiogroup" aria-labelledby="jpeg-huff-name">
       <span class="name" id="jpeg-huff-name">Huffman</span>
-      <label class="btn pill" title="Code lengths built from this image's own symbol counts">
-        <input type="radio" name="jpeg-huff" value="optimized" checked={huffman === 'optimized'} onchange={() => setHuffman('optimized')} />Optimized
+      <label class="btn pill">
+        <input
+          type="radio"
+          name="jpeg-huff"
+          value="optimized"
+          checked={huffman === 'optimized'}
+          onchange={() => setHuffman('optimized')}
+          use:tooltip={{ ctl, target: { id: 'bezel.huffman', mode: 'optimized' }, acts: true }}
+        />Optimized
       </label>
-      <label class="btn pill" title="The example tables from the JPEG standard">
-        <input type="radio" name="jpeg-huff" value="standard" checked={huffman === 'standard'} onchange={() => setHuffman('standard')} />Standard
+      <label class="btn pill">
+        <input
+          type="radio"
+          name="jpeg-huff"
+          value="standard"
+          checked={huffman === 'standard'}
+          onchange={() => setHuffman('standard')}
+          use:tooltip={{ ctl, target: { id: 'bezel.huffman', mode: 'standard' }, acts: true }}
+        />Standard
       </label>
     </div>
-    <button class="btn" onclick={saveJpeg} disabled={!summary?.bytes}><Icon name="download" />Save .jpg</button>
+    <button class="btn" onclick={saveJpeg} disabled={!summary?.bytes} use:tooltip={{ ctl, target: { id: 'bezel.save' }, acts: true }}>
+      <Icon name="download" />Save .jpg
+    </button>
     <div class="row">
-      <StageRail current={stage} onselect={setStage} />
+      <StageRail current={stage} onselect={setStage} {ctl} />
     </div>
     {#if readout}
       <div class="row stats" aria-live="off">
         {#if customTables}
           <span class="custom-chip">
-            Custom Q tables
-            <button class="chip" onclick={standardTables} title="Go back to the tables scaled from the Quality slider">Standard</button>
+            <!-- A label that is only text: focusable so the keyboard can reach its card; a click pins it. -->
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <span class="chip-label" tabindex="0" use:tooltip={{ ctl, target: { id: 'chip.custom' } }}>Custom Q tables</span>
+            <button class="chip" onclick={standardTables} use:tooltip={{ ctl, target: { id: 'chip.custom' }, acts: true }}>Standard</button>
           </span>
         {/if}
-        <span class="stat"><span class="mono">{readout.size}</span> of {readout.of}</span>
-        <span class="stat"><span class="mono">{readout.ratio}</span></span>
-        <span class="stat"><span class="mono">{readout.bpp}</span> bits / pixel</span>
-        <span class="stat">PSNR <span class="mono">{readout.psnr}</span></span>
+        <!-- The four figures only explain themselves: focusable, and a click pins the card. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <span class="stat" tabindex="0" use:tooltip={{ ctl, target: { id: 'readout.size' } }}><span class="mono">{readout.size}</span> of {readout.of}</span>
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <span class="stat" tabindex="0" use:tooltip={{ ctl, target: { id: 'readout.ratio' } }}><span class="mono">{readout.ratio}</span></span>
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <span class="stat" tabindex="0" use:tooltip={{ ctl, target: { id: 'readout.bpp' } }}><span class="mono">{readout.bpp}</span> bits / pixel</span>
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <span class="stat" tabindex="0" use:tooltip={{ ctl, target: { id: 'readout.psnr' } }}>PSNR <span class="mono">{readout.psnr}</span></span>
       </div>
     {/if}
   {/snippet}
@@ -764,7 +827,7 @@
           style:height="{layout.image.h}px"
           onclick={onImageClick}
           onkeydown={onImageKey}
-          use:tooltip={{ ctl, target: hitTarget, acts: true }}
+          use:tooltip={{ ctl, target: hitTarget, acts: true, keyTarget: followedPixel }}
         ></button>
       {/if}
 
@@ -928,7 +991,7 @@
 
     {#if stage === 'overview'}
       <h2>Pictures</h2>
-      <Gallery current={imageId} onpick={(id) => void chooseImage(id)} onupload={() => fileInput?.click()} />
+      <Gallery current={imageId} onpick={(id) => void chooseImage(id)} onupload={() => fileInput?.click()} {ctl} />
     {/if}
 
     <h2>How it works</h2>
@@ -964,7 +1027,8 @@
   }
   .picture:hover { border-color: var(--stone); }
   /* Radio inputs drawn as pills, as in the Notes lab. */
-  .pill input { position: absolute; opacity: 0; pointer-events: none; }
+  .pill { position: relative; }
+  .pill input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
   .pill:has(input:checked) { border-color: var(--accent); background: var(--tint); }
   .pill:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* The rail and the readout each take a whole row, after the shell's speed slider. */
