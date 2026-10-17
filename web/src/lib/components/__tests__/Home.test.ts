@@ -6,6 +6,8 @@ import {
   dispatchSpy,
   ruleActionSpy,
   updateRuleConfigSpy,
+  updateRuleConfigWithImageSpy,
+  updateVizConfigSpy,
   sortingSummaryFixture,
   notesSummaryFixture,
 } from '../../test/fakeViz';
@@ -26,6 +28,12 @@ vi.mock('../../fourier/textPath', async (importOriginal) => ({
   textToPath: vi.fn(async () => []),
 }));
 
+// The JPEG tile fetches its photo; hand it a solid 256² picture instead (jsdom cannot fetch or decode).
+vi.mock('../../jpeg/images', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../jpeg/images')>()),
+  loadPicture: vi.fn(async () => ({ w: 256, h: 256, rgba: new Uint8Array(256 * 256 * 4).fill(200) })),
+}));
+
 import Home from '../Home.svelte';
 import { isFinished } from '../LabTile.svelte';
 
@@ -37,9 +45,10 @@ describe('Home', () => {
     updateRuleConfigSpy.mockClear();
   });
 
-  it('renders four live tiles that link to the labs and show a readout', async () => {
+  it('renders five live tiles that link to the labs and show a readout', async () => {
     const { container, getByRole } = render(Home);
-    await vi.waitFor(() => expect(container.querySelectorAll('canvas')).toHaveLength(4));
+    await vi.waitFor(() => expect(container.querySelectorAll('canvas')).toHaveLength(5));
+    expect(getByRole('link', { name: /JPEG Compression/ }).getAttribute('href')).toBe('#/jpeg');
     expect(getByRole('link', { name: /Sierpinski Pyramid/ }).getAttribute('href')).toBe('#/sierpinski');
     await vi.waitFor(() => expect(container.textContent).toMatch(/0 \/ 360 iterations/)); // fake engine snapshot
     expect(container.textContent).toMatch(/lanes running/);
@@ -47,17 +56,18 @@ describe('Home', () => {
     expect(ruleActionSpy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'set_running', running: true }));
   });
 
-  it('frees all four engines on unmount', async () => {
+  it('frees all five engines on unmount', async () => {
     const { unmount } = render(Home);
     // The canvases exist before the (async) loader resolves; the loader is
     // single-flight, so once one tile's setup has run (the Sierpinski, sorting
-    // and notes tiles each dispatch one Play; the Fourier tile plays only once
-    // its text path arrives, which the mock never delivers) all four engines
-    // are constructed. Wait for all three Plays before tearing down.
+    // and notes tiles each dispatch one Play, and so does the JPEG tile once its
+    // photo is in; the Fourier tile plays only once its text path arrives, which
+    // the mock never delivers) all five engines are constructed. Wait for all
+    // four Plays before tearing down.
     const plays = () => dispatchSpy.mock.calls.filter(([c]) => (c as { kind: string }).kind === 'Play');
-    await vi.waitFor(() => expect(plays()).toHaveLength(3));
+    await vi.waitFor(() => expect(plays()).toHaveLength(4));
     unmount();
-    expect(freeSpy).toHaveBeenCalledTimes(4);
+    expect(freeSpy).toHaveBeenCalledTimes(5);
   });
 
   it('keeps the sorting readout live: it follows the engine summary frame by frame', async () => {
@@ -94,9 +104,28 @@ describe('Home', () => {
     }
   });
 
-  it('opens with the four-machines thesis', () => {
+  it('opens with the five-machines thesis', () => {
     const { container } = render(Home);
-    expect(container.querySelector('.thesis')?.textContent).toContain('Four small machines');
+    expect(container.querySelector('.thesis')?.textContent).toContain('Five small machines');
+  });
+
+  it('runs the JPEG tile on the lab\'s default photo, drawing nothing until it is in', async () => {
+    updateRuleConfigWithImageSpy.mockClear();
+    updateVizConfigSpy.mockClear();
+    const { container } = render(Home);
+    // First the blank panel (no built-in gradient flash), then the photo, then the fitted scan.
+    await vi.waitFor(() =>
+      expect(updateRuleConfigWithImageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ image_id: 'spring', quality: 50, subsampling: '420', max_iterations: 256 }),
+        256,
+        256,
+        expect.any(Uint8Array),
+      ),
+    );
+    const panels = updateVizConfigSpy.mock.calls.map(([c]) => (c as { panels?: { rect: number[] }[] }).panels).filter(Boolean);
+    expect(panels[0]).toEqual([expect.objectContaining({ rect: [0, 0, 0, 0] })]);
+    expect(panels[panels.length - 1]).toEqual([]);
+    await vi.waitFor(() => expect(container.textContent).toMatch(/4\.0 KB of 192\.0 KB · 48\.0 : 1/)); // fake summary
   });
 
   it('starts the notes tile on C4 + G4 at half a swing per second, then plays', async () => {
@@ -180,10 +209,16 @@ describe('Home', () => {
       removeEventListener() {},
     })) as unknown as typeof matchMedia;
     try {
+      updateRuleConfigWithImageSpy.mockClear();
       const { container } = render(Home);
-      await vi.waitFor(() => expect(container.querySelectorAll('canvas')).toHaveLength(4));
+      await vi.waitFor(() => expect(container.querySelectorAll('canvas')).toHaveLength(5));
       await vi.waitFor(() => expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'Pause' }));
       expect(container.textContent).toMatch(/Paused/);
+      // The JPEG photo lands after the pause: it shows the finished encode instead of playing.
+      await vi.waitFor(() => expect(updateRuleConfigWithImageSpy).toHaveBeenCalled());
+      await vi.waitFor(() => expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 256 }));
+      const afterPhoto = dispatchSpy.mock.calls.slice(dispatchSpy.mock.calls.findIndex(([c]) => (c as { kind: string }).kind === 'JumpTo'));
+      expect(afterPhoto.some(([c]) => (c as { kind: string }).kind === 'Play')).toBe(false);
     } finally {
       window.matchMedia = mm;
     }
