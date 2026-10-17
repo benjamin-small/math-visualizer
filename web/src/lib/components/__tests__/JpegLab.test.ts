@@ -1316,12 +1316,13 @@ describe('JpegLab.svelte cards', () => {
       const hit = svg.querySelector<SVGElement>('.dot-hit')!;
       hit.focus();
       expect((await findByTestId('tooltip-hover')).textContent).toContain('You are here');
-      // The dot has no keys of its own, so the page would walk the pipeline; hold that back to watch the curve alone.
-      const hold = (e: KeyboardEvent) => e.preventDefault();
-      window.addEventListener('keydown', hold, true);
+      const query = route.query;
       await fireEvent.keyDown(hit, { key: 'ArrowRight' });
-      window.removeEventListener('keydown', hold, true);
+      await fireEvent.keyDown(hit, { key: 'ArrowLeft' });
       await new Promise((r) => setTimeout(r, 30));
+      // The arrows on the dot neither walk the pipeline nor move the curve.
+      expect(route.query).toBe(query);
+      expect(route.query).toBe('stage=quantize');
       // The curve has not roved: focusing it starts at the quality in hand, 50.
       (svg as unknown as HTMLElement).focus();
       await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('Quality 50'));
