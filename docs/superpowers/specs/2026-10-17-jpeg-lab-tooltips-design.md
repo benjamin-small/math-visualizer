@@ -1,6 +1,6 @@
 # JPEG lab: explain-everything tooltips — Design
 
-Status: approved, 2026-10-17. Extends `2026-10-15-jpeg-lab-design.md` and `2026-10-16-jpeg-lab-gallery-design.md`.
+Status: implemented, 2026-10-17. Extends `2026-10-15-jpeg-lab-design.md` and `2026-10-16-jpeg-lab-gallery-design.md`.
 
 ## Intent
 
@@ -182,3 +182,14 @@ Each item lists what the compact card says. Live values are in angle brackets.
   - Decoded values can come from an existing source, such as decoding the current file once per encode with the kit. Hovering must not encode.
   - If decoded pixels are too costly, show the original and the block's error instead, and say so.
 - **Order of work.** Suggested: the shared card and the DCT/Quantize stages first, since they prompted this. Then the bezel and readout, then the remaining stages, then the overview, then the canvas panels.
+
+## Implementation notes
+
+Built as designed, with these differences:
+
+- **Hover and focus on a Q-table step differ.** Pointing at a step shows its table card (what it divides by); focusing it to edit shows the editor card (what changing it does). Both are about the same step.
+- **Ringing is `aria-disabled`, not `disabled`.** A disabled button gets no pointer or keyboard events, so its card (the picture has no hard edges) could not show. Clicking it still does nothing when there is no block to pick.
+- **Hint scores are worked out from the decoded pixels**, in levels, with the same measures the engine picked the blocks by. Until the decoded copy arrives, the hint card omits the score and the pixel cards say the copy is still being decoded.
+- **The re-save history lives in the page** (`DecodeTools` binds it up), so a pinned generation card can read it.
+- **The energy curve, the "why cosines" chart and the Q-table steps were registered last**, when the coverage test found them unregistered.
+- **The cube still has cards only for its panel and its axes slider**, as designed.

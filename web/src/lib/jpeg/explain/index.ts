@@ -4,7 +4,9 @@ import { explainBezel } from './bezel';
 import { explainCoding } from './coding';
 import type { ExplainContext } from './context';
 import { explainDct } from './dct';
+import { explainDecode } from './decode';
 import { explainEarly } from './early';
+import { explainOverview } from './overview';
 import { explainQuantize } from './quantize';
 import type { Target } from './targets';
 import type { Explanation } from './types';
@@ -36,6 +38,10 @@ export function explain(t: Target, ctx: ExplainContext): Explanation | null {
       return explainDct(t, ctx);
     case 'quantize':
       return explainQuantize(t, ctx);
+    case 'overview':
+      return explainOverview(t, ctx);
+    case 'decode':
+      return explainDecode(t, ctx);
     default:
       return null;
   }

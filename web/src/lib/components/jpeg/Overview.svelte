@@ -16,6 +16,8 @@
   import type { Credit, RgbaImage } from '../../jpeg/images';
   import { entropyBits, histogram, neighbourDiffs, rgbSamples } from '../../jpeg/bytes';
   import { formatBytes } from '../../jpeg/summary';
+  import type { Target } from '../../jpeg/explain';
+  import { tooltip, type TooltipController } from './tooltip.svelte';
 
   interface Props {
     /** The slot the overview fills, in CSS pixels, canvas-local. */
@@ -32,9 +34,11 @@
     credit?: Credit;
     /** Messages to show at the top (a picture that would not load, an encode that failed). */
     errors?: string[];
+    /** The page's cards: the size bars, each histogram bar and the entropy figures explain themselves. */
+    ctl: TooltipController;
   }
 
-  let { rect, image, jpeg, quality, custom = false, credit, errors = [] }: Props = $props();
+  let { rect, image, jpeg, quality, custom = false, credit, errors = [], ctl }: Props = $props();
 
   /** Height of a histogram's drawing, in viewBox units; the bars scale to the tallest bin. */
   const H = 100;
@@ -51,7 +55,7 @@
   /** The JPEG bar's width as a share of the raw bar's, never thinner than a sliver. */
   const jpegShare = $derived(jpegBytes > 0 ? Math.max(0.004, Math.min(1, jpegBytes / rawBytes)) : 0);
 
-  const charts = $derived([
+  const charts = $derived<{ key: Key; name: string; hist: Uint32Array | null; accent: boolean }[]>([
     { key: 'raw', name: 'Raw bytes', hist: raw, accent: false },
     { key: 'diff', name: 'Neighbour differences', hist: diffs, accent: false },
     { key: 'jpeg', name: 'JPEG file', hist: file, accent: true },
@@ -99,6 +103,46 @@
     };
   });
 
+  type Key = 'raw' | 'diff' | 'jpeg';
+  /** The bin the pointer is over, and the one the arrow keys have reached (null until they move), per histogram. */
+  let over = $state<Record<Key, number | null>>({ raw: null, diff: null, jpeg: null });
+  let rove = $state<Record<Key, number | null>>({ raw: null, diff: null, jpeg: null });
+
+  /** The byte value under a pointer event on a histogram: its width is the 256 values. */
+  function binAt(e: MouseEvent): number | null {
+    const box = (e.currentTarget as Element).getBoundingClientRect();
+    if (!(box.width > 0)) return null;
+    return Math.min(255, Math.max(0, Math.floor(((e.clientX - box.left) / box.width) * 256)));
+  }
+
+  /** The tallest bin: where the keyboard starts. */
+  function peak(hist: Uint32Array): number {
+    let best = 0;
+    for (let i = 1; i < hist.length; i++) if (hist[i] > hist[best]) best = i;
+    return best;
+  }
+
+  const pointed = (key: Key, hist: Uint32Array | null) => (e: MouseEvent): Target | null => {
+    const bin = hist ? binAt(e) : null;
+    return bin === null ? null : { id: 'overview.hist', kind: key, bin };
+  };
+  const keyed = (key: Key, hist: Uint32Array | null) => (): Target | null =>
+    hist ? { id: 'overview.hist', kind: key, bin: rove[key] ?? peak(hist) } : null;
+
+  /** Left and right walk the byte values (shift or page keys: sixteen at a time); the chart's card follows. */
+  function onBinKey(e: KeyboardEvent, key: Key, hist: Uint32Array | null) {
+    if (!hist || e.altKey || e.metaKey || e.ctrlKey) return;
+    const here = rove[key] ?? peak(hist);
+    const jump: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, PageUp: -16, PageDown: 16 };
+    let next: number;
+    if (e.key in jump) next = here + jump[e.key] * (e.shiftKey && Math.abs(jump[e.key]) === 1 ? 16 : 1);
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = 255;
+    else return;
+    e.preventDefault(); // not also a stage switch or a page scroll
+    rove[key] = Math.min(255, Math.max(0, next));
+  }
+
   /** The bar heights of a histogram, scaled so the tallest bin fills `H`. */
   function bars(hist: Uint32Array): number[] {
     let top = 1;
@@ -113,7 +157,9 @@
       <p class="alert" role="alert">{message}</p>
     {/each}
     {#if showSizes}
-    <div class="sizes" role="group" aria-label="File size against the raw pixels">
+    <!-- The two bars explain themselves together: focusable, and a click pins the card. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="sizes" role="group" tabindex="0" aria-label="File size against the raw pixels" use:tooltip={{ ctl, target: { id: 'overview.sizes' } }}>
       <div class="track"><span class="bar raw" style:width="100%"></span></div>
       <span class="what">Raw pixels <span class="mono">{formatBytes(rawBytes)}</span></span>
       <div class="track">{#if jpeg}<span class="bar file" style:width="{jpegShare * 100}%"></span>{/if}</div>
@@ -129,15 +175,32 @@
           <figcaption>
             <span class="name">{c.name}</span>
             {#if c.hist}
-              <span class="entropy"><span class="mono">{entropyBits(c.hist).toFixed(2)}</span> bits / byte</span>
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <span class="entropy" tabindex="0" use:tooltip={{ ctl, target: { id: 'overview.entropy', kind: c.key } }}><span class="mono">{entropyBits(c.hist).toFixed(2)}</span> bits / byte</span>
             {/if}
           </figcaption>
           <div class="plot">
-            <svg viewBox="0 0 256 {H}" preserveAspectRatio="none" role="img" aria-label="{c.name}: how often each byte value occurs">
+            <!-- A focusable chart: the pointer's x is the byte value, and the arrow keys walk the values. -->
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+            <svg
+              viewBox="0 0 256 {H}"
+              preserveAspectRatio="none"
+              role="group"
+              aria-roledescription="chart"
+              tabindex={c.hist ? 0 : -1}
+              aria-label="{c.name}: how often each byte value occurs. The arrow keys move between values."
+              onpointermove={(e) => (over[c.key] = c.hist ? binAt(e) : null)}
+              onpointerleave={() => (over[c.key] = null)}
+              onkeydown={(e) => onBinKey(e, c.key, c.hist)}
+              onblur={() => (rove[c.key] = null)}
+              use:tooltip={{ ctl, target: pointed(c.key, c.hist), keyTarget: keyed(c.key, c.hist) }}
+            >
               {#if c.hist}
                 {#each bars(c.hist) as h, i (i)}
                   {#if h > 0}<rect class:accent={c.accent} x={i} y={H - h} width="1" height={h} />{/if}
                 {/each}
+                {@const mark = over[c.key] ?? rove[c.key]}
+                {#if mark !== null}<rect class="mark" x={mark} y="0" width="1" height={H} />{/if}
               {/if}
             </svg>
           </div>
@@ -189,6 +252,9 @@
   svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   rect { fill: rgba(255, 255, 255, 0.55); }
   rect.accent { fill: var(--accent); }
+  /* The byte value being pointed at or reached by the keys: a pale column over the bars. */
+  rect.mark { fill: #fff; opacity: 0.35; pointer-events: none; }
+  svg:focus-visible, .sizes:focus-visible, .entropy:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   .axis { display: flex; justify-content: space-between; font-size: 10px; line-height: 12px; color: rgba(255, 255, 255, 0.45); }
 
   /* Stacked on a phone: the heading at the left of each row (up to three lines), the chart and its axis at the right. */

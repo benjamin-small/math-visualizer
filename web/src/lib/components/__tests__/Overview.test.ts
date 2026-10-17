@@ -2,13 +2,14 @@ import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/svelte';
 import Overview from '../jpeg/Overview.svelte';
 import { IMAGES } from '../../jpeg/images';
+import { TooltipController } from '../jpeg/tooltip.svelte';
 
 const image = { w: 64, h: 64, rgba: Uint8Array.from({ length: 64 * 64 * 4 }, (_, i) => (i * 7) & 255) };
 const jpeg = Uint8Array.from({ length: 900 }, (_, i) => (i * 31) & 255);
 const credit = IMAGES.find((im) => im.id === 'spring')!.credit;
 
 const show = (w: number, h: number) =>
-  render(Overview, { rect: { x: 16, y: 200, w, h }, image, jpeg, quality: 50, credit }).container;
+  render(Overview, { rect: { x: 16, y: 200, w, h }, image, jpeg, quality: 50, credit, ctl: new TooltipController() }).container;
 
 describe('Overview.svelte', () => {
   it('shows the sizes, the three histograms, the caption and the credit on a desktop slot', () => {
@@ -27,7 +28,7 @@ describe('Overview.svelte', () => {
     expect(plain).toContain('At quality 50 the file is');
     expect(plain).toContain('can peak at both edges');
     expect(plain).not.toContain('peaks at both edges');
-    const custom = render(Overview, { rect: { x: 0, y: 0, w: 1102, h: 216 }, image, jpeg, quality: 50, custom: true, credit }).container.textContent!;
+    const custom = render(Overview, { rect: { x: 0, y: 0, w: 1102, h: 216 }, image, jpeg, quality: 50, custom: true, credit, ctl: new TooltipController() }).container.textContent!;
     expect(custom).toContain('With custom tables the file is');
     expect(custom).not.toContain('At quality');
   });
@@ -43,7 +44,7 @@ describe('Overview.svelte', () => {
   });
 
   it('shows messages as the first row of the stats', () => {
-    const c = render(Overview, { rect: { x: 0, y: 0, w: 600, h: 260 }, image, jpeg, quality: 50, errors: ['Could not load the picture "Doge".'] }).container;
+    const c = render(Overview, { rect: { x: 0, y: 0, w: 600, h: 260 }, image, jpeg, quality: 50, errors: ['Could not load the picture "Doge".'], ctl: new TooltipController() }).container;
     const alert = c.querySelector('[role="alert"]')!;
     expect(alert.textContent).toContain('Could not load');
     expect(c.querySelector('.overview')!.firstElementChild).toBe(alert);
