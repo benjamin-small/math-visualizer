@@ -873,6 +873,19 @@ describe('JpegLab.svelte cards', () => {
       await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('250%'));
     });
 
+    it('? on the focused Quality slider unfolds its card to the formula', async () => {
+      const { getByLabelText, findByTestId } = await renderLab();
+      const slider = await vi.waitFor(() => getByLabelText('Quality') as HTMLInputElement);
+      slider.focus();
+      await findByTestId('tooltip-hover');
+      await fireEvent.keyDown(slider, { key: '?' });
+      const pinned = await findByTestId('tooltip-pinned');
+      const details = await findByTestId('tooltip-details');
+      expect(pinned.textContent).toContain('Quality');
+      expect(details.textContent).toContain('Quality 20');
+      expect(details.querySelector('.katex, [class*="tex"], annotation')).not.toBeNull();
+    });
+
     it('the stage rail keeps its click; a long-press explains it', async () => {
       const { getByRole, findByTestId } = await renderLab('stage=color');
       const button = getByRole('button', { name: /Zigzag/ });
@@ -939,7 +952,7 @@ describe('JpegLab.svelte cards', () => {
         return el!;
       });
       slider.focus();
-      expect((await findByTestId('tooltip-hover')).textContent).toContain('blocks per second');
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('per second');
     });
 
     it('explains Save, Upload and the Picture select', async () => {

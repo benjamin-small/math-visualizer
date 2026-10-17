@@ -51,7 +51,7 @@ export function averageMeaning(component: number, mean: number): string {
   return `The block's average ${name} tint: about ${mean} on the 0-255 scale, where 128 is neutral. Higher is ${up}, lower is ${down}.`;
 }
 
-/** How many of the 64 patterns survive rounding (are not zero afterwards). */
+/** How many of the 64 patterns stay non-zero after rounding. */
 export function survivors(b: BlockView, among: readonly number[] = ZIGZAG): number {
   return among.filter((i) => quantized(b, i) !== 0).length;
 }

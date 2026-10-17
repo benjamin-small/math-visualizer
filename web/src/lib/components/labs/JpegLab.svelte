@@ -704,7 +704,7 @@
         onchange={(e) => void onUpload((e.currentTarget as HTMLInputElement).files?.[0])}
       />
     </div>
-    <label class="field quality" use:tooltip={{ ctl, target: { id: 'bezel.quality' }, acts: true }}>
+    <label class="field quality">
       Quality
       <input
         type="range"
