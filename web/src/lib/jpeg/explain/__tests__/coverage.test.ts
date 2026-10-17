@@ -151,6 +151,17 @@ describe('card coverage', () => {
     expect(compact(e)).not.toMatch(/\bMCU\b/); // jargon waits for the unfolded part
   });
 
+  it.each(TARGET_IDS)('opens %s in plain words', (id) => {
+    const e = explain(sampleTarget(id), contextFor(id))!;
+    const jargon = /coefficient|quantiz|entropy/i;
+    // The heading and the value are the first thing read: no jargon at all.
+    expect([e.title, e.value ?? ''].join(' | ')).not.toMatch(jargon);
+    // In the first sentence of the body a jargon word may come only after the plain words that explain it.
+    const first = e.body.split(/(?<=[.!?])\s/)[0];
+    const at = first.search(jargon);
+    if (at >= 0) expect(at, `${id}: "${first}" opens with jargon`).toBeGreaterThanOrEqual(40);
+  });
+
   it('registers every id in a component or the hit-test', () => {
     const sources = [...svelteFiles(componentsDir), join(lib, 'jpeg', 'explain', 'hit.ts')].map(read);
     const missing = TARGET_IDS.filter((id) => !sources.some((s) => new RegExp(`['"\`]${id.replace('.', '\\.')}['"\`]`).test(s)));

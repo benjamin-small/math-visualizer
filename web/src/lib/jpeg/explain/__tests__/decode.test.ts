@@ -14,13 +14,28 @@ describe('Decode cards', () => {
     expect(e.consequence).toContain('16 of 255');
   });
 
-  it('names each channel when they differ', () => {
+  it('shows the average of the three channel differences, as the map draws it', () => {
     const decoded = new Uint8Array(256 * 256 * 4).fill(200);
     decoded.set([203, 200, 190, 255], 0);
     const e = explain({ id: 'decode.error', x: 0, y: 0 }, ctx({ decoded }))!;
-    expect(e.value).toBe('10 levels');
+    expect(e.value).toBe('4 levels'); // (3 + 0 + 10) / 3 = 4.33
+    expect(e.body).toContain('On average');
     expect(e.body).toContain('red 3, green 0, blue 10');
     expect(explain({ id: 'decode.error', x: 1, y: 0 }, ctx({ decoded }))!.value).toBe('0 levels');
+  });
+
+  it('draws the average at the gain, in the warm tint the viz uses', () => {
+    const image = { w: 256, h: 256, rgba: new Uint8Array(256 * 256 * 4).fill(100) };
+    const decoded = new Uint8Array(256 * 256 * 4).fill(100);
+    decoded.set([110, 100, 101, 255], 0);
+    const e = explain({ id: 'decode.error', x: 0, y: 0 }, ctx({ image, decoded, errorGain: 4 }))!;
+    expect(e.value).toBe('4 levels'); // (10 + 0 + 1) / 3 = 3.67
+    expect(e.consequence).toContain('drawn at 16 of 255');
+    expect(e.consequence).toContain('strongest tint');
+    const rows = JSON.stringify(e.details);
+    expect(rows).toContain('(e, 0.55e, 0.25e) × gain');
+    expect(rows).toContain('16, 9, 4'); // 4 × 4, 4 × 0.55 × 4, 4 × 0.25 × 4
+    expect(rows).toContain('Largest single difference');
   });
 
   it('says the copy is still being decoded rather than guess the error', () => {
@@ -49,7 +64,9 @@ describe('Decode cards', () => {
     const gain = explain({ id: 'decode.gainSlider' }, ctx({ errorGain: 8 }))!;
     expect(gain.acts).toBe(true);
     expect(gain.value).toBe('× 8');
-    expect(gain.consequence).toContain('32 levels or more');
+    expect(gain.consequence).toContain('average error of 32 levels or more');
+    expect(gain.consequence).toContain('full strength');
+    expect(gain.consequence).not.toContain('white');
   });
 
   it('says which block a hint picks and why', () => {

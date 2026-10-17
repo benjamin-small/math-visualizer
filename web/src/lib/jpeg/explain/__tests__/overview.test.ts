@@ -25,6 +25,9 @@ describe('Overview cards', () => {
     expect(wrapped.value).toBe('768 samples');
     expect(wrapped.body).toContain('by −56');
     expect(wrapped.body).toContain('a step down of 56 levels');
+    expect(wrapped.body).toContain('first column, which is compared with 0');
+    expect(explain({ id: 'overview.hist', kind: 'diff', bin: 255 }, ctx())!.body).toContain('first column');
+    expect(explain({ id: 'overview.hist', kind: 'diff', bin: 127 }, ctx())!.body).not.toContain('first column');
     expect(explain({ id: 'overview.hist', kind: 'diff', bin: 3 }, ctx())!.body).toContain('by +3');
   });
 

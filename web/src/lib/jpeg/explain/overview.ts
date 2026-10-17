@@ -195,7 +195,9 @@ function histCard(kind: Kind, bin: number, ctx: ExplainContext): Explanation | n
     const step = stepOf(bin);
     const move = step === 0 ? 'the same value as the sample beside them' : `a step ${step > 0 ? 'up' : 'down'} of ${plural(Math.abs(step), 'level')}`;
     title = `Neighbour difference: ${delta(step)}`;
-    body = `${count(n)} samples differ from their left neighbour by ${delta(step)}: ${move}. That is ${share} of all ${count(c.total)}.`;
+    body = `${count(n)} samples differ from their left neighbour by ${delta(step)}: ${move}. That is ${share} of all ${count(c.total)}.${
+      bin > 127 ? ' Mostly these are small steps down, but the first column, which is compared with 0, also lands in the high bins.' : ''
+    }`;
     let near = 0;
     for (let b = -4; b <= 4; b++) near += c.bins[(b + 256) & 255];
     const nearShare = near / c.total;

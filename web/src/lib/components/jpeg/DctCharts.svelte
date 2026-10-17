@@ -162,7 +162,7 @@
 {/if}
 
 <style>
-  .charts { position: absolute; display: grid; grid-template-rows: 1fr 1fr; gap: 16px; color: rgba(255, 255, 255, 0.72); }
+  .charts { position: absolute; pointer-events: auto; display: grid; grid-template-rows: 1fr 1fr; gap: 16px; color: rgba(255, 255, 255, 0.72); }
   figure { margin: 0; }
   figcaption { font-size: 12px; margin-bottom: 6px; }
   svg { display: block; overflow: visible; }
