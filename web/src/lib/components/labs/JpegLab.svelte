@@ -462,6 +462,8 @@
 
   /** Outline pattern `uv` in the atlas and the coefficients (null for none), and let the formula follow it. */
   function setHover(uv: [number, number] | null) {
+    // Only the DCT and Quantize panels draw a hover outline; elsewhere a config push would reset the viz clock for nothing.
+    if (stage !== 'dct' && stage !== 'quantize') return;
     if (uv?.[0] === hover?.[0] && uv?.[1] === hover?.[1]) return;
     hover = uv;
     api?.patchVizConfig({ hover: uv });
@@ -870,7 +872,7 @@
 
       {#if stage === 'color' || stage === 'subsample'}
         {#each layout.panels.filter((p) => COLOUR_PANELS.has(p.kind)) as p (p.kind)}
-          <!-- A picture panel: focusable so the keyboard can reach its card; the pointer hit-tests the panel as the canvas does. -->
+          <!-- Keyboard only: focusable so the keys can reach the panel's card; the pointer passes through to the canvas (which hit-tests it, and orbits the cube). -->
           <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
           <div
             class="hover-area"
@@ -881,6 +883,7 @@
             style:top="{p.rect.y}px"
             style:width="{p.rect.w}px"
             style:height="{p.rect.h}px"
+            style:pointer-events="none"
             use:tooltip={{ ctl, target: hitTarget, keyTarget: () => panelKey(p.kind) }}
           ></div>
         {/each}
@@ -911,7 +914,7 @@
 
       {#if stage === 'color' && panel('cube')}
         {@const r = panel('cube')!}
-        <label class="ctl" style:left="{r.x}px" style:top="{r.y + r.h - 34}px" style:width="{r.w}px" use:tooltip={{ ctl, target: { id: 'color.axes' }, acts: true }}>
+        <label class="ctl" style:left="{r.x}px" style:top="{r.y + r.h - 34}px" style:width="{r.w}px">
           <span>RGB axes</span>
           <input
             type="range"

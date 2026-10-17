@@ -962,6 +962,47 @@ describe('JpegLab.svelte cards', () => {
       await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('brightness and colour-difference axes'));
     });
 
+    it('leaves the pointer to the canvas on the colour panels, so the cube can still be dragged', async () => {
+      for (const stage of ['color', 'subsample'] as const) {
+        const { container, findByTestId, unmount } = await renderLab(`stage=${stage}`);
+        const areas = await vi.waitFor(() => {
+          const a = container.querySelectorAll<HTMLElement>('.hover-area');
+          expect(a.length).toBeGreaterThanOrEqual(stage === 'color' ? 4 : 4);
+          return [...a];
+        });
+        for (const a of areas) expect(a.style.pointerEvents, stage).toBe('none');
+        expect(areas.every((a) => a.tabIndex === 0)).toBe(true); // still reachable from the keyboard
+        if (stage === 'color') {
+          const r = layoutOf('color').panels.find((p) => p.kind === 'cube')!.rect;
+          await fireEvent(container.querySelector('canvas')!, ptr('pointermove', r.x + r.w / 2, r.y + r.h / 2));
+          expect((await findByTestId('tooltip-hover')).textContent).toContain('grey diagonal');
+        }
+        unmount();
+      }
+    });
+
+    it('does not push a viz config for hover on the blocks and zigzag grids', async () => {
+      for (const [stage, kind] of [['blocks', 'block'], ['zigzag', 'zigzag']] as const) {
+        const { container, findByTestId, unmount } = await renderLab(`stage=${stage}`);
+        const area = await areaOf(container, stage, kind);
+        await vi.waitFor(() => expect(updateVizConfigSpy).toHaveBeenCalled());
+        updateVizConfigSpy.mockClear();
+        const c = centreOf(stage, kind, 3, 2);
+        await fireEvent(area, ptr('pointermove', c.x, c.y));
+        await findByTestId('tooltip-hover'); // the card still comes
+        expect(updateVizConfigSpy).not.toHaveBeenCalled();
+        unmount();
+      }
+    });
+
+    it('keeps the axes slider\'s ? to one action', async () => {
+      const { container, getByLabelText } = await renderLab('stage=color');
+      const input = await vi.waitFor(() => getByLabelText('RGB axes to YCbCr axes'));
+      expect(input.closest('label')!.getAttribute('aria-describedby')).toBeNull();
+      expect(input.getAttribute('aria-describedby')).toBeTruthy();
+      void container;
+    });
+
     it('explains the samples-kept figure', async () => {
       const { container, findByTestId } = await renderLab('stage=subsample');
       const kept = await vi.waitFor(() => {
