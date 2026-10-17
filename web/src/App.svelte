@@ -22,6 +22,7 @@
         <a href="#/fourier" aria-current={route.id === 'fourier' ? 'page' : undefined}>Fourier <span class="rest">Epicycles</span></a>
         <a href="#/sorting" aria-current={route.id === 'sorting' ? 'page' : undefined}>Sorting <span class="rest">Algorithms</span></a>
         <a href="#/notes" aria-current={route.id === 'notes' ? 'page' : undefined}>Notes <span class="rest">&amp; Chords</span></a>
+        <a href="#/jpeg" aria-current={route.id === 'jpeg' ? 'page' : undefined}>JPEG <span class="rest">Compression</span></a>
       </nav>
     {/if}
     <a class="source" href="https://github.com/benjamin-small/math-visualizer" rel="noopener" aria-label="Source">

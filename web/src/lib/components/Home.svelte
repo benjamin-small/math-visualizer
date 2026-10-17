@@ -1,15 +1,22 @@
 <script lang="ts">
-  // The gallery: thesis, lede, four live lab tiles, and a footer line.
+  // The gallery: thesis, lede, five live lab tiles, and a footer line.
   import { cmd } from '../playback/commands';
   import { readSummary } from '../sorting/summary';
   import { allLanes } from '../sorting/lanes';
   import { cellRects } from '../sorting/layout';
   import { textToPath, samplesFor, packPath } from '../fourier/textPath';
   import { readSummary as readNotesSummary, tileReadout, tileProgress } from '../notes/summary';
+  import { loadPicture } from '../jpeg/images';
+  import { mcuCount } from '../jpeg/params';
+  import { readSummary as readJpegSummary, readoutOf } from '../jpeg/summary';
+  import { BLANK_PANELS, toDevicePanels } from '../jpeg/layout';
   import type { LabApi } from './labApi.svelte';
   import LabTile from './LabTile.svelte';
 
   const fmt = (n: number) => n.toLocaleString('en-US');
+
+  /** JPEG tiles whose photo has been pushed to the engine (until then the engine holds its built-in gradient). */
+  const jpegReady = new WeakSet<LabApi>();
 
   /** The Fourier demo: the lab's default message with a modest circle count. */
   const FOURIER_TEXT = 'POIETIC TECH';
@@ -118,11 +125,55 @@
       // The notes clock never ends (the lab runs unbounded); the share of the period swung is the honest fill.
       progress: (api: LabApi) => tileProgress(readNotesSummary(api.readSummary())),
     },
+    {
+      lab: 'jpeg' as const,
+      title: 'JPEG Compression',
+      thesis: 'Follow one photo through every step of JPEG, from pixels to bits and back.',
+      setup: (api: LabApi) => {
+        // Draw nothing until the lab's default photo is in (the engine would otherwise fit its built-in gradient).
+        api.patchVizConfig({ panels: toDevicePanels(BLANK_PANELS, 1) });
+        let live = true;
+        void (async () => {
+          try {
+            const img = await loadPicture('spring');
+            if (!live || !api.engine) return; // tile torn down while the picture loaded
+            api.setRuleConfigWithImage(
+              { image_id: 'spring', quality: 50, subsampling: '420', huffman: 'optimized', max_iterations: mcuCount(img.w, img.h, '420'), tables: null },
+              img.w,
+              img.h,
+              img.rgba,
+            );
+            api.patchVizConfig({ panels: [] }); // no panels: the viz fits the scan to the tile
+            jpegReady.add(api);
+            // The photo arrives after LabTile's reduced-motion pause, so honour it here: show the finished encode, still.
+            const reduce =
+              typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (reduce) {
+              api.dispatch(cmd.jumpTo(mcuCount(img.w, img.h, '420')));
+            } else {
+              api.dispatch(cmd.setSpeed(64)); // the lab's pace: the 256² photo scans in four seconds
+              api.dispatch(cmd.play());
+            }
+          } catch (err) {
+            console.warn('home tile: the JPEG photo failed to load:', err);
+          }
+        })();
+        return () => {
+          live = false;
+        };
+      },
+      readout: (api: LabApi) => {
+        const s = readJpegSummary(api.readSummary());
+        if (!s || !jpegReady.has(api)) return 'Loading the photo';
+        const r = readoutOf(s);
+        return `${r.size} of ${r.of} · ${r.ratio}`;
+      },
+    },
   ];
 </script>
 
 <section class="home">
-  <p class="thesis">Four small machines for looking at math.</p>
+  <p class="thesis">Five small machines for looking at math.</p>
   <p class="lede">
     Each one runs in Rust, compiled to WebAssembly and drawn with WebGL, live in this tab. Press play, then read how
     it works.
@@ -151,12 +202,16 @@
   }
   .thesis { font-size: 22px; font-weight: 500; max-width: 34ch; line-height: 1.3; }
   .lede { color: var(--stone); max-width: 56ch; margin: 10px 0 36px; }
-  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+  /* Five cards: three to the first row, two wider ones to the second. */
+  .cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 24px; }
+  .cards > :global(*) { grid-column: span 2; }
+  .cards > :global(:nth-child(n + 4)) { grid-column: span 3; }
   .foot { display: flex; flex-wrap: wrap; gap: 6px 24px; margin-top: 44px; color: var(--stone); font-size: 14px; }
   .foot span { white-space: nowrap; }
 
   @media (max-width: 900px) {
     .cards { grid-template-columns: 1fr; }
+    .cards > :global(*), .cards > :global(:nth-child(n + 4)) { grid-column: auto; }
   }
   @media (max-width: 768px) {
     .home { padding: 28px 16px 40px; }

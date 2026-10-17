@@ -40,6 +40,14 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   20 swings per second. **Pure ratios** closes the loop; **Piano** tuning never quite
 >   does. Share a pick with `#/notes?n=60,67` (`&t=equal` for piano tuning,
 >   `&c=major` or `&c=dom7` for chord mode).
+> - **JPEG Compression** (`#/jpeg`) — one picture, and one 8 × 8 block of it, followed
+>   through the whole codec in Rust: an overview (the picture before and after, the file
+>   size, and byte histograms of the raw pixels, their neighbour differences and the JPEG
+>   file), then colour conversion, subsampling, blocks, the DCT, quantization (editable
+>   Q tables and a rate–distortion curve), zigzag, run-length, Huffman coding and decode
+>   (wipe, error map, artifact hints, re-save generation loss). Eleven pictures: photos,
+>   memes, maths extremes and artifact tests, or upload your own. Share a view with
+>   `#/jpeg?img=doge&q=30&stage=dct`.
 >
 > Every lab page has the same shape: a labelled control bezel, the canvas mounted as a
 > framed dark stage (a thin terracotta clock line along its top edge fills with the

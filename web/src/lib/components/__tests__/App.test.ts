@@ -18,6 +18,12 @@ vi.mock('../../fourier/textPath', async (importOriginal) => ({
   textToPath: vi.fn(async () => []),
 }));
 
+// The home page's JPEG tile fetches its photo; jsdom cannot fetch or decode one.
+vi.mock('../../jpeg/images', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../jpeg/images')>()),
+  loadPicture: vi.fn(async () => ({ w: 256, h: 256, rgba: new Uint8Array(256 * 256 * 4) })),
+}));
+
 import App from '../../../App.svelte';
 
 describe('App.svelte', () => {
@@ -30,6 +36,7 @@ describe('App.svelte', () => {
     expect(getByRole('link', { name: /Fourier Epicycles/ }).getAttribute('href')).toBe('#/fourier');
     expect(getByRole('link', { name: /Sorting Algorithms/ }).getAttribute('href')).toBe('#/sorting');
     expect(getByRole('link', { name: /Notes & Chords/ }).getAttribute('href')).toBe('#/notes');
+    expect(getByRole('link', { name: /JPEG Compression/ }).getAttribute('href')).toBe('#/jpeg');
     expect(getByRole('link', { name: 'Source' }).getAttribute('href')).toContain('github.com/benjamin-small/math-visualizer');
     expect(getByRole('button', { name: /^Theme:/ })).toBeTruthy();
     expect(getByRole('link', { name: 'Math Visualizer' }).getAttribute('href')).toBe('#/');
@@ -39,9 +46,10 @@ describe('App.svelte', () => {
     navigate('fourier');
     const { container, getByRole } = render(App);
     await vi.waitFor(() => expect(container.querySelector('canvas')).toBeTruthy());
-    expect(container.querySelectorAll('.tabs a')).toHaveLength(4);
+    expect(container.querySelectorAll('.tabs a')).toHaveLength(5);
     expect(container.querySelector('.tabs a[aria-current="page"]')?.textContent).toBe('Fourier Epicycles');
     expect(getByRole('link', { name: 'Notes & Chords' }).getAttribute('href')).toBe('#/notes');
+    expect(getByRole('link', { name: 'JPEG Compression' }).getAttribute('href')).toBe('#/jpeg');
   });
 
   it('marks the Notes & Chords tab on the notes route', async () => {
