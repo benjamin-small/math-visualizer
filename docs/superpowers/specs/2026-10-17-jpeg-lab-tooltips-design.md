@@ -1,6 +1,6 @@
 # JPEG lab: explain-everything tooltips — Design
 
-Status: draft for review, 2026-10-17. Extends `2026-10-15-jpeg-lab-design.md` and `2026-10-16-jpeg-lab-gallery-design.md`.
+Status: approved, 2026-10-17. Extends `2026-10-15-jpeg-lab-design.md` and `2026-10-16-jpeg-lab-gallery-design.md`.
 
 ## Intent
 
