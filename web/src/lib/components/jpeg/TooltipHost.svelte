@@ -68,7 +68,11 @@
   const liveText = $derived.by(() => {
     const e = showHover ? hoverCard : pinCard;
     if (!e) return '';
-    return [e.title, e.value, e.body, e.consequence].filter(Boolean).join('. ');
+    // Parts that already end a sentence keep their own stop; the title and value get one.
+    return [e.title, e.value, e.body, e.consequence]
+      .filter(Boolean)
+      .map((part) => (/[.!?:]$/.test(part!) ? part : `${part}.`))
+      .join(' ');
   });
 
   function moreFromHover() {

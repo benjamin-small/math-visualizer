@@ -40,7 +40,7 @@ function zigzagGrid(u: number, v: number, ctx: ExplainContext): Explanation | nu
     title: `Pattern (${u}, ${v}) in the scan`,
     value: `#${k + 1} of 64`,
     body: 'The scan reads the 8 × 8 grid along zigzag diagonals, from the block\'s average at the top left to the finest detail at the bottom right. That puts the numbers most likely to be zero together at the end.',
-    consequence: `${lead(b)} this one rounds to ${whole(q)}${k > last ? ', and it sits in the zero tail' : ''}.`,
+    consequence: `${lead(b)}, this one rounds to ${whole(q)}${k > last ? ', and it sits in the zero tail' : ''}.`,
     details: [
       { kind: 'pattern', u, v },
       {
@@ -68,7 +68,7 @@ function zigzagSeq(k: number, ctx: ExplainContext): Explanation | null {
   } else if (q === 0) {
     consequence = `A zero, but a non-zero number comes later (#${last + 1}), so it is still counted, inside a run of zeros.`;
   } else {
-    consequence = `${lead(b)} it stays non-zero after rounding, so its value goes into the file.`;
+    consequence = `${lead(b)}, it stays non-zero after rounding, so its value goes into the file.`;
   }
   return {
     title: `Number #${k + 1} in the scan`,
@@ -225,7 +225,7 @@ function bitCounts(ctx: ExplainContext): Explanation | null {
     title: 'Bits for this block',
     value: `${plural(tokens, 'token')}, ${plural(n, 'bit')}`,
     body: 'The block\'s 64 numbers are rewritten as a few tokens. Each token is a Huffman code (orange) followed by the bits of its value (blue). The fewer and shorter the tokens, the smaller the file.',
-    consequence: `${lead(b)} this block costs ${plural(n, 'bit')} instead of the 512 its 64 samples would take as plain bytes.`,
+    consequence: `${lead(b)}, this block costs ${plural(n, 'bit')} instead of the 512 its 64 samples would take as plain bytes.`,
     details: [
       {
         kind: 'rows',

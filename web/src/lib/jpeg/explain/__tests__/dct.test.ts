@@ -11,7 +11,7 @@ describe('DCT cards', () => {
     expect(e.body).toMatch(/pattern \(1, 0\)/);
     expect(e.body).toMatch(/one half-wave across/);
     expect(e.body).toMatch(/swapped/);
-    expect(e.consequence).toBe('At quality 50 it rounds to −1 × 16: kept.');
+    expect(e.consequence).toBe('At quality 50, it rounds to −1 × 16: kept.');
     expect(e.details.some((d) => d.kind === 'pattern')).toBe(true);
     expect(JSON.stringify(e.details)).toMatch(/quality 20/);
   });
@@ -25,7 +25,7 @@ describe('DCT cards', () => {
     const e = explain({ id: 'dct.coeff', u: 0, v: 0 }, makeContext())!;
     expect(e.body).toMatch(/average brightness/);
     expect(e.value).toBe('F(0,0) = 120.0');
-    expect(e.consequence).toBe('At quality 50 it rounds to 8 × 16: kept.');
+    expect(e.consequence).toBe('At quality 50, it rounds to 8 × 16: kept.');
   });
 
   it('describes patterns across and down, like the example', () => {
@@ -45,7 +45,7 @@ describe('DCT cards', () => {
 
   it('follows a custom table instead of the quality', () => {
     const e = explain({ id: 'dct.coeff', u: 1, v: 0 }, makeContext({ customTables: [Array(64).fill(16), Array(64).fill(16)] }))!;
-    expect(e.consequence).toMatch(/^With your table it rounds to/);
+    expect(e.consequence).toMatch(/^With your table, it rounds to/);
     expect(JSON.stringify(e.details)).not.toMatch(/At quality 20/);
   });
 

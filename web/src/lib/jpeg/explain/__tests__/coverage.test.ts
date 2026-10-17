@@ -153,6 +153,8 @@ describe('card coverage', () => {
     expect(all).not.toMatch(/surviv/i); // "stay non-zero after rounding"
     expect(all).not.toMatch(/\bcolor\b/i); // British spelling: colour
     expect(compact(e)).not.toMatch(/\bMCU\b/); // jargon waits for the unfolded part
+    expect(all, `${id}: an unrounded number`).not.toMatch(/\d\.\d{4,}/);
+    expect(all, `${id}: no comma after the setting`).not.toMatch(/(At quality \d+|With your( own)? tables?) (it|the|this)\b/);
   });
 
   it.each(STAGES.map((st) => st.id))('keeps to the lab voice on the rail card for the %s stage', (stage) => {

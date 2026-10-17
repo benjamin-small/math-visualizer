@@ -33,7 +33,7 @@ describe('Zigzag cards', () => {
   it('gives a grid cell its zigzag position', () => {
     const e = explain({ id: 'zigzag.grid', u: 1, v: 0 }, dcOnly({ stage: 'zigzag' }))!;
     expect(e.value).toBe('#2 of 64');
-    expect(e.consequence).toBe('At quality 50 this one rounds to 0, and it sits in the zero tail.');
+    expect(e.consequence).toBe('At quality 50, this one rounds to 0, and it sits in the zero tail.');
     expect(explain({ id: 'zigzag.grid', u: 0, v: 0 }, makeContext())!.value).toBe('#1 of 64');
   });
 

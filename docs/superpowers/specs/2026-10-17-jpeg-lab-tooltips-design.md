@@ -11,7 +11,7 @@ When someone points at anything in the JPEG lab, the lab should tell them what i
 1. **Hover shows a compact card** next to the pointer. It has three parts:
    - **the actual value**, for example `F(2,1) = −34.2`;
    - **what it means here, in plain words**, for example "how much of pattern (2, 1) is in this block: two half-waves across, one down; negative means light and dark are swapped";
-   - **one line on what the current settings do to it**, for example "At quality 50 it rounds to −3 × 12: kept."
+   - **one line on what the current settings do to it**, for example "At quality 50, it rounds to −3 × 12: kept."
 2. **More on demand.** The compact card shows a "More" affordance. Clicking the hovered thing or "More" pins the card in place and unfolds the detailed version. Depending on the element, that is:
    - a small picture of the pattern;
    - the element's share of the whole;

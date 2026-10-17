@@ -86,7 +86,7 @@ function roundsTo(b: BlockView, i: number): string {
   const q = quantized(b, i);
   const step = b.sel.table[i];
   const lead = b.custom ? 'With your table' : `At quality ${b.quality}`;
-  return `${lead} it rounds to ${whole(q)} × ${step}: ${q !== 0 ? 'kept' : 'dropped'}.`;
+  return `${lead}, it rounds to ${whole(q)} × ${step}: ${q !== 0 ? 'kept' : 'dropped'}.`;
 }
 
 function coefficient(u: number, v: number, ctx: ExplainContext): Explanation | null {
