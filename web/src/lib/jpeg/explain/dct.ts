@@ -5,7 +5,7 @@ import { at, averageMeaning, averageWord, blockOf, quantized, shareOf, survivors
 import type { ExplainContext } from './context';
 import { ZIGZAG, roundHalfAway, stepAtQuality } from './quality';
 import type { Target } from './targets';
-import { delta, percent, plural, quotient, signed, whole, word } from './text';
+import { delta, percent, plural, quotientEq, quotientValue, signed, whole, word } from './text';
 import type { Detail, Explanation } from './types';
 
 /** `one half-wave across`, `two half-waves across`, or `flat across`. */
@@ -48,7 +48,7 @@ function otherQualities(b: BlockView, i: number, f: number): Detail[] {
     const step = stepAtQuality(component, i, b.sel.table[i], b.quality, q);
     const x = f / step;
     const r = roundHalfAway(x);
-    return [`At quality ${q}`, `step ${step}: ${signed(f)} ÷ ${step} = ${quotient(x)} → ${whole(r)} (${r !== 0 ? 'kept' : 'dropped'})`];
+    return [`At quality ${q}`, `step ${step}: ${signed(f)} ÷ ${step} ${quotientEq(x)} → ${whole(r)} (${r !== 0 ? 'kept' : 'dropped'})`];
   });
   return [{ kind: 'text', text: 'The same amount, rounded at another quality:' }, { kind: 'rows', rows }];
 }
@@ -72,7 +72,7 @@ function coefficientDetails(b: BlockView, u: number, v: number): Detail[] {
         ['Amount in this block', `F(${u},${v}) = ${signed(f)}`],
         ["Share of the block's detail", percent(shareOf(b.sel.dct, i))],
         ['Step in the table', String(step)],
-        ['Amount ÷ step', quotient(f / step)],
+        ['Amount ÷ step', quotientValue(f / step)],
         ['Rounded', whole(q)],
       ],
     },
@@ -201,7 +201,7 @@ function cosines(chart: string, i: number, ctx: ExplainContext): Explanation | n
   const line = busiestLine(b.sel.shifted);
   const series = repeated ? periodic(line.values, 3) : mirrored(line.values, 3);
   const v = series[i];
-  const jump = Math.abs(line.values[7] - line.values[0]);
+  const jump = roundHalfAway(Math.abs(line.values[7] - line.values[0]));
   const which = `${line.axis === 'row' ? 'Row' : 'Column'} ${line.index + 1}`;
   const level = v === 0 ? 'exactly mid-grey' : `${whole(Math.abs(v))} levels ${v > 0 ? 'above' : 'below'} mid-grey`;
   return {
@@ -209,14 +209,14 @@ function cosines(chart: string, i: number, ctx: ExplainContext): Explanation | n
     value: whole(v),
     body: `${which} of this block, ${repeated ? 'repeated end to end' : 'mirrored at each end'}: this point is ${level}.`,
     consequence: repeated
-      ? `Repeating it jumps ${jump} ${jump === 1 ? 'level' : 'levels'} at every seam (${whole(line.values[7])} to ${whole(line.values[0])}), and a jump needs many waves to draw.`
+      ? `Repeating it jumps ${whole(jump)} ${jump === 1 ? 'level' : 'levels'} at every seam (${whole(line.values[7])} to ${whole(line.values[0])}), and a jump needs many waves to draw.`
       : 'Mirroring has no jump at the seams, so far fewer waves are needed to draw it.',
     details: [
       {
         kind: 'text',
         text: repeated
-          ? 'The Fourier transform treats the row as one period of an endless repeat. Where the end does not match the start, the repeat jumps, and the jump spreads energy over many frequencies.'
-          : 'The cosine transform treats the row as mirrored at each end, so the edges always join smoothly. That is why JPEG uses cosines: most of the energy lands in a few terms.',
+          ? `The Fourier transform treats the ${line.axis} as one period of an endless repeat. Where the end does not match the start, the repeat jumps, and the jump spreads energy over many frequencies.`
+          : `The cosine transform treats the ${line.axis} as mirrored at each end, so the edges always join smoothly. That is why JPEG uses cosines: most of the energy lands in a few terms.`,
       },
       {
         kind: 'rows',

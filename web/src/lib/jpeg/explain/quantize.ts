@@ -6,7 +6,7 @@ import { at, averageWord, blockOf, planeWord, quantized, rebuilt, validPattern, 
 import type { ExplainContext } from './context';
 import { STD_CHROMA, STD_LUMA, roundHalfAway, scaleFactor, scaleTable, stepAtQuality } from './quality';
 import type { Target } from './targets';
-import { db, delta, plural, quotient, signed, whole } from './text';
+import { db, delta, plural, quotientEq, quotientValue, signed, whole } from './text';
 import type { Detail, Explanation } from './types';
 
 /** Said once per card, after the first dB figure. */
@@ -39,7 +39,7 @@ function before(u: number, v: number, ctx: ExplainContext): Explanation | null {
       i === 0
         ? `The exact amount of the block's ${averageWord(b.sel.component)}, with decimals. JPEG is about to round it.`
         : `The exact amount of pattern (${u}, ${v}) in this block, with decimals. JPEG is about to round it to a whole number of steps.`,
-    consequence: `Divided by its step of ${step} it becomes ${quotient(f / step)}.`,
+    consequence: `Divided by its step of ${step} it becomes ${quotientValue(f / step)}.`,
     details: [
       {
         kind: 'text',
@@ -50,7 +50,7 @@ function before(u: number, v: number, ctx: ExplainContext): Explanation | null {
         rows: [
           ['Amount', signed(f)],
           ['Step', String(step)],
-          ['Amount ÷ step', quotient(f / step)],
+          ['Amount ÷ step', quotientValue(f / step)],
           ['Rounded', whole(quantized(b, i))],
         ],
       },
@@ -120,7 +120,7 @@ function after(u: number, v: number, ctx: ExplainContext): Explanation | null {
   const lines: [string, string][] = [
     ['Before', signed(f)],
     ['Step', String(step)],
-    ['Divided', quotient(x)],
+    ['Divided', quotientValue(x)],
     ['Stored', whole(r)],
     ['Decoder multiplies back', `${whole(r)} × ${step} = ${whole(back)}`],
     ['Off by', signed(back - f)],
@@ -140,7 +140,7 @@ function after(u: number, v: number, ctx: ExplainContext): Explanation | null {
     const y = roundHalfAway(f / s);
     details.push({
       kind: 'rows',
-      rows: [[`At quality ${alt}`, `step ${s}: ${signed(f)} ÷ ${s} = ${quotient(f / s)} → ${whole(y)} (${y !== 0 ? 'kept' : 'dropped'})`]],
+      rows: [[`At quality ${alt}`, `step ${s}: ${signed(f)} ÷ ${s} ${quotientEq(f / s)} → ${whole(y)} (${y !== 0 ? 'kept' : 'dropped'})`]],
     });
   }
   const closing = b.custom ? ' Your table sets the step, so quality does not change it.' : '';
@@ -151,7 +151,7 @@ function after(u: number, v: number, ctx: ExplainContext): Explanation | null {
       r === 0
         ? `Pattern (${u}, ${v}) rounds to zero in this block, so it is thrown away.`
         : `What is stored for pattern (${u}, ${v}): the amount in whole steps. Zero would mean the pattern is thrown away.`,
-    consequence: `${b.custom ? 'With your table' : `At quality ${b.quality}`}: ${signed(f)} ÷ ${step} = ${quotient(x)} → rounds to ${whole(r)} (${verdict}).${closing}`,
+    consequence: `${b.custom ? 'With your table' : `At quality ${b.quality}`}: ${signed(f)} ÷ ${step} ${quotientEq(x)} → rounds to ${whole(r)} (${verdict}).${closing}`,
     details,
   };
 }

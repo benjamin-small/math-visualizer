@@ -29,6 +29,7 @@ export function makeContext(overrides: Partial<ExplainContext> & { component?: n
     huffman: 'optimized',
     customTables: null,
     speed: 1,
+    playing: false,
     dctK: 64,
     wipe: 0.5,
     errorGain: 8,

@@ -21,8 +21,10 @@ export interface ExplainContext {
   huffman: HuffmanId;
   /** The reader's edited `[luma, chroma]` tables, or null when quality decides. */
   customTables: [number[], number[]] | null;
-  /** Blocks per second. */
+  /** Scan steps per second. */
   speed: number;
+  /** True while the scan is playing. */
+  playing: boolean;
   /** How many DCT patterns the k slider keeps (0-64). */
   dctK: number;
   /** The decode wipe position (0-1). */

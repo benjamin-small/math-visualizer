@@ -51,6 +51,15 @@ describe('Overview cards', () => {
     expect(explain({ id: 'overview.entropy', kind: 'jpeg' }, ctx({ jpeg: null }))).toBeNull();
   });
 
+  it('keeps to one colon in the byte-value sentence and says the size share as a whole percent', () => {
+    const uneven = Uint8Array.from({ length: 1024 }, (_, i) => (i % 3 === 0 ? 7 : 8));
+    const e = explain({ id: 'overview.hist', kind: 'jpeg', bin: 7 }, ctx({ jpeg: uneven }))!;
+    expect(e.consequence).toContain('so they are still uneven');
+    expect(e.consequence!.match(/:/g) ?? []).toHaveLength(1);
+    // The share of the raw size is a whole percent, as on the size card.
+    expect(explain({ id: 'overview.sizes' }, ctx())!.consequence).toMatch(/is (\d+|<1)% of the raw size/);
+  });
+
   it('keeps the jargon for the unfolded part', () => {
     const e = explain({ id: 'overview.entropy', kind: 'diff' }, ctx())!;
     expect(text(e)).not.toMatch(/entropy/i);

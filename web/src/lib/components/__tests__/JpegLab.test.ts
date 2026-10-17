@@ -918,6 +918,41 @@ describe('JpegLab.svelte cards', () => {
       expect(document.activeElement).toBe(cells[1]);
     });
 
+    it('makes the token chips one tab stop, walked with the arrow keys', async () => {
+      const { container, findByTestId } = await renderLab('stage=rle');
+      const chips = await vi.waitFor(() => {
+        const c = container.querySelectorAll<HTMLElement>('.tokens li.chip');
+        expect(c.length).toBeGreaterThanOrEqual(2);
+        return [...c];
+      });
+      expect(chips.filter((c) => c.tabIndex === 0)).toHaveLength(1);
+      chips[0].focus();
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('8 − 6 = 2');
+      await fireEvent.keyDown(chips[0], { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(chips[1]);
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('zero'));
+      expect(chips.filter((c) => c.tabIndex === 0)).toEqual([chips[1]]); // the stop follows the focus
+      await fireEvent.keyDown(chips[1], { key: 'ArrowLeft' });
+      expect(document.activeElement).toBe(chips[0]);
+      expect(route.query).toBe('stage=rle'); // the arrows are not also a stage switch
+    });
+
+    it('makes the file segments one tab stop, walked with the arrow keys', async () => {
+      const { container, findByTestId } = await renderLab('stage=huffman');
+      const segs = await vi.waitFor(() => {
+        const c = container.querySelectorAll<HTMLElement>('.file .seg');
+        expect(c.length).toBeGreaterThanOrEqual(2);
+        return [...c];
+      });
+      expect(segs.filter((c) => c.tabIndex === 0)).toHaveLength(1);
+      segs[0].focus();
+      await findByTestId('tooltip-hover');
+      await fireEvent.keyDown(segs[0], { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(segs[1]);
+      expect(segs.filter((c) => c.tabIndex === 0)).toEqual([segs[1]]);
+      expect(route.query).toBe('stage=huffman');
+    });
+
     it('explains a block cell from the canvas panel', async () => {
       const { container, findByTestId } = await renderLab('stage=blocks');
       const area = await areaOf(container, 'blocks', 'block');
@@ -1153,6 +1188,52 @@ describe('JpegLab.svelte cards', () => {
       expect((await findByTestId('tooltip-hover')).textContent).toContain('per second');
     });
 
+    it('explains the transport buttons and the position readout, and leaves them no native tooltip', async () => {
+      const { container, findByTestId, getByTestId } = await renderLab();
+      const buttons = await vi.waitFor(() => {
+        const found = [...container.querySelectorAll<HTMLButtonElement>('.transport button')];
+        expect(found).toHaveLength(4);
+        expect(found.every((b) => b.getAttribute('aria-describedby')?.includes('jpeg-tooltip-live'))).toBe(true);
+        return found;
+      });
+      const [reset, back, play, forward] = buttons;
+      await enter(play);
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('Play the scan'); // the fake engine's snapshot is not playing
+      await enter(reset);
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('Back to the start'));
+      await enter(back);
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('Step back'));
+      await enter(forward);
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('Step forward'));
+      const readout = container.querySelector<HTMLElement>('.readout')!;
+      expect(readout.tabIndex).toBe(0);
+      readout.focus();
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('steps scanned'));
+      for (const el of [...buttons, readout]) expect(el.hasAttribute('title')).toBe(false);
+    });
+
+    it('keeps the transport buttons clicking', async () => {
+      const { container } = await renderLab();
+      const [reset, , , forward] = await vi.waitFor(() => {
+        const found = [...container.querySelectorAll<HTMLButtonElement>('.transport button')];
+        expect(found).toHaveLength(4);
+        return found;
+      });
+      dispatchSpy.mockClear();
+      await fireEvent.click(reset);
+      await fireEvent.click(forward);
+      expect(kinds()).toEqual(expect.arrayContaining(['Reset', 'StepForward']));
+    });
+
+    it('renders no native tooltip anywhere, the shell included', async () => {
+      const { container } = await renderLab();
+      await vi.waitFor(() => expect(container.querySelector('.transport button')).toBeTruthy());
+      // The lab itself (the app's theme toggle sits outside it).
+      const lab = container.querySelector('article.lab')!;
+      expect(lab.querySelectorAll('[title]')).toHaveLength(0);
+      expect(lab.querySelectorAll('svg title')).toHaveLength(0);
+    });
+
     it('explains Save, Upload and the Picture select', async () => {
       const { getByRole, getAllByRole, getByLabelText, findByTestId, getByTestId } = await renderLab();
       await enter(getByRole('button', { name: /Save \.jpg/ }));
@@ -1218,6 +1299,32 @@ describe('JpegLab.svelte cards', () => {
       const hit = svg.querySelector('.dot-hit')!;
       await fireEvent(hit, ptr('pointermove', 0, 0));
       expect((await findByTestId('tooltip-hover')).textContent).toContain('You are here');
+    });
+
+    it('Enter on the dot pins the dot, not the curve behind it', async () => {
+      const { svg, findByTestId } = await chart();
+      const hit = svg.querySelector<SVGElement>('.dot-hit')!;
+      hit.focus();
+      await fireEvent.keyDown(hit, { key: 'Enter' });
+      const pinned = await findByTestId('tooltip-pinned');
+      expect(pinned.textContent).toContain('You are here');
+      expect(pinned.textContent).not.toContain('Quality 50');
+    });
+
+    it('arrow keys on the dot leave the curve where it is', async () => {
+      const { svg, findByTestId, getByTestId } = await chart();
+      const hit = svg.querySelector<SVGElement>('.dot-hit')!;
+      hit.focus();
+      expect((await findByTestId('tooltip-hover')).textContent).toContain('You are here');
+      // The dot has no keys of its own, so the page would walk the pipeline; hold that back to watch the curve alone.
+      const hold = (e: KeyboardEvent) => e.preventDefault();
+      window.addEventListener('keydown', hold, true);
+      await fireEvent.keyDown(hit, { key: 'ArrowRight' });
+      window.removeEventListener('keydown', hold, true);
+      await new Promise((r) => setTimeout(r, 30));
+      // The curve has not roved: focusing it starts at the quality in hand, 50.
+      (svg as unknown as HTMLElement).focus();
+      await vi.waitFor(() => expect(getByTestId('tooltip-hover').textContent).toContain('Quality 50'));
     });
 
     it('lets the keyboard walk the curve from the current quality', async () => {
@@ -1340,6 +1447,22 @@ describe('JpegLab.svelte cards', () => {
       ruleActionSpy.mockClear();
       await fireEvent.click(blocking);
       expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 3, by: 4 });
+      expect(document.querySelector('[data-testid="tooltip-pinned"]')).toBeNull();
+    });
+
+    it('puts the Wipe, Error and Speed cards on their inputs alone, so a slider is one target', async () => {
+      const { container, getByRole } = await renderLab('stage=decode');
+      const wipe = await vi.waitFor(() => getByRole('slider', { name: 'Wipe' }));
+      const gain = getByRole('slider', { name: /^Error ×/ });
+      const speed = getByRole('slider', { name: 'Speed' });
+      for (const input of [wipe, gain, speed]) {
+        expect(input.getAttribute('aria-describedby')).toContain('jpeg-tooltip-live');
+        expect(input.parentElement!.hasAttribute('aria-describedby')).toBe(false);
+      }
+      expect(container.querySelectorAll('label[aria-describedby]')).toHaveLength(0);
+      // Enter on a slider is no request to pin anything.
+      wipe.focus();
+      await fireEvent.keyDown(wipe, { key: 'Enter' });
       expect(document.querySelector('[data-testid="tooltip-pinned"]')).toBeNull();
     });
 

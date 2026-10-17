@@ -51,16 +51,30 @@ export function percent(share: number): string {
 }
 
 /**
- * A quotient for the "÷" lines. Normally up to two decimals; within 0.005 of a
- * half it gets more digits (or a leading "≈"), so "1.5 → rounds to 1" can never
- * appear for a quotient that is really a hair under 1.5.
+ * A quotient for the "÷" lines, as `{ text, approx }`. Normally up to two
+ * decimals; within 0.005 of a half it gets more digits, and `approx` is set
+ * when even those show a tie that is not exact, so "1.5 → rounds to 1" can
+ * never appear for a quotient that is really a hair under 1.5. Callers write
+ * `=` or `≈` from `approx` (see `quotientEq`).
  */
-export function quotient(x: number): string {
+export function quotient(x: number): { text: string; approx: boolean } {
   const frac = Math.abs(x) % 1;
-  if (Math.abs(frac - 0.5) >= 0.005) return ratio(x);
+  if (Math.abs(frac - 0.5) >= 0.005) return { text: ratio(x), approx: false };
   const strip = (s: string) => (s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s);
   const fine = strip(signed(x, 3));
   const exactTie = Math.abs(frac - 0.5) < 1e-12;
   const shownTie = Math.abs((Math.abs(Number(fine.replace('−', '-'))) % 1) - 0.5) < 1e-12;
-  return shownTie && !exactTie ? `≈${fine}` : fine;
+  return { text: fine, approx: shownTie && !exactTie };
+}
+
+/** The quotient on its own (a table row, "it becomes …"): `−1.5`, or `≈ −1.5` when it is only nearly so. */
+export function quotientValue(x: number): string {
+  const q = quotient(x);
+  return q.approx ? `≈ ${q.text}` : q.text;
+}
+
+/** The quotient after a "÷ step" in a worked line: `= −1.5`, or `≈ −1.5` when it is only nearly so. */
+export function quotientEq(x: number): string {
+  const q = quotient(x);
+  return `${q.approx ? '≈' : '='} ${q.text}`;
 }

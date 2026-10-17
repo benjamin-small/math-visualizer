@@ -86,11 +86,16 @@
     }
   });
 
-  /** Close the pin; a keyboard pin gives focus back to the element that made it. */
+  /**
+   * Close the pin; a keyboard pin gives focus back to the element that made it, unless the reader has
+   * tabbed on to something else since (focus is then theirs). It returns from the card itself or the body.
+   */
   function closePin() {
     const back = ctl.pinned?.returnTo;
+    const now = document.activeElement;
+    const theirs = now !== null && now !== document.body && !(pinEl?.contains(now) ?? false);
     ctl.close();
-    back?.focus();
+    if (!theirs) back?.focus();
   }
 
   $effect(() => {

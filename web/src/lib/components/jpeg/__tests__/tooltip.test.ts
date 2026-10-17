@@ -169,6 +169,47 @@ describe('pinning', () => {
     expect(ctl.pinned?.target).toEqual(T10);
   });
 
+  it('allows a fingertip more drift than a mouse before a tap stops being a click', async () => {
+    const el = target({ target: T10 }, 'span');
+    const click = (x: number, y: number) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, detail: 1 }));
+    // A touch tap that drifts 8 px still pins.
+    el.dispatchEvent(ptr('pointerdown', { pointerType: 'touch', x: 40, y: 40 }));
+    el.dispatchEvent(ptr('pointerup', { pointerType: 'touch', x: 48, y: 40 }));
+    click(48, 40);
+    await tick();
+    expect(ctl.pinned?.target).toEqual(T10);
+    ctl.unpin();
+    // A touch that drifts 20 px is a drag.
+    el.dispatchEvent(ptr('pointerdown', { pointerType: 'touch', x: 40, y: 40 }));
+    el.dispatchEvent(ptr('pointerup', { pointerType: 'touch', x: 60, y: 40 }));
+    click(60, 40);
+    await tick();
+    expect(ctl.pinned).toBeNull();
+    // A mouse press that drifts 8 px is a drag already.
+    el.dispatchEvent(ptr('pointerdown', { x: 40, y: 40 }));
+    el.dispatchEvent(ptr('pointerup', { x: 48, y: 40 }));
+    click(48, 40);
+    await tick();
+    expect(ctl.pinned).toBeNull();
+  });
+
+  it('leaves Enter and ? on a nested target to the nested target', async () => {
+    const outer = target({ target: T20 }, 'div');
+    const inner = document.createElement('span');
+    inner.tabIndex = 0;
+    outer.append(inner);
+    const action = tooltip(inner, { ctl, target: T10 });
+    destroyers.push(() => action?.destroy?.());
+    inner.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await tick();
+    expect(ctl.pinned?.target).toEqual(T10); // the outer one did not pin its own card over it
+    ctl.unpin();
+    inner.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true, cancelable: true }));
+    await tick();
+    expect(ctl.pinned?.target).toEqual(T10);
+    expect(ctl.pinned?.unfolded).toBe(true);
+  });
+
   it('does not pin on click for an acting target; More unfolds it instead', async () => {
     const spy = vi.fn();
     const el = target({ target: T10, acts: true });
@@ -537,6 +578,36 @@ describe('the pinned card', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await tick();
     expect(pinnedCard()).toBeNull();
+    expect(document.activeElement).toBe(el);
+  });
+
+  it('Escape after the reader tabbed out of the pinned card leaves focus where it went', async () => {
+    const el = target({ target: T10 }, 'span');
+    const elsewhere = document.createElement('button');
+    document.body.append(elsewhere);
+    destroyers.push(() => elsewhere.remove());
+    el.focus();
+    await tick();
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await tick();
+    expect(pinnedCard()!.contains(document.activeElement)).toBe(true);
+    elsewhere.focus(); // Tab out of the card
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await tick();
+    expect(pinnedCard()).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it('Escape still gives focus back when it has fallen to the page body', async () => {
+    const el = target({ target: T10 }, 'span');
+    el.focus();
+    await tick();
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await tick();
+    (document.activeElement as HTMLElement).blur();
+    expect(document.activeElement).toBe(document.body);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await tick();
     expect(document.activeElement).toBe(el);
   });
 

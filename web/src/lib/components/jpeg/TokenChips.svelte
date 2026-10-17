@@ -24,6 +24,21 @@
   }
 
   const bitCount = $derived(sel.bits.length);
+
+  /** The one chip the Tab key reaches (0 is the DC chip, then the tokens); the arrow keys move it along. */
+  let rove = $state(0);
+  const roved = $derived(Math.min(rove, sel.tokens.length));
+
+  function onChipKey(e: KeyboardEvent, i: number) {
+    if (e.altKey || e.metaKey || e.ctrlKey) return;
+    const last = sel.tokens.length;
+    const to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? last : null;
+    if (to === null) return;
+    e.preventDefault();
+    e.stopPropagation(); // not also a stage switch
+    const next = (e.currentTarget as HTMLElement).parentElement?.children[Math.min(last, Math.max(0, to))];
+    if (next instanceof HTMLElement) next.focus();
+  }
 </script>
 
 {#if rect.w > 120}
@@ -32,13 +47,26 @@
     <div class="head" tabindex="0" use:tooltip={{ ctl, target: { id: 'rle.bits' } }}>64 numbers become {sel.tokens.length + 1} tokens and {bitCount} bits</div>
     <ul>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-      <li class="chip dc" tabindex="0" use:tooltip={{ ctl, target: { id: 'rle.dc' } }}>
+      <li
+        class="chip dc"
+        tabindex={roved === 0 ? 0 : -1}
+        onfocus={() => (rove = 0)}
+        onkeydown={(e) => onChipKey(e, 0)}
+        use:tooltip={{ ctl, target: { id: 'rle.dc' } }}
+      >
         <span class="what">DC {sel.dcDiff >= 0 ? '+' : ''}{sel.dcDiff}</span>
         <span class="bits mono"><span class="code">{sel.dcCode}</span><span class="amp">{sel.dcAmpBits}</span></span>
       </li>
       {#each sel.tokens as t, i (i)}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-        <li class="chip" class:end={t.size === 0} tabindex="0" use:tooltip={{ ctl, target: { id: 'rle.token', i } }}>
+        <li
+          class="chip"
+          class:end={t.size === 0}
+          tabindex={roved === i + 1 ? 0 : -1}
+          onfocus={() => (rove = i + 1)}
+          onkeydown={(e) => onChipKey(e, i + 1)}
+          use:tooltip={{ ctl, target: { id: 'rle.token', i } }}
+        >
           <span class="what">{label(t)}</span>
           <span class="bits mono"><span class="code">{t.code}</span><span class="amp">{t.ampBits}</span></span>
         </li>

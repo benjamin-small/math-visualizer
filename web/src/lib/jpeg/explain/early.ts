@@ -298,7 +298,7 @@ function blockCell(x: number, y: number, ctx: ExplainContext): Explanation | nul
       ? `One brightness sample, from 0 (black) to 255 (white).`
       : `One ${sel.component === 1 ? 'blue-against-yellow' : 'red-against-green'} colour sample, where 128 is neutral.`;
   return {
-    title: `${plane} sample at column ${x + 1}, row ${y + 1}`,
+    title: `${plane} sample at column ${x + 1} of 8, row ${y + 1} of 8`,
     value: String(v),
     body: `${meaning} It sits in block (${sel.bx}, ${sel.by}) of the ${plane} plane: ${where}.`,
     consequence: `The DCT wants values centred on zero, so 128 comes off every sample: ${v} −128 → ${whole(shifted)}.`,

@@ -80,9 +80,11 @@ function errorCard(x: number, y: number, ctx: ExplainContext): Explanation | nul
     };
   }
   const err = [0, 1, 2].map((c) => Math.abs(d[i + c] - o[i + c]));
-  // What the viz draws: the mean of the three differences, as (e, 0.55 e, 0.25 e) times the gain.
-  const e = Math.round((err[0] + err[1] + err[2]) / 3);
-  const tint = [1, 0.55, 0.25].map((k) => Math.min(255, Math.round(e * k * gain)));
+  // What the viz draws: the unrounded mean of the three differences, as (e, 0.55 e, 0.25 e) each stored as a whole
+  // number, and only then multiplied by the gain. The value line shows the mean rounded.
+  const mean = (err[0] + err[1] + err[2]) / 3;
+  const e = Math.round(mean);
+  const tint = [1, 0.55, 0.25].map((k) => Math.min(255, Math.round(Math.round(mean * k) * gain)));
   details.push({
     kind: 'rows',
     rows: [
@@ -235,7 +237,7 @@ function resaveCard(generation: number, ctx: ExplainContext): Explanation | null
   return {
     title: `Re-save generation ${generation}`,
     value: `Generation ${generation}: ${db(psnr)}`,
-    body: `After saving and opening the picture ${plural(generation, 'time')} in a row with the same settings, the copy is ${db(psnr)} from the original${GLOSS}.`,
+    body: `After saving and opening the picture ${generation === 1 ? 'once' : `${generation} times in a row`} with the same settings, the copy is ${db(psnr)} from the original${GLOSS}.`,
     consequence,
     details: [
       { kind: 'text', text: 'Each generation decodes the last file and encodes the result again at the same quality and chroma mode. Losses can pile up, though a picture often settles because it is already made of values the table can represent.' },

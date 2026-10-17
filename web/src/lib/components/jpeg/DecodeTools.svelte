@@ -130,11 +130,11 @@
 
 {#if rect.w > 120 && rect.h > 60}
   <div class="tools" style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
-    <label class="ctl" use:tooltip={{ ctl, target: { id: 'decode.wipeSlider' }, acts: true }}>
+    <label class="ctl">
       <span>Wipe</span>
       <input type="range" min="0" max="1" step="0.01" value={wipe} oninput={(e) => onwipe(Number((e.currentTarget as HTMLInputElement).value))} use:tooltip={{ ctl, target: { id: 'decode.wipeSlider' }, acts: true }} />
     </label>
-    <label class="ctl" use:tooltip={{ ctl, target: { id: 'decode.gainSlider' }, acts: true }}>
+    <label class="ctl">
       <span>Error × <span class="mono">{gain}</span></span>
       <input type="range" min="1" max="16" step="1" value={gain} oninput={(e) => ongain(Number((e.currentTarget as HTMLInputElement).value))} use:tooltip={{ ctl, target: { id: 'decode.gainSlider' }, acts: true }} />
     </label>

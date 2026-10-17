@@ -7,6 +7,9 @@ import type { ExplainContext } from './context';
 
 export type Target =
   | { id: 'bezel.picture' | 'bezel.upload' | 'bezel.quality' | 'bezel.save' | 'bezel.speed' }
+  /** The shell's transport buttons and its "n / total" readout. */
+  | { id: 'bezel.play' | 'bezel.reset' | 'bezel.position' }
+  | { id: 'bezel.step'; dir: 'back' | 'forward' }
   /** `mode` is the option being pointed at; without it, the one in use. */
   | { id: 'bezel.chroma'; mode?: SubsamplingId }
   | { id: 'bezel.huffman'; mode?: HuffmanId }
@@ -55,6 +58,10 @@ const ID_SET: Record<Target['id'], true> = {
   'bezel.huffman': true,
   'bezel.save': true,
   'bezel.speed': true,
+  'bezel.play': true,
+  'bezel.reset': true,
+  'bezel.step': true,
+  'bezel.position': true,
   'rail.stage': true,
   'readout.size': true,
   'readout.ratio': true,

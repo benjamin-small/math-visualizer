@@ -73,13 +73,14 @@
     if (d === 0) return;
     e.preventDefault();
     e.stopPropagation(); // not also a stage switch
-    const row = [...(e.currentTarget as Element).closest('svg, .bits')!.querySelectorAll<SVGElement | HTMLElement>(selector)];
+    const row = [...(e.currentTarget as Element).closest('svg, .bits, .file')!.querySelectorAll<SVGElement | HTMLElement>(selector)];
     row[row.indexOf(e.currentTarget as SVGElement) + d]?.focus();
   }
   /** Which bar and which leaf the Tab key reaches (by index). */
   let barRove = $state(0);
   let leafRove = $state(0);
   let partRove = $state(0);
+  let segRove = $state(0);
 
   const W = $derived(Math.max(0, rect.w));
   const chartH = $derived(Math.max(0, Math.min(220, rect.h - 190)));
@@ -189,12 +190,14 @@
     {#if segments.length}
       <div class="file" aria-label="The file's segments">
         {#each segments as s, i (s.offset)}
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions, a11y_no_static_element_interactions -->
           <span
             class="seg"
             class:scan={s.kind === 'Sos'}
             style:flex-grow={Math.max(s.len / fileBytes, 0.02)}
-            tabindex="0"
+            tabindex={i === Math.min(segRove, segments.length - 1) ? 0 : -1}
+            onfocus={() => (segRove = i)}
+            onkeydown={(e) => walk(e, 'span')}
             use:tooltip={{ ctl, target: { id: 'huffman.segment', i } }}>{s.kind}</span>
         {/each}
       </div>

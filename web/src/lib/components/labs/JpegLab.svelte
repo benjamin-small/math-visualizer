@@ -116,8 +116,8 @@
   const ctl = new TooltipController();
   /** Hit-tests the canvas for the stage (set once the engine is ready). */
   let stageCards: ReturnType<typeof tooltip> | undefined;
-  /** The shell's speed slider and its label, which the shell owns: they get their cards here once the page is up. */
-  let speedCards: ReturnType<typeof tooltip>[] = [];
+  /** The shell's own controls (transport buttons, position readout, speed slider): the shell owns them, so they get their cards here once the page is up. */
+  let shellCards: ReturnType<typeof tooltip>[] = [];
 
   const stageInfo = $derived(STAGES.find((s) => s.id === stage)!);
   // Until the first picture is in, the summary is the engine's own stand-in gradient: show none of it.
@@ -650,8 +650,21 @@
     window.addEventListener('keydown', onKey);
     if (stageEl) stageCards = tooltip(stageEl, { ctl, target: canvasHit });
     const lab = overlayEl?.closest('.lab');
-    for (const el of [lab?.querySelector<HTMLElement>('.speed'), lab?.querySelector<HTMLElement>('.speed input')]) {
-      if (el) speedCards.push(tooltip(el, { ctl, target: { id: 'bezel.speed' }, acts: true }));
+    // The transport row is Reset, Back, Play / Pause, Forward, in that order.
+    const [reset, back, play, forward] = [...(lab?.querySelectorAll<HTMLElement>('.transport button') ?? [])];
+    const readout = lab?.querySelector<HTMLElement>('.readout');
+    const shell: [HTMLElement | null | undefined, Target, boolean][] = [
+      [reset, { id: 'bezel.reset' }, true],
+      [back, { id: 'bezel.step', dir: 'back' }, true],
+      [play, { id: 'bezel.play' }, true],
+      [forward, { id: 'bezel.step', dir: 'forward' }, true],
+      [readout, { id: 'bezel.position' }, false],
+      [lab?.querySelector<HTMLElement>('.speed input'), { id: 'bezel.speed' }, true],
+    ];
+    for (const [el, target, acts] of shell) {
+      if (!el) continue;
+      if (!acts) el.tabIndex = 0; // a readout is not focusable by itself
+      shellCards.push(tooltip(el, { ctl, target, acts }));
     }
     // Until the first picture is in, draw nothing (the viz would otherwise show its own stand-in gradient).
     a.patchVizConfig({ panels: toDevicePanels(BLANK_PANELS, 1) });
@@ -668,8 +681,8 @@
     stageEl?.removeEventListener('dragover', onDragOver);
     stageEl?.removeEventListener('drop', onDrop);
     stageCards?.destroy?.();
-    for (const card of speedCards) card?.destroy?.();
-    speedCards = [];
+    for (const card of shellCards) card?.destroy?.();
+    shellCards = [];
     window.removeEventListener('resize', pushLayout);
     window.removeEventListener('keydown', onKey);
   });
@@ -690,6 +703,7 @@
       huffman,
       customTables,
       speed,
+      playing: api?.snapshot.playing ?? false,
       dctK,
       wipe,
       errorGain,
@@ -710,6 +724,7 @@
   title="JPEG Compression"
   thesis="Follow one picture, and one 8 × 8 block of it, from pixels to bits and back."
   zoom={false}
+  nativeTitles={false}
   {onReady}
 >
   {#snippet controls()}

@@ -101,7 +101,7 @@ function zigzagLast(ctx: ExplainContext): Explanation | null {
       title: 'Last non-zero number',
       value: 'All 64 are zero',
       body,
-      consequence: `${lead(b)} every number in this block rounds to zero, so only the end-of-block mark remains.`,
+      consequence: `${lead(b)}, every number in this block rounds to zero, so only the end-of-block mark remains.`,
       details: [{ kind: 'text', text: 'A block like this is flat: it costs only a few bits.' }],
     };
   }
@@ -109,7 +109,7 @@ function zigzagLast(ctx: ExplainContext): Explanation | null {
     title: 'Last non-zero number',
     value: `#${last + 1} of 64`,
     body,
-    consequence: `${lead(b)} ${plural(63 - last, 'number')} after it ${63 - last === 1 ? 'is' : 'are'} zero and dropped from the file.`,
+    consequence: `${lead(b)}, ${plural(63 - last, 'number')} after it ${63 - last === 1 ? 'is' : 'are'} zero and dropped from the file.`,
     details: [
       {
         kind: 'text',

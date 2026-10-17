@@ -5,7 +5,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TARGET_IDS, explain, type Explanation, type Target } from '..';
-import type { StageId } from '../../stages';
+import { STAGES, type StageId } from '../../stages';
 import type { ExplainContext } from '../context';
 import { makeContext } from './fixture';
 
@@ -18,6 +18,10 @@ const SAMPLES: Record<Target['id'], Target> = {
   'bezel.huffman': { id: 'bezel.huffman', mode: 'standard' },
   'bezel.save': { id: 'bezel.save' },
   'bezel.speed': { id: 'bezel.speed' },
+  'bezel.play': { id: 'bezel.play' },
+  'bezel.reset': { id: 'bezel.reset' },
+  'bezel.step': { id: 'bezel.step', dir: 'forward' },
+  'bezel.position': { id: 'bezel.position' },
   'rail.stage': { id: 'rail.stage', stage: 'dct' },
   'readout.size': { id: 'readout.size' },
   'readout.ratio': { id: 'readout.ratio' },
@@ -149,6 +153,15 @@ describe('card coverage', () => {
     expect(all).not.toMatch(/surviv/i); // "stay non-zero after rounding"
     expect(all).not.toMatch(/\bcolor\b/i); // British spelling: colour
     expect(compact(e)).not.toMatch(/\bMCU\b/); // jargon waits for the unfolded part
+  });
+
+  it.each(STAGES.map((st) => st.id))('keeps to the lab voice on the rail card for the %s stage', (stage) => {
+    const e = explain({ id: 'rail.stage', stage }, makeContext({ stage: 'overview' }))!;
+    const all = [compact(e), JSON.stringify(e.details)].join(' ');
+    expect(all).not.toMatch(/surviv/i);
+    expect(all).not.toMatch(/\bcolor\b/i);
+    expect(all).not.toMatch(/\bColor\b/);
+    expect(compact(e)).not.toMatch(/\bMCU\b/);
   });
 
   it.each(TARGET_IDS)('opens %s in plain words', (id) => {
