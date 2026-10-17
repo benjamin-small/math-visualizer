@@ -34,11 +34,14 @@
     void key;
     draft = [...untrack(() => table)];
   });
+  /** The cell being edited (its input has focus), or null. */
+  let editing = $state<number | null>(null);
   /**
-   * Pointing at a step explains what the table does with it (what it divides by); focusing it to edit explains what
-   * changing it does. Both cards are about the same step.
+   * Pointing at a step explains what the table does with it (what it divides by); while that cell is being edited,
+   * its card stays the editor's (what changing it does), so a jiggle of the pointer cannot flip it back.
    */
-  const pointedStep = (i: number) => (): Target => ({ id: 'quantize.table', u: i % 8, v: Math.floor(i / 8) });
+  const pointedStep = (i: number) => (): Target =>
+    editing === i ? { id: 'quantize.editor', u: i % 8, v: Math.floor(i / 8) } : { id: 'quantize.table', u: i % 8, v: Math.floor(i / 8) };
   const dirty = $derived(draft.some((v, i) => v !== table[i]));
 
   /**
@@ -74,6 +77,10 @@
           max="255"
           value={v}
           aria-label="Q({i % 8}, {Math.floor(i / 8)})"
+          onfocus={() => (editing = i)}
+          onblur={() => {
+            if (editing === i) editing = null;
+          }}
           oninput={(e) => setCell(i, e.currentTarget as HTMLInputElement, false)}
           onchange={(e) => setCell(i, e.currentTarget as HTMLInputElement, true)}
           use:tooltip={{ ctl, target: pointedStep(i), acts: true, keyTarget: () => ({ id: 'quantize.editor', u: i % 8, v: Math.floor(i / 8) }) }}

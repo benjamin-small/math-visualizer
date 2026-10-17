@@ -1332,7 +1332,7 @@ describe('JpegLab.svelte cards', () => {
       await vi.waitFor(() => expect(hoverText()).toContain('50% decoded'));
       expect(wipe.hasAttribute('title')).toBe(false);
       getByRole('slider', { name: /^Error ×/ }).focus();
-      await vi.waitFor(() => expect(hoverText()).toContain('pure white'));
+      await vi.waitFor(() => expect(hoverText()).toContain('full strength'));
       const blocking = getByRole('button', { name: 'Blocking' });
       expect(blocking.hasAttribute('title')).toBe(false);
       await fireEvent(blocking, ptr('pointermove', 0, 0));
@@ -1364,6 +1364,19 @@ describe('JpegLab.svelte cards', () => {
       await vi.waitFor(() => expect(hoverText()).toContain('Table step (1, 0)'));
       cell.focus();
       await vi.waitFor(() => expect(hoverText()).toContain('Edit step (1, 0)'));
+      // While the cell is being edited, the pointer cannot flip its card back to the table's.
+      await fireEvent(cell, ptr('pointermove', 1, 1));
+      await fireEvent(cell, ptr('pointermove', 2, 2));
+      await new Promise((r) => setTimeout(r, 200));
+      expect(hoverText()).toContain('Edit step (1, 0)');
+      // Other cells, not being edited, keep the table card.
+      const other = quant.getByLabelText('Q(2, 0)');
+      await fireEvent(other, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(hoverText()).toContain('Table step (2, 0)'));
+      // Leaving the cell (blur) gives the pointer back its table card.
+      cell.blur();
+      await fireEvent(cell, ptr('pointermove', 3, 3));
+      await vi.waitFor(() => expect(hoverText()).toContain('Table step (1, 0)'));
     });
 
     it('explains the generations of the re-save chart', async () => {

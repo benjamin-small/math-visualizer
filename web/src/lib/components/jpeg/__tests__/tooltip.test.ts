@@ -151,6 +151,24 @@ describe('pinning', () => {
     expect(pinnedCard()!.textContent).toContain(VALUE_10);
   });
 
+  it('does not pin on the click that ends a drag, but pins a click that barely moved', async () => {
+    const el = target({ target: T10 }, 'span');
+    const click = (x: number, y: number) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, detail: 1 }));
+    // Press at (40, 40), drag 30 px, release: the click that follows ends a drag (an orbit, a scrub), not a request for a card.
+    el.dispatchEvent(ptr('pointerdown', { x: 40, y: 40 }));
+    el.dispatchEvent(ptr('pointermove', { x: 70, y: 40 }));
+    el.dispatchEvent(ptr('pointerup', { x: 70, y: 40 }));
+    click(70, 40);
+    await tick();
+    expect(ctl.pinned).toBeNull();
+    // A press that moves 3 px is still a click.
+    el.dispatchEvent(ptr('pointerdown', { x: 40, y: 40 }));
+    el.dispatchEvent(ptr('pointerup', { x: 43, y: 40 }));
+    click(43, 40);
+    await tick();
+    expect(ctl.pinned?.target).toEqual(T10);
+  });
+
   it('does not pin on click for an acting target; More unfolds it instead', async () => {
     const spy = vi.fn();
     const el = target({ target: T10, acts: true });

@@ -12,6 +12,8 @@ export const LEAVE_DELAY_MS = 120;
 export const LONG_PRESS_MS = 500;
 /** How far a touch may drift before it stops being a long-press. */
 const LONG_PRESS_SLOP = 10;
+/** How far a press may move and still count as a click: further is a drag, and a drag's closing click pins nothing. */
+const DRAG_SLOP = 4;
 
 /** The id of the host's hidden element holding the shown card's compact text. */
 export const TOOLTIP_LIVE_ID = 'jpeg-tooltip-live';
@@ -220,6 +222,8 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
   let press: { x: number; y: number } | null = null;
   let swallowClick = false;
   let pointerDown = false;
+  /** Where the last press began, to tell a click from the end of a drag. */
+  let downAt: { x: number; y: number } | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   const resolve = (e: MouseEvent): Target | null => (typeof params.target === 'function' ? params.target(e) : params.target);
@@ -254,6 +258,7 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
 
   const onPointerDown = (e: PointerEvent) => {
     pointerDown = true;
+    downAt = { x: e.clientX, y: e.clientY };
     clearSwallow();
     if (!isTouch(e) || !params.acts) return;
     const t = resolve(e);
@@ -288,6 +293,10 @@ export const tooltip: Action<HTMLElement | SVGElement, TooltipParams> = (node, i
       return;
     }
     if (params.acts) return;
+    // The click that ends a drag (orbiting the cube, scrubbing a slider) is not a request for a card.
+    const from = downAt;
+    downAt = null;
+    if (from && e.detail > 0 && Math.hypot(e.clientX - from.x, e.clientY - from.y) > DRAG_SLOP) return;
     const t = resolve(e);
     if (!t) return;
     // A real pointer click pins beside the pointer (a canvas box is the whole canvas); a keyboard click beside the element.

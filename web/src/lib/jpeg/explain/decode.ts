@@ -68,7 +68,7 @@ function errorCard(x: number, y: number, ctx: ExplainContext): Explanation | nul
   const details: Detail[] = [
     {
       kind: 'text',
-      text: "The error map is black where the decoded pixel matches the original and brighter the further apart they are. Each of red, green and blue is the size of its own difference, multiplied by the Error control's number and capped at 255.",
+      text: "The error map is black where the decoded pixel matches the original and brighter the further apart they are. It shows the average of the red, green and blue differences as a warm tint, multiplied by the Error control's number and capped at 255 in each of its three colours.",
     },
   ];
   if (!d) {
@@ -80,19 +80,23 @@ function errorCard(x: number, y: number, ctx: ExplainContext): Explanation | nul
     };
   }
   const err = [0, 1, 2].map((c) => Math.abs(d[i + c] - o[i + c]));
-  const worst = Math.max(...err);
+  // What the viz draws: the mean of the three differences, as (e, 0.55 e, 0.25 e) times the gain.
+  const e = Math.round((err[0] + err[1] + err[2]) / 3);
+  const tint = [1, 0.55, 0.25].map((k) => Math.min(255, Math.round(e * k * gain)));
   details.push({
     kind: 'rows',
     rows: [
-      ['Error (red, green, blue)', err.join(', ')],
-      ['Drawn as', err.map((e) => Math.min(255, Math.round(e * gain))).join(', ')],
+      ['Difference (red, green, blue)', err.join(', ')],
+      ['Average, e', `${e}`],
+      ['Largest single difference', `${Math.max(...err)}`],
+      ['Drawn as (e, 0.55e, 0.25e) × gain', tint.join(', ')],
     ],
   });
   return {
     title: `Pixel (${x}, ${y}) in the error map`,
-    value: plural(worst, 'level'),
-    body: `How far this pixel's colour moved when the picture was saved as a JPEG and opened again, before the map brightens it: red ${err[0]}, green ${err[1]}, blue ${err[2]} (on the 0-255 scale).`,
-    consequence: `${brighten} Here it is drawn at ${Math.min(255, Math.round(worst * gain))} of 255 where the error is biggest.`,
+    value: plural(e, 'level'),
+    body: `On average the red, green and blue of this pixel moved ${plural(e, 'level')} when the picture was saved as a JPEG and opened again, before the map brightens it: red ${err[0]}, green ${err[1]}, blue ${err[2]} (on the 0-255 scale).`,
+    consequence: `${brighten} Here it is drawn at ${tint[0]} of 255 in the strongest tint (red-orange).`,
     details,
   };
 }
@@ -116,12 +120,12 @@ function wipeSliderCard(ctx: ExplainContext): Explanation {
 
 function gainSliderCard(ctx: ExplainContext): Explanation {
   const gain = ctx.errorGain;
-  const white = gain > 0 ? Math.ceil(255 / gain) : null;
+  const full = gain > 0 ? Math.ceil(255 / gain) : null;
   return {
     title: 'Error brightening',
     value: `× ${ratio(gain)}`,
-    body: "Brightens the error map. Most errors are only a few levels out of 255, which would look black, so each one is multiplied by this number before it is drawn.",
-    consequence: `At × ${ratio(gain)} an error of 2 levels is drawn as ${Math.min(255, Math.round(2 * gain))} of 255${white !== null ? `, and anything off by ${white} levels or more is pure white` : ''}.`,
+    body: "Brightens the error map. Most errors are only a few levels out of 255, which would look black, so each one is multiplied by this number before it is drawn as a warm tint.",
+    consequence: `At × ${ratio(gain)} an error of 2 levels is drawn as ${Math.min(255, Math.round(2 * gain))} of 255${full !== null ? `, and an average error of ${full} levels or more is drawn at full strength (red-orange)` : ''}.`,
     acts: true,
     details: [{ kind: 'text', text: 'The picture itself is not changed; only the map is brightened. Raise it to hunt for faint errors, lower it to compare how big the large ones really are.' }],
   };
