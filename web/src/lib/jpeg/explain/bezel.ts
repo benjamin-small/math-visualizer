@@ -309,7 +309,7 @@ function resetCard(ctx: ExplainContext): Explanation {
       ? `Each step scans a ${f.patch}.`
       : f.n === 0
         ? 'The scan is already at the start.'
-        : `The scan is at step ${count(f.n)} of ${count(f.total)}; Reset puts it at step 0. ${lead(ctx)} the file does not change.`,
+        : `The scan is at step ${count(f.n)} of ${count(f.total)}; Reset puts it at step 0. ${lead(ctx)}, the file does not change.`,
     acts: true,
     details: [STEP_DETAIL],
   };
@@ -352,7 +352,7 @@ function positionCard(ctx: ExplainContext): Explanation | null {
 function inUse(ctx: ExplainContext): string | null {
   const s = ctx.summary;
   if (!s) return null;
-  return `${lead(ctx)} it compresses to ${formatBytes(s.bytes)} (${(s.rawBytes / Math.max(1, s.bytes)).toFixed(1)} times smaller than the raw pixels).`;
+  return `${lead(ctx)}, it compresses to ${formatBytes(s.bytes)} (${(s.rawBytes / Math.max(1, s.bytes)).toFixed(1)} times smaller than the raw pixels).`;
 }
 
 function ownPicture(ctx: ExplainContext): Explanation {
