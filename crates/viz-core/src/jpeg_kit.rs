@@ -339,6 +339,17 @@ pub fn jpeg_encode_decode(
         .rgba)
 }
 
+/// Decodes a JPEG file to RGBA (`w·h·4` bytes, alpha 255). Meant to run once
+/// per encode, not per frame: the lab's pixel tooltips read its result.
+#[wasm_bindgen]
+pub fn jpeg_decode(bytes: &[u8]) -> Result<Vec<u8>, JsError> {
+    decode_rgba(bytes).map_err(js)
+}
+
+fn decode_rgba(bytes: &[u8]) -> Result<Vec<u8>, JpegError> {
+    Ok(decode(bytes)?.image.rgba)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,5 +372,28 @@ mod tests {
         assert!(check_round_trip_size(cap, 1).is_ok());
         assert!(check_round_trip_size(cap + 1, 1).is_err());
         assert!(check_round_trip_size(usize::MAX, 2).is_err());
+    }
+
+    #[test]
+    fn decode_returns_the_pixels_of_an_encoded_image() {
+        let rgba = builtin_image("gradient", 16, 8).unwrap().rgba;
+        let img = Rgb8Image::new(16, 8, rgba.clone()).unwrap();
+        let opts = parse_options(90, "420", "optimized").unwrap();
+        let bytes = encode(&img, &opts).unwrap().bytes;
+        let out = jpeg_decode(&bytes).unwrap();
+        assert_eq!(out.len(), 16 * 8 * 4);
+        assert!(out.chunks_exact(4).all(|px| px[3] == 255));
+        let expected = jpeg_encode_decode(&rgba, 16, 8, 90, "420", "optimized").unwrap();
+        for (a, b) in out.chunks_exact(4).zip(expected.chunks_exact(4)) {
+            assert_eq!(a[..3], b[..3]);
+        }
+    }
+
+    #[test]
+    fn decode_refuses_garbage() {
+        // The error path is tested on the inner function: building a `JsError`
+        // calls a wasm import, which cannot run on a native test target.
+        assert!(decode_rgba(&[]).is_err());
+        assert!(decode_rgba(&[0xFF, 0xD8, 0x00]).is_err());
     }
 }
