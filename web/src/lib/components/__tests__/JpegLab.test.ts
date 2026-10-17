@@ -664,11 +664,17 @@ describe('JpegLab.svelte', () => {
     try {
       const { getByRole } = await renderLab('stage=decode');
       const ringing = (await vi.waitFor(() => getByRole('button', { name: 'Ringing' }))) as HTMLButtonElement;
-      expect(ringing.disabled).toBe(true);
-      expect(ringing.title).toContain('no hard edges');
+      // It stays focusable and hoverable (a disabled button gets no pointer or keys), so its card can say why.
+      expect(ringing.getAttribute('aria-disabled')).toBe('true');
+      expect(ringing.hasAttribute('title')).toBe(false);
+      ruleActionSpy.mockClear();
+      await fireEvent.click(ringing);
+      expect(ruleActionSpy).not.toHaveBeenCalled();
+      ringing.focus();
+      await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')?.textContent).toContain('no hard edges'));
       // The reason is on screen too, not only in a tooltip (touch has none).
       expect(document.querySelector('.hints')?.textContent).toContain('No hard edges here, so nothing rings.');
-      expect((getByRole('button', { name: 'Blocking' }) as HTMLButtonElement).disabled).toBe(false);
+      expect(getByRole('button', { name: 'Blocking' }).getAttribute('aria-disabled')).toBeNull();
     } finally {
       jpegSummaryFixture.hints = saved;
     }
@@ -1182,6 +1188,154 @@ describe('JpegLab.svelte cards', () => {
       await fireEvent.keyDown(svg, { key: 'ArrowRight' });
       await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')!.textContent).toContain('Quality 51'));
       expect(route.query).toBe('stage=quantize');
+    });
+  });
+
+  describe('the overview and decode stages', () => {
+    /** jsdom lays nothing out: give an element a box. */
+    function boxed(el: Element, left: number, top: number, width: number, height: number) {
+      el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+    }
+    const hoverText = () => document.querySelector('[data-testid="tooltip-hover"]')?.textContent ?? '';
+    const decodeLanded = () => vi.waitFor(() => expect(jpegDecodeSpy).toHaveBeenCalled(), { timeout: 2000 });
+
+    it('explains a pixel before and after JPEG from the canvas', async () => {
+      const { container, findByTestId } = await renderLab();
+      await vi.waitFor(() => expect(container.querySelector('.overview')).toBeTruthy());
+      const canvas = container.querySelector('canvas')!;
+      const panels = layoutOf('overview').panels;
+      const [orig, dec] = ['original', 'decoded'].map((k) => panels.find((p) => p.kind === k)!.rect);
+      await fireEvent(canvas, ptr('pointermove', orig.x + orig.w / 2, orig.y + orig.h / 2));
+      const before = await findByTestId('tooltip-hover');
+      expect(before.textContent).toContain('before JPEG');
+      expect(before.textContent).toContain('RGB 128, 128, 128');
+      await decodeLanded();
+      await fireEvent(canvas, ptr('pointermove', dec.x + dec.w / 2, dec.y + dec.h / 2));
+      await vi.waitFor(() => expect(hoverText()).toContain('after JPEG'));
+      // The fake decode is black, so this pixel is 128 levels from the grey original.
+      await vi.waitFor(() => expect(hoverText()).toContain('a difference of 128'));
+    });
+
+    it('explains a histogram bar from the pointer, and pins it on a click', async () => {
+      const { container, findByTestId, getByRole } = await renderLab();
+      const svgs = await vi.waitFor(() => {
+        const all = container.querySelectorAll<SVGElement>('.overview .plot svg');
+        expect(all).toHaveLength(3);
+        return [...all];
+      });
+      boxed(svgs[0], 0, 0, 256, 50);
+      boxed(svgs[1], 0, 0, 256, 50);
+      await fireEvent(svgs[0], ptr('pointermove', 128.5, 10));
+      const raw = await findByTestId('tooltip-hover');
+      expect(raw.textContent).toContain('Raw bytes: value 128');
+      expect(raw.textContent).toContain('100% of all');
+      await fireEvent(svgs[1], ptr('pointermove', 0.5, 10));
+      await vi.waitFor(() => expect(hoverText()).toContain('differ from their left neighbour by 0'));
+      await fireEvent(svgs[1], ptr('click', 0.5, 10, { detail: 1 }));
+      const pinned = await findByTestId('tooltip-pinned');
+      expect(pinned.textContent).toContain('Neighbour difference: 0');
+      await fireEvent.click(getByRole('button', { name: 'More' }));
+      expect(pinned.ownerDocument.querySelector('[data-testid="tooltip-details"]')?.textContent).toContain('wrap');
+    });
+
+    it('lets the keyboard walk a histogram without changing the stage', async () => {
+      const { container } = await renderLab();
+      const svg = await vi.waitFor(() => {
+        const el = container.querySelector<SVGElement>('.overview .plot svg');
+        expect(el).toBeTruthy();
+        return el!;
+      });
+      expect(svg.getAttribute('role')).toBe('group');
+      (svg as unknown as HTMLElement).focus();
+      await vi.waitFor(() => expect(hoverText()).toContain('Raw bytes: value 128')); // the tallest bar
+      await fireEvent.keyDown(svg, { key: 'ArrowRight' });
+      await vi.waitFor(() => expect(hoverText()).toContain('Raw bytes: value 129'));
+      await fireEvent.keyDown(svg, { key: 'Home' });
+      await vi.waitFor(() => expect(hoverText()).toContain('Raw bytes: value 0'));
+      expect(route.query).toBe('');
+    });
+
+    it('explains the size bars and the bits-per-byte figures', async () => {
+      const { container } = await renderLab();
+      const sizes = await vi.waitFor(() => {
+        const el = container.querySelector<HTMLElement>('.overview .sizes');
+        expect(el).toBeTruthy();
+        return el!;
+      });
+      sizes.focus();
+      await vi.waitFor(() => expect(hoverText()).toContain('File size against the raw pixels'));
+      const figure = container.querySelectorAll<HTMLElement>('.overview .entropy')[2];
+      figure.focus();
+      await vi.waitFor(() => expect(hoverText()).toContain('JPEG file: bits per byte'));
+      expect(hoverText()).toMatch(/room/);
+    });
+
+    it('explains the error map pixel in levels before brightening', async () => {
+      const { container } = await renderLab('stage=decode');
+      await vi.waitFor(() => expect(container.querySelector('.tools')).toBeTruthy());
+      await decodeLanded();
+      const canvas = container.querySelector('canvas')!;
+      const r = layoutOf('decode').panels.find((p) => p.kind === 'error')!.rect;
+      await fireEvent(canvas, ptr('pointermove', r.x + r.w / 2, r.y + r.h / 2));
+      await vi.waitFor(() => expect(hoverText()).toContain('128 levels'));
+      expect(hoverText()).toContain('before the map brightens it');
+      const w = layoutOf('decode').panels.find((p) => p.kind === 'wipe')!.rect;
+      await fireEvent(canvas, ptr('pointermove', w.x + 2, w.y + w.h / 2));
+      await vi.waitFor(() => expect(hoverText()).toContain('in the wipe'));
+    });
+
+    it('explains the sliders and the hint buttons, which keep their jobs', async () => {
+      const { getByRole } = await renderLab('stage=decode');
+      const wipe = await vi.waitFor(() => getByRole('slider', { name: 'Wipe' }));
+      wipe.focus();
+      await vi.waitFor(() => expect(hoverText()).toContain('50% decoded'));
+      expect(wipe.hasAttribute('title')).toBe(false);
+      getByRole('slider', { name: /^Error ×/ }).focus();
+      await vi.waitFor(() => expect(hoverText()).toContain('pure white'));
+      const blocking = getByRole('button', { name: 'Blocking' });
+      expect(blocking.hasAttribute('title')).toBe(false);
+      await fireEvent(blocking, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(hoverText()).toContain('Block (3, 4)'));
+      ruleActionSpy.mockClear();
+      await fireEvent.click(blocking);
+      expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 3, by: 4 });
+      expect(document.querySelector('[data-testid="tooltip-pinned"]')).toBeNull();
+    });
+
+    it('explains the two charts of the DCT stage and the Q-table steps', async () => {
+      const dct = await renderLab('stage=dct');
+      const charts = await vi.waitFor(() => {
+        const all = dct.container.querySelectorAll<SVGElement>('.charts svg');
+        expect(all).toHaveLength(2);
+        return [...all];
+      });
+      (charts[0] as unknown as HTMLElement).focus();
+      await vi.waitFor(() => expect(hoverText()).toMatch(/First \d+ patterns?/));
+      (charts[1] as unknown as HTMLElement).focus();
+      await vi.waitFor(() => expect(hoverText()).toContain('Repeated copy'));
+      await fireEvent.keyDown(charts[1], { key: 'ArrowDown' });
+      await vi.waitFor(() => expect(hoverText()).toContain('Mirrored copy'));
+      dct.unmount();
+
+      const quant = await renderLab('stage=quantize');
+      const cell = await vi.waitFor(() => quant.getByLabelText('Q(1, 0)') as HTMLInputElement);
+      await fireEvent(cell, ptr('pointermove', 0, 0));
+      await vi.waitFor(() => expect(hoverText()).toContain('Table step (1, 0)'));
+      cell.focus();
+      await vi.waitFor(() => expect(hoverText()).toContain('Edit step (1, 0)'));
+    });
+
+    it('explains the generations of the re-save chart', async () => {
+      const { container, getByRole } = await renderLab('stage=decode');
+      await fireEvent.click(await vi.waitFor(() => getByRole('button', { name: /Re-save/ })));
+      await vi.waitFor(() => expect(container.querySelector('.resave')?.textContent).toContain('gen 20'), { timeout: 3000 });
+      const svg = container.querySelector<SVGElement>('.tools svg')!;
+      expect(svg.getAttribute('role')).toBe('group');
+      (svg as unknown as HTMLElement).focus();
+      await vi.waitFor(() => expect(hoverText()).toContain('Generation 20'));
+      await fireEvent.keyDown(svg, { key: 'ArrowLeft' });
+      await vi.waitFor(() => expect(hoverText()).toContain('Generation 19'));
+      expect(hoverText()).toContain('dB');
     });
   });
 });

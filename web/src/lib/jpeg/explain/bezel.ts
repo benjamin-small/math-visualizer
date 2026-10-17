@@ -14,7 +14,7 @@ import { db, percent, plural, ratio } from './text';
 import type { Detail, Explanation } from './types';
 
 /** Said once per card, after the first dB figure. */
-const GLOSS = ' (higher is closer)';
+export const GLOSS = ' (higher is closer)';
 
 const MODES: Record<SubsamplingId, { name: string; share: number }> = {
   '444': { name: '4:4:4', share: 1 },
@@ -45,7 +45,7 @@ function lead(ctx: ExplainContext): string {
 }
 
 /** "At quality 50 with 4:2:0 colour", or "With your own tables and 4:2:0 colour": the settings behind the file in hand. */
-function settings(ctx: ExplainContext): string {
+export function settings(ctx: ExplainContext): string {
   const colour = `${MODES[ctx.subsampling].name} colour`;
   return ctx.customTables ? `With your own tables and ${colour}` : `${lead(ctx)} with ${colour}`;
 }

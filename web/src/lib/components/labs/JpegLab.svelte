@@ -88,6 +88,8 @@
   let rove = $state<[number, number]>([0, 0]);
   /** Bumped when the R–D sweep adds points, so the cards see them. */
   let rdTick = $state(0);
+  /** PSNR after each Decode re-save generation; the Decode panel keeps it, the cards read it. */
+  let resave = $state.raw<number[]>([]);
 
   let image = $state<RgbaImage | null>(null);
   /** The JPEG file decoded to RGBA, once per encode (null until it arrives): the cards read it, hovering never decodes. */
@@ -505,10 +507,20 @@
       case 'coded_cb':
       case 'coded_cr':
         return { id: 'subsample.plane', which: 'coded', plane: kind === 'coded_cb' ? 1 : 2, x, y };
+      case 'original':
+      case 'decoded':
+        return { id: 'overview.pixel', which: kind, x, y };
+      case 'wipe':
+        return { id: 'decode.wipe', x, y };
+      case 'error':
+        return { id: 'decode.error', x, y };
       default:
         return null;
     }
   }
+
+  /** The before-and-after pictures of the overview and the comparison panels of Decode: the pointer is hit-tested on the canvas; these give the keyboard a way in. */
+  const COMPARE_PANELS: ReadonlySet<Panel['kind']> = new Set(['original', 'decoded', 'wipe', 'error']);
 
   /** The stage's own listener: only the bare canvas is hit-tested here; overlay elements carry their own cards. */
   const canvasHit = (e: MouseEvent): Target | null => (e.target instanceof HTMLCanvasElement ? hitTarget(e) : null);
@@ -683,7 +695,7 @@
       segments,
       rd: [...cachedCurve(rdKey(imageTag, subsampling, huffman))],
       otherBytes,
-      resave: [], // the Decode stage's re-save history lives in its own panel
+      resave,
       jpeg: jpegBytes,
     };
   });
@@ -874,8 +886,27 @@
         {/each}
       {/if}
 
+      {#if stage === 'overview' || stage === 'decode'}
+        {#each layout.panels.filter((p) => COMPARE_PANELS.has(p.kind)) as p (p.kind)}
+          <!-- Keyboard only: focusable so the keys can reach the picture's card; the pointer passes through to the canvas, which hit-tests it. -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+          <div
+            class="hover-area"
+            role="img"
+            tabindex="0"
+            aria-label={p.label}
+            style:left="{p.rect.x}px"
+            style:top="{p.rect.y}px"
+            style:width="{p.rect.w}px"
+            style:height="{p.rect.h}px"
+            style:pointer-events="none"
+            use:tooltip={{ ctl, target: hitTarget, keyTarget: () => panelKey(p.kind) }}
+          ></div>
+        {/each}
+      {/if}
+
       {#if stage === 'overview' && layout.slots.stats && image}
-        <Overview rect={layout.slots.stats} {image} jpeg={jpegBytes} {quality} custom={customTables !== null} {credit} errors={alerts} />
+        <Overview rect={layout.slots.stats} {image} jpeg={jpegBytes} {quality} custom={customTables !== null} {credit} errors={alerts} {ctl} />
       {/if}
 
       {#if stage === 'color' && panel('cube')}
@@ -935,7 +966,7 @@
             <input type="range" min="0" max="64" step="1" value={dctK} oninput={onK} aria-label="Patterns kept" />
           </label>
         {/if}
-        <DctCharts rect={layout.slots.charts ?? { x: 0, y: 0, w: 0, h: 0 }} dct={sel.dct} shifted={sel.shifted} k={dctK} />
+        <DctCharts rect={layout.slots.charts ?? { x: 0, y: 0, w: 0, h: 0 }} dct={sel.dct} shifted={sel.shifted} k={dctK} {ctl} />
       {/if}
 
       {#if stage === 'quantize' && sel}
@@ -1017,6 +1048,8 @@
           onwipe={onWipe}
           ongain={onGain}
           onpick={pickBlock}
+          {ctl}
+          bind:history={resave}
         />
       {/if}
 

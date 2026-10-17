@@ -5,6 +5,7 @@
   // quality-scaled tables.
   import { untrack } from 'svelte';
   import type { Rect } from '../../jpeg/layout';
+  import type { Target } from '../../jpeg/explain';
   import { tooltip, type TooltipController } from './tooltip.svelte';
 
   interface Props {
@@ -33,6 +34,11 @@
     void key;
     draft = [...untrack(() => table)];
   });
+  /**
+   * Pointing at a step explains what the table does with it (what it divides by); focusing it to edit explains what
+   * changing it does. Both cards are about the same step.
+   */
+  const pointedStep = (i: number) => (): Target => ({ id: 'quantize.table', u: i % 8, v: Math.floor(i / 8) });
   const dirty = $derived(draft.some((v, i) => v !== table[i]));
 
   /**
@@ -70,7 +76,7 @@
           aria-label="Q({i % 8}, {Math.floor(i / 8)})"
           oninput={(e) => setCell(i, e.currentTarget as HTMLInputElement, false)}
           onchange={(e) => setCell(i, e.currentTarget as HTMLInputElement, true)}
-          use:tooltip={{ ctl, target: { id: 'quantize.editor', u: i % 8, v: Math.floor(i / 8) }, acts: true }}
+          use:tooltip={{ ctl, target: pointedStep(i), acts: true, keyTarget: () => ({ id: 'quantize.editor', u: i % 8, v: Math.floor(i / 8) }) }}
         />
       {/each}
     </div>
