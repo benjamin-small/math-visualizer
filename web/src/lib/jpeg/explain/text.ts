@@ -49,3 +49,18 @@ export function percent(share: number): string {
   if (p > 0 && p < 0.5) return '<1%';
   return `${Math.round(p)}%`;
 }
+
+/**
+ * A quotient for the "÷" lines. Normally up to two decimals; within 0.005 of a
+ * half it gets more digits (or a leading "≈"), so "1.5 → rounds to 1" can never
+ * appear for a quotient that is really a hair under 1.5.
+ */
+export function quotient(x: number): string {
+  const frac = Math.abs(x) % 1;
+  if (Math.abs(frac - 0.5) >= 0.005) return ratio(x);
+  const strip = (s: string) => (s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s);
+  const fine = strip(signed(x, 3));
+  const exactTie = Math.abs(frac - 0.5) < 1e-12;
+  const shownTie = Math.abs((Math.abs(Number(fine.replace('−', '-'))) % 1) - 0.5) < 1e-12;
+  return shownTie && !exactTie ? `≈${fine}` : fine;
+}

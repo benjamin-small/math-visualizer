@@ -28,9 +28,27 @@ export function validPattern(u: number, v: number): boolean {
   return Number.isInteger(u) && Number.isInteger(v) && u >= 0 && u < 8 && v >= 0 && v < 8;
 }
 
-/** What pattern `i` becomes: `round(F / Q)`, halves away from zero. */
+/** What pattern `i` was stored as: the encoder's own rounded value when the summary has it, else `round(F / Q)`, halves away from zero. */
 export function quantized(b: BlockView, i: number): number {
+  if (b.sel.quant.length === 64) return b.sel.quant[i];
   return roundHalfAway(b.sel.dct[i] / b.sel.table[i]);
+}
+
+/** What the plane holds, in plain words: "brightness" for Y, "colour" for Cb and Cr. */
+export function planeWord(component: number): string {
+  return component === 0 ? 'brightness' : 'colour';
+}
+
+/** What the flat pattern's amount means for this plane: the block's average brightness, blue tint or red tint. */
+export function averageWord(component: number): string {
+  return component === 0 ? 'average brightness' : component === 1 ? 'average blue tint' : 'average red tint';
+}
+
+/** The plain-words reading of a plane's average sample (0-255), with which way is more or less. */
+export function averageMeaning(component: number, mean: number): string {
+  if (component === 0) return `The block's average brightness: about ${mean} on the 0-255 scale. Higher means a lighter block.`;
+  const [name, up, down] = component === 1 ? ['blue', 'bluer', 'yellower'] : ['red', 'redder', 'greener'];
+  return `The block's average ${name} tint: about ${mean} on the 0-255 scale, where 128 is neutral. Higher is ${up}, lower is ${down}.`;
 }
 
 /** How many of the 64 patterns survive rounding (are not zero afterwards). */

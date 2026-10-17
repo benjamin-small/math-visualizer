@@ -2,18 +2,23 @@
 // step, what it rounds to, the rebuilt block, the table editor and the
 // rate-distortion curve with its "you are here" dot.
 import { formatBytes } from '../summary';
-import { at, blockOf, quantized, rebuilt, validPattern, type BlockView } from './block';
+import { at, averageWord, blockOf, planeWord, quantized, rebuilt, validPattern, type BlockView } from './block';
 import type { ExplainContext } from './context';
 import { STD_CHROMA, STD_LUMA, roundHalfAway, scaleFactor, scaleTable, stepAtQuality } from './quality';
 import type { Target } from './targets';
-import { db, delta, plural, ratio, signed, whole } from './text';
+import { db, delta, plural, quotient, signed, whole } from './text';
 import type { Detail, Explanation } from './types';
+
+/** Said once per card, after the first dB figure. */
+const GLOSS = ' (higher is closer)';
 
 const texNum = (s: string) => s.replace('−', '-');
 
-/** "Pattern (1, 0)", or "Average brightness" for the flat one. */
-function name(u: number, v: number): string {
-  return u === 0 && v === 0 ? 'Average brightness' : `Pattern (${u}, ${v})`;
+/** "Pattern (1, 0)", or "Average brightness" / "Average blue tint" / "Average red tint" for the flat one. */
+function name(u: number, v: number, component: number): string {
+  if (u !== 0 || v !== 0) return `Pattern (${u}, ${v})`;
+  const w = averageWord(component);
+  return w.charAt(0).toUpperCase() + w.slice(1);
 }
 
 /** "At quality 50", or "With your table" when the reader's own tables decide. */
@@ -28,13 +33,13 @@ function before(u: number, v: number, ctx: ExplainContext): Explanation | null {
   const f = b.sel.dct[i];
   const step = b.sel.table[i];
   return {
-    title: `${name(u, v)}, before rounding`,
+    title: `${name(u, v, b.sel.component)}, before rounding`,
     value: `F(${u},${v}) = ${signed(f)}`,
     body:
       i === 0
-        ? "The exact amount of the block's average brightness, with decimals. JPEG is about to round it."
+        ? `The exact amount of the block's ${averageWord(b.sel.component)}, with decimals. JPEG is about to round it.`
         : `The exact amount of pattern (${u}, ${v}) in this block, with decimals. JPEG is about to round it to a whole number of steps.`,
-    consequence: `Divided by its step of ${step} it becomes ${ratio(f / step)}.`,
+    consequence: `Divided by its step of ${step} it becomes ${quotient(f / step)}.`,
     details: [
       {
         kind: 'text',
@@ -45,7 +50,7 @@ function before(u: number, v: number, ctx: ExplainContext): Explanation | null {
         rows: [
           ['Amount', signed(f)],
           ['Step', String(step)],
-          ['Amount ÷ step', ratio(f / step)],
+          ['Amount ÷ step', quotient(f / step)],
           ['Rounded', whole(quantized(b, i))],
         ],
       },
@@ -59,7 +64,7 @@ function tableCell(u: number, v: number, ctx: ExplainContext): Explanation | nul
   const i = at(u, v);
   const step = b.sel.table[i];
   const base = b.sel.component === 0 ? STD_LUMA : STD_CHROMA;
-  const plane = b.sel.component === 0 ? 'brightness' : 'colour';
+  const plane = planeWord(b.sel.component);
   const details: Detail[] = [
     {
       kind: 'text',
@@ -93,7 +98,7 @@ function tableCell(u: number, v: number, ctx: ExplainContext): Explanation | nul
   return {
     title: `Table step (${u}, ${v})`,
     value: String(step),
-    body: `Pattern (${u}, ${v}) is counted in steps of ${step}: any amount finer than that is rounded away. Steps are larger for the busy, fine patterns because the eye notices them less.`,
+    body: `Pattern (${u}, ${v}) is counted in steps of ${step}: an amount under half a step is rounded away. Steps are larger for the busy, fine patterns because the eye notices them less.`,
     consequence: b.custom
       ? 'Your own table sets this step, so the quality slider does not change it.'
       : `At quality ${b.quality} every table entry is scaled to ${scaleFactor(b.quality)}% of the standard one, so this step is ${step}.`,
@@ -115,7 +120,7 @@ function after(u: number, v: number, ctx: ExplainContext): Explanation | null {
   const lines: [string, string][] = [
     ['Before', signed(f)],
     ['Step', String(step)],
-    ['Divided', ratio(x)],
+    ['Divided', quotient(x)],
     ['Stored', whole(r)],
     ['Decoder multiplies back', `${whole(r)} × ${step} = ${whole(back)}`],
     ['Off by', signed(back - f)],
@@ -135,18 +140,18 @@ function after(u: number, v: number, ctx: ExplainContext): Explanation | null {
     const y = roundHalfAway(f / s);
     details.push({
       kind: 'rows',
-      rows: [[`At quality ${alt}`, `step ${s}: ${signed(f)} ÷ ${s} = ${ratio(f / s)} → ${whole(y)} (${y !== 0 ? 'kept' : 'dropped'})`]],
+      rows: [[`At quality ${alt}`, `step ${s}: ${signed(f)} ÷ ${s} = ${quotient(f / s)} → ${whole(y)} (${y !== 0 ? 'kept' : 'dropped'})`]],
     });
   }
   const closing = b.custom ? ' Your table sets the step, so quality does not change it.' : '';
   return {
-    title: `${name(u, v)}, rounded`,
+    title: `${name(u, v, b.sel.component)}, rounded`,
     value: whole(r),
     body:
       r === 0
         ? `Pattern (${u}, ${v}) rounds to zero in this block, so it is thrown away.`
         : `What is stored for pattern (${u}, ${v}): the amount in whole steps. Zero would mean the pattern is thrown away.`,
-    consequence: `${b.custom ? 'With your table' : `At quality ${b.quality}`}: ${signed(f)} ÷ ${step} = ${ratio(x)} → rounds to ${whole(r)} (${verdict}).${closing}`,
+    consequence: `${b.custom ? 'With your table' : `At quality ${b.quality}`}: ${signed(f)} ÷ ${step} = ${quotient(x)} → rounds to ${whole(r)} (${verdict}).${closing}`,
     details,
   };
 }
@@ -159,7 +164,7 @@ function rebuild(x: number, y: number, ctx: ExplainContext): Explanation | null 
   const now = grid[i];
   const was = b.sel.pixels[i];
   const err = now - was;
-  const what = b.sel.component === 0 ? 'brightness' : 'colour value';
+  const what = b.sel.component === 0 ? 'brightness' : 'colour value'; // planeWord, with "value" for a sample
   const all = grid.map((v, j) => Math.abs(v - b.sel.pixels[j]));
   const mean = all.reduce((s, e) => s + e, 0) / 64;
   const worst = Math.max(...all);
@@ -230,16 +235,18 @@ function rdPoint(quality: number, ctx: ExplainContext): Explanation | null {
   if (!p) return null;
   const s = ctx.summary;
   const size = formatBytes(p.bytes);
+  const custom = ctx.customTables !== null;
   let consequence: string | undefined;
-  if (s && s.quality === p.quality) {
+  if (custom) {
+    consequence = 'This curve is drawn for the standard tables; your own tables are not on it.';
+  } else if (s && s.quality === p.quality) {
     consequence = 'This is where you are now.';
   } else if (s && s.bytes > 0) {
     const pct = Math.round((Math.abs(p.bytes - s.bytes) / s.bytes) * 100);
-    const size2 = `${pct}% ${p.bytes < s.bytes ? 'smaller' : 'bigger'}`;
+    const size2 = pct === 0 ? 'about the same size' : `${pct}% ${p.bytes < s.bytes ? 'smaller' : 'bigger'}`;
+    const diff = s.psnr != null && Number.isFinite(s.psnr) && Number.isFinite(p.psnr) ? Math.abs(p.psnr - s.psnr) : null;
     const gap =
-      s.psnr != null && Number.isFinite(s.psnr) && Number.isFinite(p.psnr)
-        ? ` and ${Math.abs(p.psnr - s.psnr).toFixed(1)} dB ${p.psnr < s.psnr ? 'lower' : 'higher'}`
-        : '';
+      diff == null ? '' : diff < 0.05 ? ' and about as close' : ` and ${diff.toFixed(1)} dB ${p.psnr < (s.psnr as number) ? 'lower' : 'higher'}`;
     consequence = `You are at quality ${s.quality ?? ctx.quality} (${formatBytes(s.bytes)}, ${db(s.psnr)}). This point is ${size2}${gap}.`;
   }
   const rows: [string, string][] = [
@@ -253,7 +260,7 @@ function rdPoint(quality: number, ctx: ExplainContext): Explanation | null {
   }
   return {
     title: `Quality ${p.quality}`,
-    value: `${size}, ${db(p.psnr)}`,
+    value: `${size}, ${db(p.psnr)}${GLOSS}`,
     body: `Encoding this picture at quality ${p.quality} makes a ${size} file whose copy scores ${db(p.psnr)}. Higher quality costs more bytes and looks closer.`,
     consequence,
     details: [
@@ -261,6 +268,9 @@ function rdPoint(quality: number, ctx: ExplainContext): Explanation | null {
         kind: 'text',
         text: 'Every point on this curve is a real encode and decode of this picture at that quality, so the curve is the trade of size against fidelity for this picture alone.',
       },
+      ...(custom
+        ? [{ kind: 'text', text: 'The curve is computed with the standard tables at each quality. While your own tables are in use, the lab\'s file does not sit on it.' } as Detail]
+        : []),
       { kind: 'rows', rows },
     ],
   };
@@ -271,11 +281,14 @@ function dot(ctx: ExplainContext): Explanation | null {
   if (!s || s.bytes <= 0) return null;
   const q = s.quality ?? ctx.quality;
   const px = Math.max(1, s.width * s.height);
+  const custom = ctx.customTables !== null;
   return {
     title: 'You are here',
-    value: `quality ${q}: ${formatBytes(s.bytes)}, ${db(s.psnr)}`,
+    value: `quality ${q}: ${formatBytes(s.bytes)}, ${db(s.psnr)}${GLOSS}`,
     body: 'This dot is the picture as it is encoded now. Dragging the quality slider slides it along the curve.',
-    consequence: `The file is 1/${(s.rawBytes / s.bytes).toFixed(1)} of the raw size, ${((8 * s.bytes) / px).toFixed(2)} bits per pixel.`,
+    consequence: custom
+      ? 'Your own tables are in use, so this dot may sit off the curve, which is drawn for the standard tables.'
+      : `The file is ${(s.rawBytes / s.bytes).toFixed(1)} times smaller than raw, ${((8 * s.bytes) / px).toFixed(2)} bits per pixel.`,
     details: [
       {
         kind: 'text',

@@ -55,11 +55,73 @@ describe('Quantize cards', () => {
 
   it('shows the you-are-here dot from the summary', () => {
     const e = explain({ id: 'quantize.dot' }, q())!;
-    expect(e.value).toBe('quality 50: 4.0 KB, 36.5 dB');
+    expect(e.value).toBe('quality 50: 4.0 KB, 36.5 dB (higher is closer)');
+    expect(e.consequence).toMatch(/times smaller than raw/);
+    expect(e.consequence).not.toMatch(/1\//);
     expect(explain({ id: 'quantize.dot' }, q({ summary: null }))).toBeNull();
   });
 
   it('is null without a selected block', () => {
     expect(explain({ id: 'quantize.after', u: 0, v: 0 }, q({ summary: null }))).toBeNull();
+  });
+
+  it('uses the value the encoder stored, not a recomputed one', () => {
+    const base = q();
+    const quant = [...base.summary!.selected!.quant];
+    quant[1] = -2; // contradicts -20 / 16, as a pretend encoder
+    const ctx = { ...base, summary: { ...base.summary!, selected: { ...base.summary!.selected!, quant } } };
+    expect(explain({ id: 'quantize.after', u: 1, v: 0 }, ctx)!.value).toBe('−2');
+    expect(explain({ id: 'dct.coeff', u: 1, v: 0 }, ctx)!.consequence).toMatch(/rounds to −2 × 16/);
+  });
+
+  it('describes colour blocks as colour', () => {
+    const cb = explain({ id: 'quantize.before', u: 0, v: 0 }, q({ component: 1 }))!;
+    expect(cb.title).toBe('Average blue tint, before rounding');
+    expect(cb.body).toMatch(/average blue tint/);
+    expect(cb.body).not.toMatch(/brightness/);
+    const cr = explain({ id: 'quantize.after', u: 0, v: 0 }, q({ component: 2 }))!;
+    expect(cr.title).toBe('Average red tint, rounded');
+    expect(JSON.stringify(explain({ id: 'quantize.table', u: 0, v: 0 }, q({ component: 1 }))!.details)).toMatch(/colour table/);
+    expect(explain({ id: 'quantize.table', u: 0, v: 0 }, q())!.details[0]).toMatchObject({ text: expect.stringMatching(/brightness table/) });
+  });
+
+  it('never shows a quotient that looks like a tie but rounds the other way', () => {
+    const base = q();
+    const dct = [...base.summary!.selected!.dct];
+    const quant = [...base.summary!.selected!.quant];
+    dct[1] = -23.9999; // -1.49999 (a hair under a tie): stored -1
+    quant[1] = -1;
+    const near = { ...base, summary: { ...base.summary!, selected: { ...base.summary!.selected!, dct, quant } } };
+    expect(explain({ id: 'quantize.after', u: 1, v: 0 }, near)!.consequence).toBe('At quality 50: −24.0 ÷ 16 = ≈−1.5 → rounds to −1 (kept).');
+    dct[1] = -24; // exactly -1.5: halves go away from zero
+    quant[1] = -2;
+    expect(explain({ id: 'quantize.after', u: 1, v: 0 }, near)!.consequence).toBe('At quality 50: −24.0 ÷ 16 = −1.5 → rounds to −2 (kept).');
+    dct[1] = -20; // far from a tie: two decimals as before
+    quant[1] = -1;
+    expect(explain({ id: 'quantize.after', u: 1, v: 0 }, near)!.consequence).toMatch(/= −1\.25 →/);
+  });
+
+  it('says an amount under half a step is rounded away', () => {
+    expect(explain({ id: 'quantize.table', u: 1, v: 0 }, q())!.body).toMatch(/under half a step is rounded away/);
+  });
+
+  it('glosses dB once and notes the standard tables for the curve', () => {
+    const rd = [{ quality: 30, bytes: 3000, psnr: 33.2 }];
+    const e = explain({ id: 'quantize.rd', quality: 30 }, makeContext({ rd }))!;
+    expect(e.value).toBe('2.9 KB, 33.2 dB (higher is closer)');
+    const custom: [number[], number[]] = [Array(64).fill(16), Array(64).fill(16)];
+    const c = explain({ id: 'quantize.rd', quality: 30 }, makeContext({ rd, customTables: custom }))!;
+    expect(c.consequence).toMatch(/standard tables/);
+    expect(c.consequence).not.toMatch(/smaller|bigger/);
+    expect(JSON.stringify(c.details)).toMatch(/standard tables/);
+    const dot = explain({ id: 'quantize.dot' }, q({ customTables: custom }))!;
+    expect(dot.consequence).toMatch(/off the curve/);
+  });
+
+  it('never says "0% smaller"', () => {
+    const rd = [{ quality: 49, bytes: 4096, psnr: 36.5 }];
+    const e = explain({ id: 'quantize.rd', quality: 49 }, makeContext({ rd }))!;
+    expect(e.consequence).toMatch(/about the same size and about as close/);
+    expect(e.consequence).not.toMatch(/0%/);
   });
 });

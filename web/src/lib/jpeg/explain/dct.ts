@@ -1,11 +1,11 @@
 // The DCT stage's cards: a pattern's amount in this block, the atlas of
 // patterns, the k slider, the energy curve and the "why cosines?" charts.
 import { cumulativeEnergy, busiestLine, mirrored, periodic } from '../math';
-import { at, blockOf, quantized, shareOf, survivors, validPattern, type BlockView } from './block';
+import { at, averageMeaning, averageWord, blockOf, quantized, shareOf, survivors, validPattern, type BlockView } from './block';
 import type { ExplainContext } from './context';
 import { ZIGZAG, roundHalfAway, stepAtQuality } from './quality';
 import type { Target } from './targets';
-import { delta, percent, plural, ratio, signed, whole, word } from './text';
+import { delta, percent, plural, quotient, signed, whole, word } from './text';
 import type { Detail, Explanation } from './types';
 
 /** `one half-wave across`, `two half-waves across`, or `flat across`. */
@@ -17,6 +17,19 @@ function across(u: number): string {
 function down(u: number, v: number): string {
   if (v === 0) return 'flat down';
   return u === 0 ? `${word(v)} half-wave${v > 1 ? 's' : ''} down` : `${word(v)} down`;
+}
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** What the sign of a pattern's amount means. Light and dark for brightness, a colour swing for Cb and Cr; none at all when it shows as 0.0. */
+function signNote(f: number, component: number): string {
+  if (signed(f) === '0.0') return 'Zero means this block has none of it.';
+  if (component === 0) {
+    return f < 0 ? 'Negative means its light and dark are swapped.' : 'Positive means it lines up with the pattern as drawn.';
+  }
+  return f < 0
+    ? 'Negative means its colour swings the opposite way round to the pattern as drawn.'
+    : 'Positive means its colour swings the same way as the pattern as drawn.';
 }
 
 /** The pattern in words: "two half-waves across, one down". */
@@ -35,7 +48,7 @@ function otherQualities(b: BlockView, i: number, f: number): Detail[] {
     const step = stepAtQuality(component, i, b.sel.table[i], b.quality, q);
     const x = f / step;
     const r = roundHalfAway(x);
-    return [`At quality ${q}`, `step ${step}: ${signed(f)} ÷ ${step} = ${ratio(x)} → ${whole(r)} (${r !== 0 ? 'kept' : 'dropped'})`];
+    return [`At quality ${q}`, `step ${step}: ${signed(f)} ÷ ${step} = ${quotient(x)} → ${whole(r)} (${r !== 0 ? 'kept' : 'dropped'})`];
   });
   return [{ kind: 'text', text: 'The same amount, rounded at another quality:' }, { kind: 'rows', rows }];
 }
@@ -59,7 +72,7 @@ function coefficientDetails(b: BlockView, u: number, v: number): Detail[] {
         ['Amount in this block', `F(${u},${v}) = ${signed(f)}`],
         ["Share of the block's detail", percent(shareOf(b.sel.dct, i))],
         ['Step in the table', String(step)],
-        ['Amount ÷ step', ratio(f / step)],
+        ['Amount ÷ step', quotient(f / step)],
         ['Rounded', whole(q)],
       ],
     },
@@ -81,21 +94,15 @@ function coefficient(u: number, v: number, ctx: ExplainContext): Explanation | n
   if (!b || !validPattern(u, v)) return null;
   const i = at(u, v);
   const f = b.sel.dct[i];
+  const comp = b.sel.component;
   let body: string;
   if (i === 0) {
-    const mean = Math.round(f / 8 + 128);
-    body = `The block's average brightness: about ${mean} on the 0-255 scale (pattern (0, 0) is flat, the same everywhere). Higher means a lighter block.`;
+    body = averageMeaning(comp, Math.round(f / 8 + 128));
   } else {
-    const sign =
-      f < 0
-        ? 'Negative means its light and dark are swapped.'
-        : f > 0
-          ? 'Positive means it lines up with the pattern as drawn.'
-          : 'Zero means this block has none of it.';
-    body = `How much of pattern (${u}, ${v}) is in this block: ${patternWords(u, v)}. ${sign}`;
+    body = `How much of pattern (${u}, ${v}) is in this block: ${patternWords(u, v)}. ${signNote(f, comp)}`;
   }
   return {
-    title: i === 0 ? 'Average brightness' : `Pattern (${u}, ${v})`,
+    title: i === 0 ? capital(averageWord(comp)) : `Pattern (${u}, ${v})`,
     value: `F(${u},${v}) = ${signed(f)}`,
     body,
     consequence: roundsTo(b, i),
@@ -110,7 +117,7 @@ function atlas(u: number, v: number, ctx: ExplainContext): Explanation | null {
   const f = b.sel.dct[i];
   const what =
     i === 0
-      ? 'The flat pattern: every pixel the same. Its amount is the block\'s average brightness.'
+      ? `The flat pattern: every sample the same. Its amount is the block's ${averageWord(b.sel.component)}.`
       : `What pattern (${u}, ${v}) looks like: ${patternWords(u, v)}. Every 8 × 8 block is a sum of these 64 patterns.`;
   return {
     title: i === 0 ? 'Flat pattern' : `Pattern (${u}, ${v})`,
@@ -150,7 +157,7 @@ function kSlider(ctx: ExplainContext): Explanation | null {
         rows: [
           ['Patterns kept', `${k} of 64`],
           ["Share of the block's detail", k > 0 ? percent(share) : '0%'],
-          [b.custom ? 'Survive your table' : `Survive rounding at quality ${b.quality}`, `${keep} of 64`],
+          [b.custom ? 'Stay non-zero with your table' : `Stay non-zero after rounding at quality ${b.quality}`, `${keep} of 64`],
         ],
       },
     ],
@@ -168,7 +175,7 @@ function energyPoint(k: number, ctx: ExplainContext): Explanation | null {
     title: `First ${plural(n, 'pattern')}`,
     value: percent(share),
     body: `The first ${plural(n, 'pattern')}, counted from the flattest, hold ${percent(share)} of this block's detail (its energy).`,
-    consequence: `${lead}, ${kept} of these ${n} survive rounding.`,
+    consequence: `${lead}, ${kept} of these ${n} stay non-zero after rounding.`,
     details: [
       {
         kind: 'text',

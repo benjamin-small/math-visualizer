@@ -76,6 +76,8 @@ export function stepAtQuality(
 ): number {
   const base = component === 0 ? STD_LUMA : STD_CHROMA;
   if (scaleTable(base, from)[index] === step) return scaleTable(base, to)[index];
-  const estimate = (step * 100) / scaleFactor(from);
+  const sFrom = scaleFactor(from);
+  if (sFrom === 0) return step; // quality 100 scales every entry to 1: nothing to extrapolate from
+  const estimate = (step * 100) / sFrom;
   return Math.min(255, Math.max(1, Math.floor((estimate * scaleFactor(to) + 50) / 100)));
 }

@@ -3,12 +3,23 @@
 import { jpegInspectFixture, jpegSummaryFixture } from '../../../test/fakeViz';
 import { readSegments, readTables } from '../../huffman';
 import { readSummary } from '../../summary';
+import { ZIGZAG, roundHalfAway } from '../quality';
 import type { ExplainContext } from '../context';
 
-export function makeContext(overrides: Partial<ExplainContext> = {}): ExplainContext {
+/** The summary fixture, with `quant` and `zigzag` made consistent with its DCT and table: round(dct / 16), halves away from zero. */
+function summaryOf(component = 0) {
+  const s = readSummary(jpegSummaryFixture)!;
+  const sel = s.selected!;
+  const quant = sel.dct.map((c, i) => roundHalfAway(c / sel.table[i]));
+  return { ...s, selected: { ...sel, component, quant, zigzag: ZIGZAG.map((i) => quant[i]) } };
+}
+
+/** A context whose selected block is in plane `component` (0 = Y, 1 = Cb, 2 = Cr); `overrides` apply on top. */
+export function makeContext(overrides: Partial<ExplainContext> & { component?: number } = {}): ExplainContext {
+  const { component, ...rest } = overrides;
   const side = 256;
   return {
-    summary: readSummary(jpegSummaryFixture),
+    summary: summaryOf(component ?? 0),
     stage: 'dct',
     imageId: 'spring',
     image: { w: side, h: side, rgba: new Uint8Array(side * side * 4).fill(200) },
@@ -27,6 +38,6 @@ export function makeContext(overrides: Partial<ExplainContext> = {}): ExplainCon
     otherBytes: null,
     resave: [],
     jpeg: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
-    ...overrides,
+    ...rest,
   };
 }

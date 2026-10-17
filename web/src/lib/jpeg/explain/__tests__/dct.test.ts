@@ -77,7 +77,7 @@ describe('DCT cards', () => {
     const e = explain({ id: 'dct.energy', k: 2 }, makeContext())!;
     expect(e.value).toBe('97%');
     expect(e.body).toMatch(/first 2 patterns/);
-    expect(e.consequence).toBe('At quality 50, 2 of these 2 survive rounding.');
+    expect(e.consequence).toBe('At quality 50, 2 of these 2 stay non-zero after rounding.');
     expect(explain({ id: 'dct.energy', k: 1 }, makeContext())!.body).toMatch(/first 1 pattern,/);
   });
 
@@ -88,6 +88,53 @@ describe('DCT cards', () => {
     expect(mir.consequence).toMatch(/no jump/);
     expect(explain({ id: 'dct.cosines', chart: 'nope', i: 0 }, makeContext())).toBeNull();
     expect(explain({ id: 'dct.cosines', chart: 'dft', i: 24 }, makeContext())).toBeNull();
+  });
+});
+
+/** The context with block coefficients replaced (and `quant` re-derived or given). */
+function withBlock(ctx: ReturnType<typeof makeContext>, patch: { dct?: number[]; quant?: number[] }) {
+  const s = ctx.summary!;
+  return { ...ctx, summary: { ...s, selected: { ...s.selected!, ...patch } } };
+}
+
+describe('colour planes', () => {
+  it('describes a Cb block\'s flat pattern as a blue tint', () => {
+    const e = explain({ id: 'dct.coeff', u: 0, v: 0 }, makeContext({ component: 1 }))!;
+    expect(e.title).toBe('Average blue tint');
+    expect(e.body).toMatch(/average blue tint/);
+    expect(e.body).toMatch(/Higher is bluer, lower is yellower/);
+    expect(e.body).not.toMatch(/brightness|lighter|light and dark/);
+  });
+
+  it('describes a Cr block\'s flat pattern as a red tint', () => {
+    const e = explain({ id: 'dct.coeff', u: 0, v: 0 }, makeContext({ component: 2 }))!;
+    expect(e.title).toBe('Average red tint');
+    expect(e.body).toMatch(/Higher is redder, lower is greener/);
+    expect(e.body).not.toMatch(/brightness|lighter/);
+  });
+
+  it('does not talk about light and dark for colour patterns', () => {
+    const neg = explain({ id: 'dct.coeff', u: 1, v: 0 }, makeContext({ component: 1 }))!;
+    expect(neg.body).toMatch(/pattern \(1, 0\)/);
+    expect(neg.body).toMatch(/colour swings the opposite way/);
+    expect(neg.body).not.toMatch(/light and dark|swapped/);
+    const atlasFlat = explain({ id: 'dct.atlas', u: 0, v: 0 }, makeContext({ component: 2 }))!;
+    expect(atlasFlat.body).toMatch(/average red tint/);
+    expect(atlasFlat.body).not.toMatch(/brightness/);
+  });
+
+  it('keeps the brightness wording for Y', () => {
+    expect(explain({ id: 'dct.coeff', u: 0, v: 0 }, makeContext())!.body).toMatch(/Higher means a lighter block/);
+  });
+});
+
+describe('near ties and zeros', () => {
+  it('uses the "none of it" wording when the amount shows as 0.0', () => {
+    const ctx = withBlock(makeContext(), { dct: Array.from({ length: 64 }, (_, i) => (i === 1 ? -0.01 : 0)) });
+    const e = explain({ id: 'dct.coeff', u: 1, v: 0 }, ctx)!;
+    expect(e.value).toBe('F(1,0) = 0.0');
+    expect(e.body).toMatch(/none of it/);
+    expect(e.body).not.toMatch(/Negative|swapped/);
   });
 });
 
