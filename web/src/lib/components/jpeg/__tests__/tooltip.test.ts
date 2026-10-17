@@ -432,7 +432,8 @@ describe('keyboard', () => {
     await tick();
     const live = document.getElementById(TOOLTIP_LIVE_ID)!;
     expect(live.textContent).toContain(VALUE_10);
-    expect(live.textContent).toContain('At quality 50 it rounds to');
+    expect(live.textContent).toContain('At quality 50, it rounds to');
+    expect(live.textContent).not.toContain('..');
     expect(el.getAttribute('aria-describedby')).toBe(live.id);
   });
 });

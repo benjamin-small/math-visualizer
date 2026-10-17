@@ -7,8 +7,9 @@ const text = (e: NonNullable<ReturnType<typeof explain>>) => [e.title, e.value, 
 describe('Colour, subsample and blocks cards', () => {
   it('shows a block sample and its shifted value', () => {
     const e = explain({ id: 'blocks.cell', x: 0, y: 0 }, makeContext({ stage: 'blocks' }))!;
+    // The engine's sample is 100.383; the card shows it rounded, as the grid does.
     expect(e.value).toBe('100');
-    expect(e.consequence).toContain('−128 → −28');
+    expect(e.consequence).toContain('100 −128 → −28');
     expect(e.body).toContain('block (21, 17)');
     expect(explain({ id: 'blocks.cell', x: 8, y: 0 }, makeContext())).toBeNull();
     // Counted from 0, like the block and pixel coordinates beside it.

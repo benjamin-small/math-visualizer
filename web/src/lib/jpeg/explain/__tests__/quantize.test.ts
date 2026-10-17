@@ -35,7 +35,8 @@ describe('Quantize cards', () => {
   it('shows the rebuilt sample and its error', () => {
     const e = explain({ id: 'quantize.rebuild', x: 0, y: 0 }, q())!;
     expect(e.value).toMatch(/^\d+ \(error [+−]?\d+\)$/);
-    expect(e.body).toMatch(/original was 100/);
+    expect(e.body).toMatch(/original was 100\./);
+    expect(e.consequence).toMatch(/^At quality 50, it comes back/);
   });
 
   it('explains an editor cell and overrides nothing by itself', () => {

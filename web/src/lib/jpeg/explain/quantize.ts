@@ -162,10 +162,11 @@ function rebuild(x: number, y: number, ctx: ExplainContext): Explanation | null 
   const i = at(x, y);
   const grid = rebuilt(b);
   const now = grid[i];
-  const was = b.sel.pixels[i];
+  const original = b.sel.pixels.map(roundHalfAway); // whole, as the grid shows them
+  const was = original[i];
   const err = now - was;
   const what = b.sel.component === 0 ? 'brightness' : 'colour value'; // planeWord, with "value" for a sample
-  const all = grid.map((v, j) => Math.abs(v - b.sel.pixels[j]));
+  const all = grid.map((v, j) => Math.abs(v - original[j]));
   const mean = all.reduce((s, e) => s + e, 0) / 64;
   const worst = Math.max(...all);
   return {
@@ -174,8 +175,8 @@ function rebuild(x: number, y: number, ctx: ExplainContext): Explanation | null 
     body: `The ${what} this sample gets back once the decoder undoes the rounding. The original was ${was}.`,
     consequence:
       err === 0
-        ? `${lead(b)} it comes back exactly.`
-        : `${lead(b)} it comes back ${Math.abs(err)} ${Math.abs(err) === 1 ? 'level' : 'levels'} ${err > 0 ? 'higher' : 'lower'}.`,
+        ? `${lead(b)}, it comes back exactly.`
+        : `${lead(b)}, it comes back ${Math.abs(err)} ${Math.abs(err) === 1 ? 'level' : 'levels'} ${err > 0 ? 'higher' : 'lower'}.`,
     details: [
       {
         kind: 'text',

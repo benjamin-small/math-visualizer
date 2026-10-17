@@ -6,12 +6,18 @@ import { readSummary } from '../../summary';
 import { ZIGZAG, roundHalfAway } from '../quality';
 import type { ExplainContext } from '../context';
 
-/** The summary fixture, with `quant` and `zigzag` made consistent with its DCT and table: round(dct / 16), halves away from zero. */
+/**
+ * The summary fixture, with `quant` and `zigzag` made consistent with its DCT and table: round(dct / 16), halves away
+ * from zero. Its samples carry a fraction, as the engine's do (colour conversion is not rounded), so a card that shows
+ * one unrounded fails here.
+ */
 function summaryOf(component = 0) {
   const s = readSummary(jpegSummaryFixture)!;
   const sel = s.selected!;
   const quant = sel.dct.map((c, i) => roundHalfAway(c / sel.table[i]));
-  return { ...s, selected: { ...sel, component, quant, zigzag: ZIGZAG.map((i) => quant[i]) } };
+  const pixels = sel.pixels.map((p) => p + 0.383);
+  const shifted = pixels.map((p) => p - 128);
+  return { ...s, selected: { ...sel, component, pixels, shifted, quant, zigzag: ZIGZAG.map((i) => quant[i]) } };
 }
 
 /** A context whose selected block is in plane `component` (0 = Y, 1 = Cb, 2 = Cr); `overrides` apply on top. */

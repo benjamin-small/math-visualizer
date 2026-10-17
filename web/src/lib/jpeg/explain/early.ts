@@ -8,6 +8,7 @@ import { chromaKept, samplesKept } from '../formulas';
 import { rgbToYcbcr } from './bezel';
 import { at, blockOf } from './block';
 import type { ExplainContext } from './context';
+import { roundHalfAway } from './quality';
 import type { Target } from './targets';
 import { percent, whole } from './text';
 import type { Explanation } from './types';
@@ -286,8 +287,9 @@ function blockCell(x: number, y: number, ctx: ExplainContext): Explanation | nul
   if (!b || !Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 7 || y < 0 || y > 7) return null;
   const { sel } = b;
   const i = at(x, y);
-  const v = sel.pixels[i];
-  const shifted = sel.shifted.length === 64 ? sel.shifted[i] : v - 128;
+  // The engine's samples carry a fraction from the colour conversion; the grid shows them whole, and so does the card.
+  const v = roundHalfAway(sel.pixels[i]);
+  const shifted = v - 128;
   const plane = PLANE_NAME[sel.component] ?? 'Y';
   const [fh, fv] = sel.component === 0 ? [1, 1] : spread(modeOf(ctx));
   const [px, py] = [sel.bx * 8 * fh + x * fh, sel.by * 8 * fv + y * fv];
@@ -346,7 +348,7 @@ function component(ctx: ExplainContext): Explanation | null {
 function shift(ctx: ExplainContext): Explanation | null {
   const b = blockOf(ctx);
   if (!b) return null;
-  const { pixels } = b.sel;
+  const pixels = b.sel.pixels.map(roundHalfAway);
   const [lo, hi] = [Math.min(...pixels), Math.max(...pixels)];
   const mean = Math.round(pixels.reduce((s, v) => s + v, 0) / pixels.length);
   return {
