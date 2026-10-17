@@ -718,6 +718,56 @@ describe('aria-describedby', () => {
   });
 });
 
+describe('? on form controls', () => {
+  const question = (el: HTMLElement) => {
+    const e = new KeyboardEvent('keydown', { key: '?', bubbles: true, cancelable: true });
+    el.dispatchEvent(e);
+    return e;
+  };
+
+  it.each([['range'], ['radio'], ['checkbox']])('unfolds the card from a %s input', async (type) => {
+    const input = document.createElement('input');
+    input.type = type;
+    document.body.append(input);
+    const action = tooltip(input, { ctl, target: T10, acts: true })!;
+    destroyers.push(() => action.destroy!(), () => input.remove());
+    question(input);
+    await tick();
+    expect(ctl.pinned?.unfolded).toBe(true);
+  });
+
+  it('unfolds the card from a select', async () => {
+    const select = document.createElement('select');
+    document.body.append(select);
+    const action = tooltip(select, { ctl, target: T10, acts: true })!;
+    destroyers.push(() => action.destroy!(), () => select.remove());
+    question(select);
+    await tick();
+    expect(ctl.pinned?.unfolded).toBe(true);
+  });
+
+  it.each([[''], ['text'], ['search'], ['number'], ['email'], ['password']])('still types ? into a text-like input (type "%s")', async (type) => {
+    const input = document.createElement('input');
+    if (type) input.type = type;
+    document.body.append(input);
+    const action = tooltip(input, { ctl, target: T10, acts: true })!;
+    destroyers.push(() => action.destroy!(), () => input.remove());
+    question(input);
+    await tick();
+    expect(ctl.pinned).toBeNull();
+  });
+
+  it('still types ? into a textarea', async () => {
+    const area = document.createElement('textarea');
+    document.body.append(area);
+    const action = tooltip(area, { ctl, target: T10, acts: true })!;
+    destroyers.push(() => action.destroy!(), () => area.remove());
+    question(area);
+    await tick();
+    expect(ctl.pinned).toBeNull();
+  });
+});
+
 describe('small things', () => {
   it('ignores ? typed into a text field inside a target', async () => {
     const el = target({ target: T10 }, 'div');

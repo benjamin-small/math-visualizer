@@ -44,6 +44,12 @@ function lead(ctx: ExplainContext): string {
   return ctx.customTables ? 'With your own tables' : `At quality ${ctx.summary?.quality ?? ctx.quality}`;
 }
 
+/** "At quality 50 with 4:2:0 colour", or "With your own tables and 4:2:0 colour": the settings behind the file in hand. */
+function settings(ctx: ExplainContext): string {
+  const colour = `${MODES[ctx.subsampling].name} colour`;
+  return ctx.customTables ? `With your own tables and ${colour}` : `${lead(ctx)} with ${colour}`;
+}
+
 /** The file name Save .jpg gives (the page uses this too). */
 export function saveFileName(customTables: unknown, subsampling: SubsamplingId, quality: number): string {
   return customTables ? `jpeg-lab-custom-${subsampling}.jpg` : `jpeg-lab-q${quality}-${subsampling}.jpg`;
@@ -76,13 +82,13 @@ function qualityCard(ctx: ExplainContext): Explanation {
       text: 'Quality is one number from 1 to 100 that makes the table of rounding steps bigger or smaller. At 50 the steps are the standard ones; lower numbers scale every step up, higher numbers scale it down.',
     },
     { kind: 'tex', tex: q < 50 ? `s = \\left\\lfloor \\frac{5000}{${q}} \\right\\rfloor = ${s}` : `s = 200 - 2 \\cdot ${q} = ${s}` },
-    { kind: 'tex', tex: `\\text{step} = \\left\\lfloor \\frac{\\text{standard step} \\cdot ${s} + 50}{100} \\right\\rfloor` },
+    { kind: 'tex', tex: `\\text{step} = \\left\\lfloor \\frac{\\text{standard step} \\cdot ${s} + 50}{100} \\right\\rfloor \\quad (\\text{never below } 1)` },
   ];
   const rows: [string, string][] = [];
   for (const at of [q, ...[20, 90].filter((a) => a !== q)]) {
     const known = knownAt(ctx, at);
     const parts = [`entries ${scaleFactor(at)}%`];
-    if (b) parts.push(`${survivorsAt(b, at)} of 64 patterns survive here`);
+    if (b) parts.push(`${survivorsAt(b, at)} of 64 patterns stay non-zero after rounding`);
     if (known) parts.push(`${formatBytes(known.bytes)}, ${db(known.psnr)}`);
     rows.push([`Quality ${at}`, parts.join('; ')]);
   }
@@ -95,11 +101,13 @@ function qualityCard(ctx: ExplainContext): Explanation {
     value: String(q),
     body: custom
       ? `Your own tables override quality, so this slider changes nothing until you go back. On the standard tables, ${q} would scale every table entry by ${s}%.`
-      : `At quality ${q} every table entry is scaled by ${s}%. Lower means bigger steps, so more numbers round to zero.`,
+      : s === 0
+        ? `At quality ${q} every table entry is scaled by 0%: every step is the smallest possible, 1, so almost nothing is rounded away.`
+        : `At quality ${q} every table entry is scaled by ${s}%. Lower means bigger steps, so more numbers round to zero.`,
     consequence: custom
       ? 'Press Standard in the chip beside the readout to give the slider its job back.'
       : b
-        ? `In the block you are following, ${survivorsAt(b, q)} of 64 patterns survive the rounding at quality ${q}.`
+        ? `In the block you are following, ${survivorsAt(b, q)} of 64 patterns stay non-zero after rounding at quality ${q}.`
         : `The steps are ${ratio(s / 100)} times the standard ones.`,
     acts: true,
     details,
@@ -194,7 +202,7 @@ function saveCard(ctx: ExplainContext): Explanation {
     body: bytes
       ? `Saves the file the lab just made: ${formatBytes(bytes)}, a real JPEG that opens in any image viewer.`
       : 'Saves the JPEG the lab makes, a real file that opens in any image viewer.',
-    consequence: `${lead(ctx)} with ${MODES[ctx.subsampling].name} colour the file is called ${name}.`,
+    consequence: `${settings(ctx)} the file is called ${name}.`,
     acts: true,
     details: [
       { kind: 'text', text: 'These are the exact bytes the lab encoded and the Decode stage reads back. Nothing is uploaded: the file is made in your browser and handed to your downloads.' },
@@ -224,19 +232,21 @@ function speedCard(ctx: ExplainContext): Explanation {
   const s = ctx.summary;
   const n = ratio(ctx.speed);
   const secs = s && s.total > 0 && ctx.speed > 0 ? seconds(s.total / ctx.speed) : null;
-  const mcu = s?.mcu ?? [...mcuSize(ctx.subsampling), 0, 0];
+  const [pw, ph] = mcuSize(ctx.subsampling);
+  const patch = `${pw} × ${ph}-pixel patch`;
+  const steps = `${n} ${n === '1' ? 'step' : 'steps'} per second`;
   return {
     title: 'Scan speed',
-    value: `${n} per second`,
-    body: secs ? `${n} blocks per second: the whole picture scans in ${secs} s.` : `${n} blocks per second.`,
+    value: steps,
+    body: secs ? `${steps}: the whole picture scans in ${secs} s.` : `${steps}.`,
     consequence: s
-      ? `${count(s.n)} of ${count(s.total)} blocks scanned so far. This only sets how fast the replay runs; the file never changes.`
-      : 'This only sets how fast the replay runs; the file never changes.',
+      ? `${count(s.n)} of ${count(s.total)} steps done; each step is a ${patch} at ${MODES[ctx.subsampling].name}. This only sets how fast the replay runs; the file never changes.`
+      : `Each step is a ${patch} at ${MODES[ctx.subsampling].name}. This only sets how fast the replay runs; the file never changes.`,
     acts: true,
     details: [
       {
         kind: 'text',
-        text: `The scan replays the way the file is written. Each step is one MCU, the smallest unit the file is written in: a ${mcu[0]} × ${mcu[1]} pixel square with this colour setting, holding the brightness blocks and the colour blocks for those pixels.`,
+        text: 'The scan replays the way the file is written, one patch of the picture at a time. A step is a 16 × 16-pixel patch at 4:2:0 (8 × 8 at 4:4:4, 16 × 8 at 4:2:2): the smallest piece the file is written in, holding the brightness blocks and colour blocks for those pixels. Its technical name is an MCU.',
       },
     ],
   };
@@ -310,7 +320,7 @@ function sizeCard(ctx: ExplainContext): Explanation | null {
     title: 'File size',
     value: `${r.size} of ${r.of}`,
     body: `The JPEG file takes ${r.size}. The same picture as raw pixels (three bytes each) would take ${r.of}.`,
-    consequence: `${lead(ctx)} with ${MODES[ctx.subsampling].name} colour, the file is ${percent(s.bytes / Math.max(1, s.rawBytes))} of the raw size.`,
+    consequence: `${settings(ctx)}, the file is ${percent(s.bytes / Math.max(1, s.rawBytes))} of the raw size.`,
     details: [
       { kind: 'rows', rows: [['File', `${count(s.bytes)} bytes`], ['Raw pixels', `${count(s.rawBytes)} bytes`], ['Picture', `${s.width} × ${s.height} px`]] },
       { kind: 'text', text: 'Raw pixels spend 24 bits (3 bytes) on every pixel. The file spends only what the coded blocks, tables and headers need.' },
@@ -327,7 +337,7 @@ function ratioCard(ctx: ExplainContext): Explanation | null {
     title: 'Compression ratio',
     value: r.ratio,
     body: `The file is 1/${times} of the raw size: the raw pixels take ${times} times the space.`,
-    consequence: `${lead(ctx)} with ${MODES[ctx.subsampling].name} colour. Lower quality makes this number bigger and the picture rougher.`,
+    consequence: `${settings(ctx)}. Lower quality makes this number bigger and the picture rougher.`,
     details: [
       { kind: 'rows', rows: [['Raw pixels', `${count(s.rawBytes)} bytes`], ['File', `${count(s.bytes)} bytes`], ['Raw ÷ file', r.ratio]] },
     ],
@@ -344,7 +354,7 @@ function bppCard(ctx: ExplainContext): Explanation | null {
     title: 'Bits per pixel',
     value: `${bpp} bits per pixel`,
     body: `What one pixel costs on average in this file. Raw pixels cost ${oneDecimal(raw)} bits each.`,
-    consequence: `${lead(ctx)} with ${MODES[ctx.subsampling].name} colour, each pixel averages ${bpp} bits.`,
+    consequence: `${settings(ctx)}, each pixel averages ${bpp} bits.`,
     details: [
       { kind: 'rows', rows: [['File bits', count(8 * s.bytes)], ['Pixels', count(px)], ['Bits per pixel', bpp]] },
       { kind: 'text', text: 'Flat areas cost almost nothing and busy ones cost a lot, so this is an average over the whole picture.' },
@@ -367,7 +377,7 @@ function psnrCard(ctx: ExplainContext): Explanation | null {
   if (!s) return null;
   const finite = s.psnr != null && Number.isFinite(s.psnr);
   const alt = ctx.quality > 20 ? 20 : 90;
-  const p = ctx.rd.find((r) => r.quality === alt);
+  const p = ctx.customTables ? undefined : ctx.rd.find((r) => r.quality === alt); // cached points are standard-table points
   const details: Detail[] = [
     { kind: 'text', text: 'PSNR (peak signal-to-noise ratio) compares the decoded copy with the original, sample by sample. It is measured on a logarithmic scale, so every 10 dB is ten times less average squared error.' },
     { kind: 'tex', tex: '\\mathrm{PSNR} = 10 \\log_{10} \\frac{255^2}{\\mathrm{MSE}}' },
@@ -381,8 +391,8 @@ function psnrCard(ctx: ExplainContext): Explanation | null {
     value: db(s.psnr),
     body: `How close the JPEG copy is to the original${GLOSS}. ${psnrWords(s.psnr)}`,
     consequence: p
-      ? `${lead(ctx)} with ${MODES[ctx.subsampling].name} colour. Quality ${alt} would give ${db(Number.isFinite(p.psnr) ? p.psnr : null)} at ${formatBytes(p.bytes)}.`
-      : `${lead(ctx)} with ${MODES[ctx.subsampling].name} colour. Raising quality pushes this up; lowering it pulls it down.`,
+      ? `${settings(ctx)}. Quality ${alt} would give ${db(Number.isFinite(p.psnr) ? p.psnr : null)} at ${formatBytes(p.bytes)}.`
+      : `${settings(ctx)}. Raising quality pushes this up; lowering it pulls it down.`,
     details,
   };
 }
@@ -397,10 +407,10 @@ function customCard(ctx: ExplainContext): Explanation {
       details: [],
     };
   }
-  const span = (a: number[]) => `${Math.min(...a)} to ${Math.max(...a)}`;
+  const span = (a: number[]) => (Math.min(...a) === Math.max(...a) ? String(a[0]) : `${Math.min(...a)} to ${Math.max(...a)}`);
   return {
     title: 'Custom tables',
-    value: `Luma steps ${span(t[0])}`,
+    value: `Brightness steps ${span(t[0])}, colour steps ${span(t[1])}`,
     body: 'You edited the table of rounding steps, so your tables override quality: moving the slider changes nothing until you go back.',
     consequence: `Press Standard to go back to the tables scaled from quality ${ctx.quality}.`,
     details: [
@@ -458,7 +468,7 @@ function stageLines(stage: StageId, ctx: ExplainContext): { body: string; conseq
     case 'quantize':
       return {
         body: 'Each pattern amount is divided by a step from a table and rounded to a whole number. This is the step where detail is thrown away.',
-        consequence: b ? `${lead(ctx)}: ${survivors(b)} of this block's 64 patterns survive the rounding.` : `${lead(ctx)}.`,
+        consequence: b ? `${lead(ctx)}: ${survivors(b)} of this block's 64 patterns stay non-zero after rounding.` : `${lead(ctx)}.`,
       };
     case 'zigzag': {
       const zz = b?.sel.zigzag ?? [];

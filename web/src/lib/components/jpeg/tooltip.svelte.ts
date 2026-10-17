@@ -198,9 +198,14 @@ export interface TooltipParams {
 /** How long after a touch ends a swallowed click may still arrive. */
 const SWALLOW_MS = 400;
 
-/** True where typing `?` is text entry, not a request for a card. */
+/** Input types where typing is text entry (an input with no type is text). */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'url', 'tel', 'email', 'password', 'number']);
+
+/** True where typing `?` is text entry, not a request for a card: not a slider, radio, checkbox or select, which have no text to type. */
 function isTextEntry(el: EventTarget | null): boolean {
-  return el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+  return el instanceof HTMLInputElement && TEXT_INPUT_TYPES.has((el.getAttribute('type') ?? 'text').toLowerCase());
 }
 
 const targetKeyOf = (p: TooltipParams): string => (typeof p.target === 'function' ? 'fn' : keyOf(p.target));

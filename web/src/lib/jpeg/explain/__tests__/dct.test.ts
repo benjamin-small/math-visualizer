@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { explain } from '..';
-import { TARGET_IDS, scopeKey } from '../targets';
+import { TARGET_IDS, scopeKey, type Target } from '../targets';
 import { makeContext } from './fixture';
 
 describe('DCT cards', () => {
@@ -139,9 +139,10 @@ describe('near ties and zeros', () => {
 });
 
 describe('explain() and targets', () => {
-  it('returns null for ids whose explainer is not written yet', () => {
-    expect(explain({ id: 'overview.sizes' }, makeContext())).toBeNull();
-    expect(explain({ id: 'zigzag.last' }, makeContext())).toBeNull();
+  it('returns null for an id no explainer knows', () => {
+    // Synthetic ids, so the test does not change meaning as later tasks write the remaining explainers.
+    expect(explain({ id: 'nowhere.at-all' } as unknown as Target, makeContext())).toBeNull();
+    expect(explain({ id: 'dct.unknown', u: 0, v: 0 } as unknown as Target, makeContext())).toBeNull();
   });
 
   it('lists every id once', () => {

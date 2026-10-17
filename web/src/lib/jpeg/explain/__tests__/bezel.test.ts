@@ -57,6 +57,37 @@ describe('bezel.quality', () => {
   });
 });
 
+describe('wording', () => {
+  const custom: [number[], number[]] = [Array(64).fill(3), Array(64).fill(7)];
+  const everyCard = (ctx = makeContext()) =>
+    (['bezel.save', 'readout.size', 'readout.ratio', 'readout.bpp', 'readout.psnr'] as const).map((id) => text(card({ id }, ctx)));
+
+  it('never says "survive"', () => {
+    expect(card({ id: 'bezel.quality' }).consequence).toContain('stay non-zero after rounding');
+    expect(card({ id: 'rail.stage', stage: 'quantize' }).consequence).toContain('stay non-zero after rounding');
+    expect(detailText(card({ id: 'bezel.quality' }))).not.toContain('survive');
+  });
+
+  it('does not double the "with" when the tables are the reader\'s own', () => {
+    for (const t of everyCard(makeContext({ customTables: custom }))) expect(t).not.toMatch(/with your own tables with/i);
+    expect(card({ id: 'bezel.save' }, makeContext({ customTables: custom })).consequence).toContain('With your own tables and 4:2:0 colour');
+    expect(card({ id: 'readout.size' }).consequence).toContain('At quality 50 with 4:2:0 colour');
+  });
+
+  it('says what quality 100 means, and that a step is never below 1', () => {
+    const e = card({ id: 'bezel.quality' }, makeContext({ quality: 100 }));
+    expect(e.body).toContain('scaled by 0%');
+    expect(e.body).toContain('smallest possible, 1');
+    expect(JSON.stringify(e.details)).toContain('never below');
+  });
+
+  it('offers no other-quality PSNR under custom tables', () => {
+    const rd = [{ quality: 20, bytes: 2048, psnr: 27.5 }];
+    expect(card({ id: 'readout.psnr' }, makeContext({ rd })).consequence).toContain('Quality 20 would give 27.5 dB');
+    expect(card({ id: 'readout.psnr' }, makeContext({ rd, customTables: custom })).consequence).not.toContain('Quality 20');
+  });
+});
+
 describe('bezel.chroma', () => {
   it.each([
     ['444', '100%'],
@@ -112,8 +143,15 @@ describe('bezel.huffman', () => {
 describe('bezel.speed', () => {
   it('scans the picture in a number of seconds', () => {
     const e = card({ id: 'bezel.speed' }, makeContext({ speed: 64 }));
-    expect(e.body).toContain('64 blocks per second');
+    expect(e.body).toContain('64 steps per second');
     expect(e.body).toContain('scans in 4 s');
+  });
+
+  it('says what a step is, from the current colour setting', () => {
+    expect(card({ id: 'bezel.speed' }).consequence).toContain('16 × 16-pixel patch at 4:2:0');
+    expect(card({ id: 'bezel.speed' }, makeContext({ subsampling: '444' })).consequence).toContain('8 × 8-pixel patch at 4:4:4');
+    expect(card({ id: 'bezel.speed' }, makeContext({ subsampling: '422' })).consequence).toContain('16 × 8-pixel patch at 4:2:2');
+    expect(text(card({ id: 'bezel.speed' }))).not.toMatch(/blocks/);
   });
 
   it('keeps one decimal for short scans', () => {
@@ -225,7 +263,13 @@ describe('chip.custom', () => {
     expect(e.body).toContain('override quality');
     expect(e.consequence).toContain('Standard');
     expect(e.consequence).toContain('quality 50');
+    expect(e.value).toBe('Brightness steps 3, colour steps 7');
     expect(e.acts).toBeUndefined();
+  });
+
+  it('gives a range only when the steps differ', () => {
+    const ramp = Array.from({ length: 64 }, (_, i) => i + 1);
+    expect(card({ id: 'chip.custom' }, makeContext({ customTables: [ramp, Array(64).fill(7)] })).value).toBe('Brightness steps 1 to 64, colour steps 7');
   });
 
   it('still answers when the tables are standard', () => {
