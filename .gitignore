@@ -21,3 +21,6 @@
 
 # Claude local state
 .claude/settings.local.json
+
+# Superpowers scratch (SDD workspaces, brainstorm mockups)
+.superpowers/
