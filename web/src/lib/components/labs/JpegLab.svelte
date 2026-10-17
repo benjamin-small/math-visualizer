@@ -20,6 +20,8 @@
   import DecodeTools from '../jpeg/DecodeTools.svelte';
   import Overview from '../jpeg/Overview.svelte';
   import Gallery from '../jpeg/Gallery.svelte';
+  import TooltipHost from '../jpeg/TooltipHost.svelte';
+  import { TooltipController, boxOf, tooltip } from '../jpeg/tooltip.svelte';
   import type { LabApi } from '../labApi.svelte';
   import { cmd } from '../../playback/commands';
   import { route, replaceQuery } from '../../router.svelte';
@@ -34,7 +36,10 @@
     type SubsamplingId,
   } from '../../jpeg/params';
   import { GROUP_LABELS, IMAGES, decodeUpload, loadPicture, type PictureGroup, type RgbaImage } from '../../jpeg/images';
-  import { BLANK_PANELS, CAPTION_MIN, blockAt, cellAt, jpegLayout, toDevicePanels, type Panel, type StageLayout } from '../../jpeg/layout';
+  import { BLANK_PANELS, CAPTION_MIN, blockAt, cellAt, cells, jpegLayout, toDevicePanels, type Panel, type Rect, type StageLayout } from '../../jpeg/layout';
+  import type { ExplainContext, Target } from '../../jpeg/explain';
+  import { canvasTarget, cellTarget } from '../../jpeg/explain/hit';
+  import { cachedCurve, rdKey } from '../../jpeg/rd';
   import { readSummary, readoutOf, type JpegSummary } from '../../jpeg/summary';
   import { NOTICE, stageTex } from '../../jpeg/formulas';
   import { readSegments, readTables, type HuffTableView, type SegmentView } from '../../jpeg/huffman';
@@ -76,7 +81,14 @@
   /** Zigzag stage: how many cells the viz's scan path has reached. */
   let zigReached = $state(0);
 
+  /** Roving cell of the coefficient grids: the pattern the arrow keys have reached. */
+  let rove = $state<[number, number]>([0, 0]);
+  /** Bumped when the R–D sweep adds points, so the cards see them. */
+  let rdTick = $state(0);
+
   let image = $state<RgbaImage | null>(null);
+  /** The JPEG file decoded to RGBA, once per encode (null until it arrives): the cards read it, hovering never decodes. */
+  let decoded = $state.raw<Uint8Array | null>(null);
   /** The encoded file, for the overview's size bars and histogram (null until the first encode). */
   let jpegBytes = $state.raw<Uint8Array | null>(null);
   /** Why the last picture could not be loaded (the current image stays). */
@@ -95,6 +107,10 @@
   let loadTicket = 0;
   /** The animation frame a quality drag has scheduled its encode on (0 = none). */
   let qualityFrame = 0;
+  /** The cards: what is hovered and what is pinned, for every target on the page. */
+  const ctl = new TooltipController();
+  /** Hit-tests the canvas for the stage (set once the engine is ready). */
+  let stageCards: ReturnType<typeof tooltip> | undefined;
 
   const stageInfo = $derived(STAGES.find((s) => s.id === stage)!);
   // Until the first picture is in, the summary is the engine's own stand-in gradient: show none of it.
@@ -180,13 +196,30 @@
     segments = readSegments(engine.rule_inspect('segments'));
   });
 
-  // The overview reads the finished file once per encode (a new picture is a new encode too).
+  // The finished file and its decoded copy, read once per encode (a new picture is a new encode too).
+  // The overview draws from the file; the cards read the decoded pixels.
   $effect(() => {
     void version;
-    void image;
     const engine = api?.engine;
-    if (stage !== 'overview' || !engine) return;
-    jpegBytes = engine.rule_bytes() ?? null;
+    if (version < 0 || !engine) return;
+    const bytes = engine.rule_bytes() ?? null;
+    jpegBytes = bytes;
+    decoded = null;
+    if (!bytes) return;
+    let alive = true;
+    loadVizCore()
+      .then((v) => {
+        if (!alive) return;
+        try {
+          decoded = v.jpeg_decode(bytes);
+        } catch {
+          decoded = null;
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   });
 
   // ...and what the other Huffman mode would cost (the kit encodes with quality-scaled tables only).
@@ -416,13 +449,50 @@
     syncUrl();
   }
 
-  /** Pointer over the atlas or the coefficients: outline that pattern in both. */
-  function onCellHover(e: PointerEvent, rect: { x: number; y: number; w: number; h: number }) {
-    const box = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
-    const uv = cellAt(e.clientX - box.left, e.clientY - box.top, rect);
+  /** Outline pattern `uv` in the atlas and the coefficients (null for none), and let the formula follow it. */
+  function setHover(uv: [number, number] | null) {
     if (uv?.[0] === hover?.[0] && uv?.[1] === hover?.[1]) return;
     hover = uv;
     api?.patchVizConfig({ hover: uv });
+  }
+
+  /** Pointer over the atlas or the coefficients: outline that pattern in both. */
+  function onCellHover(e: PointerEvent, rect: Rect) {
+    const box = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
+    setHover(cellAt(e.clientX - box.left, e.clientY - box.top, rect));
+  }
+
+  /** The card for whatever is on the canvas under a pointer event (CSS pixels from the overlay's corner). */
+  function hitTarget(e: MouseEvent): Target | null {
+    if (!image || !overlayEl) return null;
+    const box = overlayEl.getBoundingClientRect();
+    return canvasTarget(layout, stage, image, e.clientX - box.left, e.clientY - box.top, sel);
+  }
+
+  /** The stage's own listener: only the bare canvas is hit-tested here; overlay elements carry their own cards. */
+  const canvasHit = (e: MouseEvent): Target | null => (e.target instanceof HTMLCanvasElement ? hitTarget(e) : null);
+
+  const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+  /** The arrow keys move the roving cell of a coefficient grid and show its card; the hover outline follows. */
+  function onGridKey(e: KeyboardEvent, kind: Panel['kind']) {
+    if (e.key === 'Enter') e.preventDefault(); // the pin moves focus onto its Close button; the keypress must not follow it there
+    if (e.altKey || e.metaKey || e.ctrlKey) return;
+    const d = ARROWS[e.key];
+    if (!d) return;
+    e.preventDefault(); // not also a stage switch or a page scroll
+    rove = [Math.min(7, Math.max(0, rove[0] + d[0])), Math.min(7, Math.max(0, rove[1] + d[1]))];
+    setHover(rove);
+    const t = cellTarget(stage, kind, rove[0], rove[1]);
+    if (!t) return;
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    // The card the grid's focus showed becomes this cell's, still the grid's own.
+    ctl.showNow(t, r.left, r.bottom, boxOf(r.left, r.top, r.width, r.height), ctl.hovered?.owner);
+  }
+
+  function onGridBlur() {
+    clearHover();
+    ctl.leave();
   }
 
   function onCubeMix(e: Event) {
@@ -519,6 +589,7 @@
     }
     window.addEventListener('resize', pushLayout);
     window.addEventListener('keydown', onKey);
+    if (stageEl) stageCards = tooltip(stageEl, { ctl, target: canvasHit });
     // Until the first picture is in, draw nothing (the viz would otherwise show its own stand-in gradient).
     a.patchVizConfig({ panels: toDevicePanels(BLANK_PANELS, 1) });
     const fellBack = await loadImage(() => firstPicture, linked.img, linked.block);
@@ -533,11 +604,38 @@
     const stageEl = overlayEl?.closest('.stage') as HTMLElement | null;
     stageEl?.removeEventListener('dragover', onDragOver);
     stageEl?.removeEventListener('drop', onDrop);
+    stageCards?.destroy?.();
     window.removeEventListener('resize', pushLayout);
     window.removeEventListener('keydown', onKey);
   });
 
   const sel = $derived(summary?.selected ?? null);
+  const speed = $derived(api?.snapshot.speed ?? DEFAULT_SPEED);
+  /** Everything a card may read. Cards never encode or decode: the decoded pixels are the ones above. */
+  const explainCtx = $derived.by<ExplainContext>(() => {
+    void rdTick;
+    return {
+      summary,
+      stage,
+      imageId,
+      image,
+      decoded,
+      quality,
+      subsampling,
+      huffman,
+      customTables,
+      speed,
+      dctK,
+      wipe,
+      errorGain,
+      huffTables,
+      segments,
+      rd: [...cachedCurve(rdKey(imageTag, subsampling, huffman))],
+      otherBytes,
+      resave: [], // the Decode stage's re-save history lives in its own panel
+      jpeg: jpegBytes,
+    };
+  });
   /** Dark numbers on light cells. */
   const sampleShade = (v: number) => (v > 150 ? 'dark' : 'light') as 'dark' | 'light';
 </script>
@@ -616,6 +714,29 @@
   {/snippet}
 
   {#snippet overlay()}
+    <!-- A coefficient grid: pointer hovers and clicks give cards, and the arrow keys rove from cell to cell. -->
+    {#snippet cellGrid(kind: Panel['kind'], r: Rect)}
+      {@const mark = cells(r, window.devicePixelRatio || 1)[rove[0] + 8 * rove[1]]}
+      <div
+        class="hover-area"
+        role="grid"
+        tabindex="0"
+        aria-label="{layout.panels.find((p) => p.kind === kind)?.label}. The arrow keys move between cells."
+        style:left="{r.x}px"
+        style:top="{r.y}px"
+        style:width="{r.w}px"
+        style:height="{r.h}px"
+        onpointermove={(e) => onCellHover(e, r)}
+        onpointerdown={(e) => onCellHover(e, r)}
+        onpointerleave={onHoverLeave}
+        onkeydown={(e) => onGridKey(e, kind)}
+        onblur={onGridBlur}
+        use:tooltip={{ ctl, target: hitTarget, keyTarget: () => cellTarget(stage, kind, rove[0], rove[1]) }}
+      >
+        <span class="rove" style:left="{mark.x - r.x}px" style:top="{mark.y - r.y}px" style:width="{mark.w}px" style:height="{mark.h}px"></span>
+      </div>
+    {/snippet}
+
     <div class="marks" bind:this={overlayEl}>
       {#each layout.panels as p (p.kind)}
         <span class="caption" style:left="{p.rect.x}px" style:top="{p.rect.y - 20}px" style:max-width="{Math.max(p.rect.w, CAPTION_MIN)}px">{p.label}</span>
@@ -630,6 +751,7 @@
           style:height="{layout.image.h}px"
           onclick={onImageClick}
           onkeydown={onImageKey}
+          use:tooltip={{ ctl, target: hitTarget, acts: true }}
         ></button>
       {/if}
 
@@ -661,17 +783,7 @@
         {#each ['atlas', 'coeffs'] as kind (kind)}
           {@const r = panel(kind as Panel['kind'])}
           {#if r}
-            <div
-              class="hover-area"
-              role="presentation"
-              style:left="{r.x}px"
-              style:top="{r.y}px"
-              style:width="{r.w}px"
-              style:height="{r.h}px"
-              onpointermove={(e) => onCellHover(e, r)}
-              onpointerdown={(e) => onCellHover(e, r)}
-              onpointerleave={onHoverLeave}
-            ></div>
+            {@render cellGrid(kind as Panel['kind'], r)}
           {/if}
         {/each}
         {#if panel('coeffs')}
@@ -691,17 +803,7 @@
         {#each ['coeffs', 'quant'] as kind (kind)}
           {@const r = panel(kind as Panel['kind'])}
           {#if r}
-            <div
-              class="hover-area"
-              role="presentation"
-              style:left="{r.x}px"
-              style:top="{r.y}px"
-              style:width="{r.w}px"
-              style:height="{r.h}px"
-              onpointermove={(e) => onCellHover(e, r)}
-              onpointerdown={(e) => onCellHover(e, r)}
-              onpointerleave={onHoverLeave}
-            ></div>
+            {@render cellGrid(kind as Panel['kind'], r)}
             <CellNumbers rect={r} values={kind === 'coeffs' ? sel.dct : sel.quant} minCell={20} />
           {/if}
         {/each}
@@ -711,6 +813,7 @@
             table={sel.table}
             which={sel.component === 0 ? 'Luma' : 'Chroma'}
             custom={customTables !== null}
+            {ctl}
             onapply={applyTable}
             onstandard={standardTables}
           />
@@ -722,7 +825,9 @@
             {imageTag}
             {subsampling}
             {huffman}
-            current={{ bytes: summary?.bytes ?? 0, psnr: summary?.psnr ?? null }}
+            current={{ bytes: summary?.bytes ?? 0, psnr: summary?.psnr ?? null, quality: summary?.quality ?? quality }}
+            {ctl}
+            onsweep={() => rdTick++}
           />
         {/if}
       {/if}
@@ -787,6 +892,8 @@
   {/snippet}
 
   {#snippet story()}
+    <!-- The cards are fixed to the viewport; they live here, clear of the stage's stacking, so the page header never covers one. -->
+    <TooltipHost {ctl} ctx={explainCtx} />
     <section class="stage-card" aria-live="polite">
       <h2><span class="mark">{stageInfo.mark}</span> {stageInfo.title}</h2>
       <p class="sub">{stageInfo.subtitle}</p>
@@ -873,6 +980,10 @@
   }
   .hit { position: absolute; padding: 0; border: 0; background: none; cursor: crosshair; pointer-events: auto; }
   .hover-area { position: absolute; pointer-events: auto; }
+  .hover-area:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
+  /* The cell the arrow keys are on; shown only while the grid has the keyboard. */
+  .rove { display: none; position: absolute; box-sizing: border-box; border: 2px solid var(--accent); pointer-events: none; }
+  .hover-area:focus-visible .rove { display: block; }
   .ctl {
     position: absolute;
     display: flex;

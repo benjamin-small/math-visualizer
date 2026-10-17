@@ -5,6 +5,7 @@
   // quality-scaled tables.
   import { untrack } from 'svelte';
   import type { Rect } from '../../jpeg/layout';
+  import { tooltip, type TooltipController } from './tooltip.svelte';
 
   interface Props {
     /** Where the table goes (its heading included). */
@@ -19,9 +20,11 @@
     onapply: (table: number[]) => void;
     /** Drop custom tables (back to quality scaling). */
     onstandard: () => void;
+    /** The page's cards: each cell explains the step it edits. */
+    ctl: TooltipController;
   }
 
-  let { rect, table, which, custom, onapply, onstandard }: Props = $props();
+  let { rect, table, which, custom, onapply, onstandard, ctl }: Props = $props();
 
   /** Local edits, reset only when the table in use changes in content (a fresh array with the same numbers keeps them). */
   let draft = $state<number[]>([]);
@@ -67,6 +70,7 @@
           aria-label="Q({i % 8}, {Math.floor(i / 8)})"
           oninput={(e) => setCell(i, e.currentTarget as HTMLInputElement, false)}
           onchange={(e) => setCell(i, e.currentTarget as HTMLInputElement, true)}
+          use:tooltip={{ ctl, target: { id: 'quantize.editor', u: i % 8, v: Math.floor(i / 8) }, acts: true }}
         />
       {/each}
     </div>
