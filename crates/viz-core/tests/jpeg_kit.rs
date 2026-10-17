@@ -1,13 +1,34 @@
 //! The kit's bindings behave like the crate and refuse bad input.
 
 use viz_core::jpeg_kit::*;
-use wasm_bindgen::JsValue;
+use viz_core::Engine;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_test::*;
+use web_sys::HtmlCanvasElement;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
 fn get(v: &JsValue, key: &str) -> JsValue {
     js_sys::Reflect::get(v, &JsValue::from_str(key)).unwrap()
+}
+
+fn num(v: &JsValue, key: &str) -> f64 {
+    get(v, key)
+        .as_f64()
+        .unwrap_or_else(|| panic!("{key} is not a number"))
+}
+
+fn make_canvas(id: &str) {
+    let document = web_sys::window().unwrap().document().unwrap();
+    let canvas = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<HtmlCanvasElement>()
+        .unwrap();
+    canvas.set_id(id);
+    canvas.set_width(320);
+    canvas.set_height(200);
+    document.body().unwrap().append_child(&canvas).unwrap();
 }
 
 #[wasm_bindgen_test]
@@ -124,4 +145,16 @@ fn out_of_range_numbers_are_refused_or_clamped() {
     assert_eq!(jpeg_quantize(&c, &luma).unwrap()[5], 0);
     let rgba = jpeg_builtin_image("text", 16, 16).unwrap();
     assert!(jpeg_encode_stats(&rgba, 16, 16, 0, "444", "standard").is_ok());
+}
+
+#[wasm_bindgen_test]
+fn decode_crosses_the_boundary() {
+    make_canvas("jpeg-kit-decode");
+    let engine = Engine::new("jpeg-kit-decode", Some("jpeg".into())).unwrap();
+    let bytes = engine.rule_bytes().expect("a file");
+    let summary = engine.rule_summary();
+    let (w, h) = (num(&summary, "width"), num(&summary, "height"));
+    let rgba = jpeg_decode(&bytes).unwrap();
+    assert_eq!(rgba.len() as f64, w * h * 4.0);
+    assert!(rgba.chunks_exact(4).all(|px| px[3] == 255));
 }
