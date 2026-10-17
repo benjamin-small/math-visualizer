@@ -44,6 +44,19 @@ describe('IJG quality maths', () => {
     expect([...ZIGZAG].sort((a, b) => a - b)).toEqual(Array.from({ length: 64 }, (_, i) => i));
   });
 
+  it('pins the zigzag order and agrees with the fixture\'s stored zigzag', () => {
+    expect(ZIGZAG.slice(0, 6)).toEqual([0, 1, 8, 16, 9, 2]);
+    const sel = makeContext().summary!.selected!;
+    expect(ZIGZAG.map((i) => sel.quant[i])).toEqual(sel.zigzag);
+    expect(sel.quant.map((q, i) => (q === roundHalfAway(sel.dct[i] / sel.table[i]) ? 0 : 1)).every((d) => d === 0)).toBe(true);
+  });
+
+  it('does not divide by zero at quality 100', () => {
+    expect(stepAtQuality(0, 1, 16, 100, 20)).toBe(16); // not the standard entry at 100, and the scale is 0
+    expect(stepAtQuality(0, 1, 1, 100, 20)).toBe(28); // the standard entry at 100 re-scales exactly
+    expect(Number.isFinite(stepAtQuality(1, 5, 7, 100, 90))).toBe(true);
+  });
+
   it('re-scales a step exactly for a standard table, in proportion otherwise', () => {
     expect(stepAtQuality(0, 1, 11, 50, 20)).toBe(28); // STD_LUMA[1] = 11, (11·250 + 50) / 100
     expect(stepAtQuality(0, 1, 16, 50, 20)).toBe(40); // not the standard entry: scaled by 250 / 100
