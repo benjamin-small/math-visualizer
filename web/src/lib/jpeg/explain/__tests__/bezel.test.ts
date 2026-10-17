@@ -74,6 +74,15 @@ describe('wording', () => {
     expect(card({ id: 'readout.size' }).consequence).toContain('At quality 50 with 4:2:0 colour');
   });
 
+  it('puts a comma after the quality when a clause follows', () => {
+    for (const ctx of [makeContext(), makeContext({ customTables: custom })]) {
+      const lines = [text(card({ id: 'bezel.reset' }, ctx)), text(card({ id: 'bezel.picture' }, ctx))].join(' ');
+      expect(lines).not.toMatch(/(At quality \d+|With your own tables) (it|the)\b/);
+    }
+    expect(card({ id: 'bezel.reset' }).consequence).toContain('At quality 50, the file does not change.');
+    expect(card({ id: 'bezel.picture' }).consequence).toContain('At quality 50, it compresses to');
+  });
+
   it('says what quality 100 means, and that a step is never below 1', () => {
     const e = card({ id: 'bezel.quality' }, makeContext({ quality: 100 }));
     expect(e.body).toContain('scaled by 0%');
