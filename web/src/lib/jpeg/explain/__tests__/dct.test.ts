@@ -140,7 +140,7 @@ describe('near ties and zeros', () => {
 
 describe('explain() and targets', () => {
   it('returns null for ids whose explainer is not written yet', () => {
-    expect(explain({ id: 'bezel.quality' }, makeContext())).toBeNull();
+    expect(explain({ id: 'overview.sizes' }, makeContext())).toBeNull();
     expect(explain({ id: 'zigzag.last' }, makeContext())).toBeNull();
   });
 

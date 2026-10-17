@@ -1,17 +1,21 @@
 <script lang="ts">
   // The pipeline rail: nine numbered steps, the current one marked. Stages
   // not built yet stay visible but disabled, so the whole pipeline reads at a
-  // glance.
+  // glance. Each step explains itself in a card (long-press on a phone); a
+  // click still switches stage.
   import { STAGES, type StageId } from '../../jpeg/stages';
+  import { tooltip, type TooltipController } from './tooltip.svelte';
 
   interface Props {
     /** The stage on screen. */
     current: StageId;
     /** Called with a ready stage's id when the reader picks it. */
     onselect: (id: StageId) => void;
+    /** The page's cards. */
+    ctl: TooltipController;
   }
 
-  let { current, onselect }: Props = $props();
+  let { current, onselect, ctl }: Props = $props();
 </script>
 
 <nav class="rail" aria-label="JPEG pipeline">
@@ -23,8 +27,8 @@
           class:current={s.id === current}
           aria-current={s.id === current ? 'step' : undefined}
           disabled={!s.ready}
-          title={s.ready ? s.subtitle : `${s.subtitle} (coming soon)`}
           onclick={() => onselect(s.id)}
+          use:tooltip={{ ctl, target: { id: 'rail.stage', stage: s.id }, acts: true }}
         >
           <span class="mark mono">{s.mark}</span>
           <span class="title">{s.title}</span>

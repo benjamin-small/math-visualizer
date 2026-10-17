@@ -6,6 +6,7 @@
   import Icon from '../Icon.svelte';
   import { GROUP_LABELS, IMAGES, thumbnail, type PictureGroup } from '../../jpeg/images';
   import type { ImageId } from '../../jpeg/params';
+  import { tooltip, type TooltipController } from './tooltip.svelte';
 
   interface Props {
     /** The picture in use (or an upload). */
@@ -14,9 +15,11 @@
     onpick: (id: ImageId) => void;
     /** Called when the reader wants to use their own picture. */
     onupload: () => void;
+    /** The page's cards: each tile explains its picture. */
+    ctl: TooltipController;
   }
 
-  let { current, onpick, onupload }: Props = $props();
+  let { current, onpick, onupload, ctl }: Props = $props();
 
   const GROUPS = Object.keys(GROUP_LABELS) as PictureGroup[];
   /** Thumbnail side in CSS pixels; drawn at this size for generated pictures. */
@@ -47,7 +50,12 @@
       <ul>
         {#each IMAGES.filter((im) => im.group === group) as im (im.id)}
           <li>
-            <button class="tile" aria-pressed={current === im.id} title={im.title} onclick={() => onpick(im.id)}>
+            <button
+              class="tile"
+              aria-pressed={current === im.id}
+              onclick={() => onpick(im.id)}
+              use:tooltip={{ ctl, target: { id: 'gallery.tile', picture: im.id }, acts: true }}
+            >
               <span class="thumb">
                 {#if urls[im.id]}
                   <img src={urls[im.id]} alt="" width={SIDE} height={SIDE} loading={im.file ? 'lazy' : undefined} />
@@ -59,7 +67,7 @@
         {/each}
         {#if group === 'tests'}
           <li>
-            <button class="tile" title="Use your own picture (scaled to fit 512 px); or drop one on the stage" onclick={onupload}>
+            <button class="tile" onclick={onupload} use:tooltip={{ ctl, target: { id: 'gallery.tile', picture: 'upload' }, acts: true }}>
               <span class="thumb"><Icon name="upload" /></span>
               <span class="label">Upload</span>
             </button>
