@@ -101,7 +101,7 @@ function cube(ctx: ExplainContext): Explanation {
     body:
       'Every pixel of this picture is a point, placed by how much red, green and blue it has. The grey diagonal runs from black in one corner to white in the opposite one: a pixel on it has equal red, green and blue, so it has no colour at all.',
     consequence: colours
-      ? `${percent(colours.nearGrey)} of this picture's pixels sit close to the grey diagonal; the further a point is from it, the more colour it carries.`
+      ? `About ${percent(colours.nearGrey)} of this picture's pixels sit close to the grey diagonal; the further a point is from it, the more colour it carries.`
       : 'The further a point is from the grey diagonal, the more colour it carries.',
     details: [
       {
@@ -128,7 +128,7 @@ function axes(ctx: ExplainContext): Explanation {
     body:
       'Slide it to turn the cube from the red, green and blue axes into the brightness and colour-difference axes that JPEG stores. The grey diagonal stands upright as the brightness axis, and colour spreads out around it.',
     consequence: colours
-      ? `In this picture brightness spans ${colours.span[0]} levels, the blue tint ${colours.span[1]} and the red tint ${colours.span[2]}.`
+      ? `In this picture brightness spans about ${colours.span[0]} levels, the blue tint about ${colours.span[1]} and the red tint about ${colours.span[2]}.`
       : undefined,
     acts: true,
     details: [

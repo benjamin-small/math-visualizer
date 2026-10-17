@@ -70,13 +70,13 @@ describe('Colour, subsample and blocks cards', () => {
     const e = explain({ id: 'color.cube' }, makeContext({ stage: 'color' }))!;
     expect(e.body).toContain('grey diagonal');
     expect(e.value).toBe('65,536 pixels, one point each');
-    expect(e.consequence).toContain('100% of this picture\'s pixels sit close to the grey diagonal');
+    expect(e.consequence).toContain('About 100% of this picture\'s pixels sit close to the grey diagonal');
   });
 
   it('describes the axes slider with the picture\'s spread', () => {
     const e = explain({ id: 'color.axes' }, makeContext({ stage: 'color' }))!;
     expect(e.acts).toBe(true);
-    expect(e.consequence).toBe('In this picture brightness spans 0 levels, the blue tint 0 and the red tint 0.');
+    expect(e.consequence).toBe('In this picture brightness spans about 0 levels, the blue tint about 0 and the red tint about 0.');
   });
 
   it('gives every early target a card with the three lines or says nothing', () => {

@@ -131,10 +131,11 @@ function kindOf(t: AcToken): TokenKind {
 }
 
 /** Where in the scan token `i`'s number sits (0-63): each earlier token used up its zeros and one number. */
-function scanPosition(tokens: readonly AcToken[], i: number): number {
+function scanPosition(tokens: readonly AcToken[], i: number): number | null {
   let pos = 1;
   for (let j = 0; j < i; j++) pos += tokens[j].run + 1;
-  return pos + (kindOf(tokens[i]) === 'run' ? tokens[i].run : 0);
+  const k = pos + (kindOf(tokens[i]) === 'run' ? tokens[i].run : 0);
+  return k >= 0 && k <= 63 ? k : null; // a malformed token list can run past the block
 }
 
 /** The table mode in words, for the code lines. */
@@ -166,11 +167,11 @@ function token(i: number, ctx: ExplainContext): Explanation | null {
     body = 'A run of sixteen zeros that is not yet followed by a number. The tokens after it carry on from there.';
   } else {
     const k = scanPosition(sel.tokens, i);
-    const pat = ZIGZAG[k];
     title = `Token ${i + 1}`;
     value = `Skip ${plural(t.run, 'zero')}, then ${whole(t.amp)} (needs ${plural(t.size, 'bit')})`;
-    body = `After ${plural(t.run, 'zero')} comes the number ${whole(t.amp)}, which fits in ${plural(t.size, 'bit')}. Runs of zeros cost nothing by themselves: only the length of the run is stored.`;
-    rows.push(['Number', whole(t.amp)], ['Place in the scan', `#${k + 1} of 64, pattern (${pat % 8}, ${Math.floor(pat / 8)})`]);
+    body = `After ${plural(t.run, 'zero')} comes the number ${whole(t.amp)}, which fits in ${plural(t.size, 'bit')}. The zeros are not written one by one: their count goes inside the token's code.`;
+    rows.push(['Number', whole(t.amp)]);
+    if (k !== null) rows.push(['Place in the scan', `#${k + 1} of 64, pattern (${ZIGZAG[k] % 8}, ${Math.floor(ZIGZAG[k] / 8)})`]);
     details.push({
       kind: 'text',
       text: `The size is the number of bits the value needs. A larger value needs more bits, and the sign is carried in the bits themselves: a negative value is written as its positive twin with the bits flipped.`,

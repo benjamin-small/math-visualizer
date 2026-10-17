@@ -68,6 +68,17 @@ describe('Run-length cards', () => {
     expect(explain({ id: 'rle.token', i: 0 }, ctx)!.value).toBe('Skip 0 zeros, then −1 (needs 1 bit)');
   });
 
+  it('does not print a place for a token that runs past the block', () => {
+    const ctx = makeContext({ stage: 'rle' });
+    ctx.summary!.selected!.tokens = [{ run: 14, size: 1, amp: 1, symbol: 0xe1, code: '1', ampBits: '1' }, { run: 14, size: 1, amp: 1, symbol: 0xe1, code: '1', ampBits: '1' }, { run: 14, size: 1, amp: 1, symbol: 0xe1, code: '1', ampBits: '1' }, { run: 14, size: 1, amp: 1, symbol: 0xe1, code: '1', ampBits: '1' }, { run: 14, size: 1, amp: 1, symbol: 0xe1, code: '1', ampBits: '1' }];
+    const e = explain({ id: 'rle.token', i: 4 }, ctx)!;
+    const rows = e.details.flatMap((d) => (d.kind === 'rows' ? d.rows : []));
+    expect(rows.map(([k]) => k)).not.toContain('Place in the scan');
+    expect(JSON.stringify(e)).not.toContain('NaN');
+    expect(e.body).toContain('their count goes inside the token\'s code');
+    expect(e.body).not.toContain('cost nothing');
+  });
+
   it('explains the DC change', () => {
     const e = explain({ id: 'rle.dc' }, makeContext({ stage: 'rle' }))!;
     expect(e.value).toBe('8 − 6 = 2');
