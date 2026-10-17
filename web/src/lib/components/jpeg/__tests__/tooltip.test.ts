@@ -32,6 +32,17 @@ function target(params: Partial<TooltipParams> & Pick<TooltipParams, 'target'>, 
   return el;
 }
 
+/** Like `target`, but hands back the action so a test can update or destroy it. */
+function mounted(params: Partial<TooltipParams> & Pick<TooltipParams, 'target'>, tag = 'button') {
+  const el = document.createElement(tag);
+  el.textContent = 'target';
+  if (tag !== 'button') el.tabIndex = 0;
+  document.body.append(el);
+  const action = tooltip(el, { ctl, ...params }) as { update: (p: TooltipParams) => void; destroy: () => void };
+  destroyers.push(() => el.remove());
+  return { el, action };
+}
+
 const advance = async (ms: number) => {
   await vi.advanceTimersByTimeAsync(ms);
   await tick();
@@ -349,5 +360,263 @@ describe('keyboard', () => {
     expect(live.textContent).toContain(VALUE_10);
     expect(live.textContent).toContain('At quality 50 it rounds to');
     expect(el.getAttribute('aria-describedby')).toBe(live.id);
+  });
+});
+
+describe('hover ownership', () => {
+  it('destroying the action while its card shows hides the card after 120 ms', async () => {
+    const { el, action } = mounted({ target: T10 });
+    el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(150);
+    expect(hoverCard()).not.toBeNull();
+    action.destroy();
+    el.remove();
+    await advance(100);
+    expect(hoverCard()).not.toBeNull();
+    await advance(30);
+    expect(hoverCard()).toBeNull();
+  });
+
+  it('destroying the action cancels its pending hover', async () => {
+    const { el, action } = mounted({ target: T10 });
+    el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(50);
+    action.destroy();
+    await advance(500);
+    expect(hoverCard()).toBeNull();
+  });
+
+  it('updating the target while it shows shows the new target', async () => {
+    const { el, action } = mounted({ target: T10 });
+    el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(150);
+    action.update({ ctl, target: T20 });
+    await tick();
+    expect(hoverCard()!.textContent).toContain('F(2,0)');
+    expect(hoverCard()!.textContent).not.toContain('F(1,0)');
+  });
+
+  it('updating to a hit-test function hides the old target card', async () => {
+    const { el, action } = mounted({ target: T10 });
+    el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(150);
+    action.update({ ctl, target: () => null });
+    await tick();
+    expect(hoverCard()).toBeNull();
+  });
+
+  it('updating a node that does not own the card leaves it alone', async () => {
+    const a = mounted({ target: T10 });
+    const b = mounted({ target: T20 });
+    a.el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(150);
+    b.action.update({ ctl, target: { id: 'dct.coeff', u: 3, v: 0 } });
+    await tick();
+    expect(hoverCard()!.textContent).toContain('F(1,0)');
+  });
+
+  it("blurring A while the pointer hovers B leaves B's card", async () => {
+    const a = mounted({ target: T10 }, 'span');
+    const b = mounted({ target: T20 }, 'span');
+    a.el.focus();
+    await tick();
+    b.el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await tick();
+    expect(hoverCard()!.textContent).toContain('F(2,0)');
+    a.el.blur();
+    await advance(500);
+    expect(hoverCard()!.textContent).toContain('F(2,0)');
+  });
+
+  it('the controller can be disposed: timers stop, and unmounting the host disposes it', async () => {
+    const el = target({ target: T10 });
+    el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(50);
+    ctl.dispose();
+    await advance(500);
+    expect(ctl.hovered).toBeNull();
+
+    el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(150);
+    expect(ctl.hovered).not.toBeNull();
+    el.dispatchEvent(ptr('pointerleave', { bubbles: false }));
+    host.unmount();
+    await advance(500);
+    expect(ctl.hovered).toBeNull();
+  });
+
+  it('ignores a touch pointer leaving the hover card', async () => {
+    const el = target({ target: T10 });
+    el.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    await advance(150);
+    const card = hoverCard()!;
+    card.dispatchEvent(ptr('pointerenter', { bubbles: false }));
+    card.dispatchEvent(ptr('pointerleave', { pointerType: 'touch', bubbles: false }));
+    await advance(500);
+    expect(hoverCard()).not.toBeNull();
+    card.dispatchEvent(ptr('pointerleave', { bubbles: false }));
+    await advance(130);
+    expect(hoverCard()).toBeNull();
+  });
+});
+
+describe('the pinned card', () => {
+  it('keeps the Close button outside the scrolling part', async () => {
+    target({ target: T10 }, 'span').click();
+    await tick();
+    screen.getByRole('button', { name: 'More' }).click();
+    await tick();
+    const card = pinnedCard()!;
+    const scroller = card.querySelector('.scroll')!;
+    const close = screen.getByRole('button', { name: 'Close' });
+    expect(scroller).toBeTruthy();
+    expect(scroller.contains(close)).toBe(false);
+    expect(scroller.contains(screen.getByTestId('tooltip-details'))).toBe(true);
+    expect(card.getAttribute('aria-modal')).toBe('false');
+    expect(card.getAttribute('aria-label')).toBeTruthy();
+  });
+
+  it('moves focus into the card on a keyboard pin and back to the target on close', async () => {
+    const el = target({ target: T10 }, 'span');
+    el.focus();
+    await tick();
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await tick();
+    const card = pinnedCard()!;
+    expect(card.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement!.tagName).toBe('BUTTON');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await tick();
+    expect(pinnedCard()).toBeNull();
+    expect(document.activeElement).toBe(el);
+  });
+
+  it('returns focus to the target when the Close button is used', async () => {
+    const el = target({ target: T10 }, 'span');
+    el.focus();
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+    await tick();
+    expect(ctl.pinned?.unfolded).toBe(true);
+    expect(pinnedCard()!.contains(document.activeElement)).toBe(true);
+    screen.getByRole('button', { name: 'Close' }).click();
+    await tick();
+    expect(document.activeElement).toBe(el);
+  });
+
+  it('does not steal focus on a pointer pin', async () => {
+    const el = target({ target: T10 }, 'span');
+    el.focus();
+    el.dispatchEvent(ptr('pointerdown'));
+    el.click();
+    await tick();
+    expect(pinnedCard()).not.toBeNull();
+    expect(pinnedCard()!.contains(document.activeElement)).toBe(false);
+    expect(document.activeElement).toBe(el);
+  });
+});
+
+describe('keyTarget', () => {
+  it('shows the key target for a hit-tested element on focus, and pins it on Enter', async () => {
+    const el = target({ target: () => null, keyTarget: () => T20 }, 'span');
+    el.focus();
+    await tick();
+    expect(hoverCard()!.textContent).toContain('F(2,0) = −20.0');
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await tick();
+    expect(ctl.pinned?.target).toEqual(T20);
+  });
+
+  it('shows nothing on focus for a hit-tested element without one, or when it returns null', async () => {
+    const a = target({ target: () => T10 }, 'span');
+    a.focus();
+    await tick();
+    expect(hoverCard()).toBeNull();
+    const b = target({ target: () => T10, keyTarget: () => null }, 'span');
+    b.focus();
+    await tick();
+    expect(hoverCard()).toBeNull();
+  });
+});
+
+describe('stale flags', () => {
+  const abortedLongPress = async (el: HTMLElement) => {
+    el.dispatchEvent(ptr('pointerdown', { pointerType: 'touch' }));
+    await advance(500);
+    el.dispatchEvent(ptr('pointerup', { pointerType: 'touch' }));
+  };
+
+  it('a keyboard click after an aborted long-press is not swallowed', async () => {
+    const spy = vi.fn();
+    const el = target({ target: T10, acts: true });
+    el.addEventListener('click', spy);
+    await abortedLongPress(el);
+    await advance(450);
+    el.click();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('any key press clears a swallow that never met its click', async () => {
+    const spy = vi.fn();
+    const el = target({ target: T10, acts: true });
+    el.addEventListener('click', spy);
+    await abortedLongPress(el);
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    el.click();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('a mouse leaving clears a swallow', async () => {
+    const spy = vi.fn();
+    const el = target({ target: T10, acts: true });
+    el.addEventListener('click', spy);
+    el.dispatchEvent(ptr('pointerdown', { pointerType: 'touch' }));
+    await advance(500);
+    el.dispatchEvent(ptr('pointerleave', { pointerType: 'mouse', bubbles: false }));
+    el.click();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('the click that follows a touch pointerleave is still swallowed', async () => {
+    const spy = vi.fn();
+    const el = target({ target: T10, acts: true });
+    el.addEventListener('click', spy);
+    await abortedLongPress(el);
+    el.dispatchEvent(ptr('pointerleave', { pointerType: 'touch', bubbles: false }));
+    el.click();
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('aria-describedby', () => {
+  it("adds the host's id to a component's own value and removes only that token", () => {
+    const el = document.createElement('button');
+    el.setAttribute('aria-describedby', 'mine other');
+    document.body.append(el);
+    const action = tooltip(el, { ctl, target: T10 })!;
+    expect(el.getAttribute('aria-describedby')!.split(' ')).toEqual(['mine', 'other', TOOLTIP_LIVE_ID]);
+    action.destroy!();
+    expect(el.getAttribute('aria-describedby')).toBe('mine other');
+    el.remove();
+  });
+
+  it('removes the attribute when the host id was the only token', () => {
+    const el = document.createElement('button');
+    document.body.append(el);
+    const action = tooltip(el, { ctl, target: T10 })!;
+    expect(el.getAttribute('aria-describedby')).toBe(TOOLTIP_LIVE_ID);
+    action.destroy!();
+    expect(el.hasAttribute('aria-describedby')).toBe(false);
+    el.remove();
+  });
+});
+
+describe('small things', () => {
+  it('ignores ? typed into a text field inside a target', async () => {
+    const el = target({ target: T10 }, 'div');
+    const input = document.createElement('input');
+    el.append(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+    await tick();
+    expect(ctl.pinned).toBeNull();
   });
 });

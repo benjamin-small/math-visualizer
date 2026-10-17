@@ -3,7 +3,7 @@
   // is on, and the pinned one (compact plus, behind More, the details). It
   // owns Escape and outside-click dismissal and a hidden text element that
   // every target's aria-describedby points at.
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { explain, type Explanation, type ExplainContext } from '../../jpeg/explain';
   import Tex from '../Tex.svelte';
   import { placeCard, type Anchor } from './placeCard';
@@ -22,6 +22,9 @@
   let hoverH = $state(0);
   let pinW = $state(0);
   let pinH = $state(0);
+  let pinEl = $state<HTMLElement | null>(null);
+
+  onDestroy(() => ctl.dispose());
 
   // The controller learns the context before anything reads it, so a pin made now gets the right scope.
   $effect.pre(() => {
@@ -75,11 +78,26 @@
     ctl.unfold();
   }
 
+  // A keyboard pin moves focus into its card (the Close button comes first).
+  $effect(() => {
+    if (ctl.pinned?.focusCard && pinEl) {
+      pinEl.querySelector('button')?.focus();
+      untrack(() => ctl.focusDone());
+    }
+  });
+
+  /** Close the pin; a keyboard pin gives focus back to the element that made it. */
+  function closePin() {
+    const back = ctl.pinned?.returnTo;
+    ctl.close();
+    back?.focus();
+  }
+
   $effect(() => {
     const inCard = (e: Event) => e.target instanceof Element && e.target.closest('[data-tooltip-card]') !== null;
     // Dismissals never preventDefault or stop the event: the click that dismisses still does its job.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && (ctl.pinned || ctl.hovered)) ctl.close();
+      if (e.key === 'Escape' && (ctl.pinned || ctl.hovered)) closePin();
     };
     const onDown = (e: PointerEvent) => {
       if (inCard(e)) return;
@@ -131,7 +149,9 @@
     style:top="{hoverPos.y}px"
     use:measure={(w, h) => ((hoverW = w), (hoverH = h))}
     onpointerenter={() => ctl.hold()}
-    onpointerleave={() => ctl.leave()}
+    onpointerleave={(e) => {
+      if (e.pointerType !== 'touch') ctl.leave();
+    }}
   >
     {@render compact(e)}
     {#if e.details.length > 0}
@@ -147,15 +167,18 @@
     class="card pinned"
     role="dialog"
     aria-label={e.title}
+    aria-modal="false"
     data-testid="tooltip-pinned"
     data-tooltip-card
     style:left="{pinPos.x}px"
     style:top="{pinPos.y}px"
     use:measure={(w, h) => ((pinW = w), (pinH = h))}
+    bind:this={pinEl}
   >
-    <button type="button" class="close" aria-label="Close" onclick={() => ctl.close()}>
+    <button type="button" class="close" aria-label="Close" onclick={closePin}>
       <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" /></svg>
     </button>
+    <div class="scroll">
     {@render compact(e)}
     {#if e.details.length > 0 && !unfolded}
       <button type="button" class="more" onclick={() => ctl.unfold()}>More</button>
@@ -169,7 +192,7 @@
             <div class="tex"><Tex tex={d.tex} display={false} /></div>
           {:else if d.kind === 'rows'}
             <dl class="rows">
-              {#each d.rows as [k, v] (k)}
+              {#each d.rows as [k, v], r (r)}
                 <dt>{k}</dt>
                 <dd>{v}</dd>
               {/each}
@@ -184,6 +207,7 @@
         {/each}
       </div>
     {/if}
+    </div>
   </div>
 {/if}
 
@@ -205,9 +229,16 @@
     text-align: left;
   }
   .pinned {
+    display: flex;
+    flex-direction: column;
     max-height: 50vh;
+    padding: 0;
+  }
+  /* The card scrolls inside; the Close button sits on the card, outside the scroller, so it never scrolls away. */
+  .scroll {
+    min-height: 0;
     overflow-y: auto;
-    padding-right: 30px;
+    padding: 10px 34px 10px 12px;
   }
   .title {
     font-weight: 600;
