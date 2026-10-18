@@ -3,7 +3,7 @@ import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { TooltipController } from '../tooltip.svelte';
 import type { RgbaImage } from '../../../jpeg/images';
-import { loadPicture } from '../../../jpeg/images';
+import { decodeUpload, loadPicture } from '../../../jpeg/images';
 
 vi.mock('../../../wasm/loader', () => ({
   loadVizCore: vi.fn(() =>
@@ -59,8 +59,22 @@ function pointer(el: Element, type: 'pointerdown' | 'pointerup', pointerType: st
   el.dispatchEvent(ev);
 }
 
+/** A promise settled from outside, for loads that must stay pending. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const handoffButton = () => screen.getByRole('button', { name: 'Show me in the lab' }) as HTMLButtonElement;
+
 beforeEach(() => {
   vi.mocked(loadPicture).mockClear();
+  vi.mocked(decodeUpload).mockClear();
 });
 
 describe('JpegTour.svelte', () => {
@@ -177,11 +191,51 @@ describe('JpegTour.svelte', () => {
     const { onclose } = mountTour();
     const select = screen.getByRole('combobox', { name: 'Tour picture' }) as HTMLSelectElement;
     expect(select.querySelectorAll('optgroup').length).toBeGreaterThan(1);
+    const load = deferred<RgbaImage>();
+    vi.mocked(loadPicture).mockReturnValueOnce(load.promise);
     await fireEvent.change(select, { target: { value: 'doge' } });
     expect(loadPicture).toHaveBeenCalledWith('doge');
-    await waitFor(() => expect(select.value).toBe('doge'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Show me in the lab' }));
+    // Until it lands the hand-offs would carry the old picture, so they wait.
+    expect(handoffButton().disabled).toBe(true);
+    load.resolve(picture());
+    await waitFor(() => expect(handoffButton().disabled).toBe(false));
+    await fireEvent.click(handoffButton());
     expect(onclose).toHaveBeenCalledWith(expect.objectContaining({ imageId: 'doge', stage: 'color' }));
+  });
+
+  it('ignores a slow pick that was abandoned for the picture in use', async () => {
+    const { onclose } = mountTour();
+    const select = screen.getByRole('combobox', { name: 'Tour picture' }) as HTMLSelectElement;
+    const late = deferred<RgbaImage>();
+    vi.mocked(loadPicture).mockReturnValueOnce(late.promise);
+    await fireEvent.change(select, { target: { value: 'doge' } });
+    expect(handoffButton().disabled).toBe(true);
+    expect(select.getAttribute('aria-busy')).toBe('true');
+    // The reader changes their mind and goes back to the picture in use.
+    await fireEvent.change(select, { target: { value: 'spring' } });
+    expect(handoffButton().disabled).toBe(false);
+    expect(select.getAttribute('aria-busy')).toBe('false');
+    late.resolve(picture());
+    await Promise.resolve();
+    await tick();
+    expect(select.value).toBe('spring');
+    await fireEvent.click(handoffButton());
+    expect(onclose).toHaveBeenCalledWith(expect.objectContaining({ imageId: 'spring' }));
+  });
+
+  it('applies an upload and hands it over as the uploaded picture', async () => {
+    const { onclose } = mountTour();
+    const uploaded: RgbaImage = { w: 8, h: 8, rgba: new Uint8Array(8 * 8 * 4).fill(30) };
+    vi.mocked(decodeUpload).mockResolvedValueOnce(uploaded);
+    const input = dialog().querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['x'], 'mine.png', { type: 'image/png' });
+    await fireEvent.change(input, { target: { files: [file] } });
+    expect(decodeUpload).toHaveBeenCalledWith(file);
+    const select = screen.getByRole('combobox', { name: 'Tour picture' }) as HTMLSelectElement;
+    await waitFor(() => expect(Array.from(select.options).some((o) => o.textContent === 'Your picture')).toBe(true));
+    expect(select.value).toBe('upload');
+    await fireEvent.click(handoffButton());
+    expect(onclose).toHaveBeenCalledWith(expect.objectContaining({ imageId: 'upload', image: uploaded }));
   });
 
   it('keeps the old picture and says why when a picture will not load', async () => {
@@ -225,6 +279,55 @@ describe('JpegTour.svelte', () => {
     pointer(panel, 'pointerup', 'touch', 170);
     await tick();
     expect(stepLabel()).toBe('Step 1 of 9');
+  });
+
+  it('needs more than 40 px to swipe', async () => {
+    mountTour();
+    const panel = document.querySelector('.tour-panel')!;
+    pointer(panel, 'pointerdown', 'touch', 200);
+    pointer(panel, 'pointerup', 'touch', 160);
+    await tick();
+    expect(stepLabel()).toBe('Step 1 of 9');
+    pointer(panel, 'pointerdown', 'touch', 200);
+    pointer(panel, 'pointerup', 'touch', 159);
+    await tick();
+    expect(stepLabel()).toBe('Step 2 of 9 · loses detail');
+  });
+
+  it('keeps focus in the dialog when Back goes away on step 1', async () => {
+    const { onclose } = mountTour();
+    await fireEvent.click(next());
+    const back = screen.getByRole('button', { name: 'Back' }) as HTMLButtonElement;
+    back.focus();
+    await fireEvent.click(back);
+    await tick();
+    expect(stepLabel()).toBe('Step 1 of 9');
+    expect(dialog().contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+    expect((document.activeElement as HTMLButtonElement).disabled).not.toBe(true);
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
+    // The dialog still owns the keys: Escape reaches it, not the page behind.
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(onclose).toHaveBeenCalledWith(null);
+  });
+
+  it('keeps focus in the dialog when Start exploring is disabled by a pending pick', async () => {
+    mountTour();
+    await fireEvent.click(stripButtons()[8]);
+    next().focus();
+    vi.mocked(loadPicture).mockReturnValueOnce(deferred<RgbaImage>().promise);
+    await fireEvent.change(screen.getByRole('combobox', { name: 'Tour picture' }), { target: { value: 'doge' } });
+    await tick();
+    expect((next() as HTMLButtonElement).disabled).toBe(true);
+    expect(dialog().contains(document.activeElement)).toBe(true);
+    expect((document.activeElement as HTMLButtonElement).disabled).not.toBe(true);
+  });
+
+  it('says so, in one line, when the kit cannot load', async () => {
+    const { loadVizCore } = await import('../../../wasm/loader');
+    vi.mocked(loadVizCore).mockRejectedValueOnce(new Error('no wasm'));
+    mountTour();
+    await waitFor(() => expect(screen.getByText("The pictures couldn't load, but the steps still read fine.")).toBeTruthy());
   });
 
   it('asks the kit once and keeps one picture area while the steps change', async () => {
