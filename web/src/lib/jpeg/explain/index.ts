@@ -8,6 +8,7 @@ import { explainDecode } from './decode';
 import { explainEarly } from './early';
 import { explainOverview } from './overview';
 import { explainQuantize } from './quantize';
+import { explainTour } from './tour';
 import type { Target } from './targets';
 import type { Explanation } from './types';
 
@@ -42,6 +43,8 @@ export function explain(t: Target, ctx: ExplainContext): Explanation | null {
       return explainOverview(t, ctx);
     case 'decode':
       return explainDecode(t, ctx);
+    case 'tour':
+      return explainTour(t, ctx);
     default:
       return null;
   }
