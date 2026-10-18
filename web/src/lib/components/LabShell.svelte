@@ -21,6 +21,8 @@
     legend?: Snippet;
     /** The explanation, rendered as an article below the legend. */
     story?: Snippet;
+    /** A control beside the title (the JPEG lab's "How JPEG works" button). */
+    headerAction?: Snippet;
     /** Extra DOM overlaid on the canvas (e.g. a grid of cells). */
     overlay?: Snippet<[LabApi]>;
     /** Called once the engine is constructed and the frame loop is running. */
@@ -44,6 +46,7 @@
     controls,
     legend,
     story,
+    headerAction,
     overlay,
     onReady,
     initialSpeed,
@@ -225,7 +228,10 @@
 </script>
 
 <article class="lab">
-  <h1>{title}</h1>
+  <div class="title-row">
+    <h1>{title}</h1>
+    {#if headerAction}{@render headerAction()}{/if}
+  </div>
   <p class="thesis">{thesis}</p>
 
   <div class="frame">
@@ -313,6 +319,10 @@
     from { opacity: 0; }
     to { opacity: 1; }
   }
+  /* The title and its action share a row that wraps on a phone, so the button drops under the title rather than squeezing it. */
+  .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .title-row :global(.btn) { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-button); background: var(--paper); color: var(--ink); font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .title-row :global(.btn:hover) { border-color: var(--stone); }
   h1 { font-size: 26px; }
   .thesis { color: var(--stone); max-width: 60ch; margin: 6px 0 20px; }
 
@@ -414,6 +424,7 @@
     .transport { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .readout { margin-left: 0; }
     .bezel :global(.btn) { min-height: 44px; justify-content: center; }
+    .title-row :global(.btn) { min-height: 44px; }
     .bezel :global(.field), .speed { justify-content: space-between; }
     .speed input, .bezel :global(input[type="range"]) { flex: 1; width: auto; }
   }

@@ -5,7 +5,7 @@
   // rail and the layout. Settings re-encode through a rule-config push (which
   // rewinds the engine), after which the page puts the scan back where it was.
   // The selected block is view state and moves through a rule action.
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import LabShell from '../LabShell.svelte';
   import Icon from '../Icon.svelte';
   import Tex from '../Tex.svelte';
@@ -20,6 +20,7 @@
   import DecodeTools from '../jpeg/DecodeTools.svelte';
   import Overview from '../jpeg/Overview.svelte';
   import Gallery from '../jpeg/Gallery.svelte';
+  import JpegTour from '../jpeg/JpegTour.svelte';
   import TooltipHost from '../jpeg/TooltipHost.svelte';
   import { TooltipController, tooltip } from '../jpeg/tooltip.svelte';
   import type { LabApi } from '../labApi.svelte';
@@ -41,6 +42,7 @@
   import { saveFileName } from '../../jpeg/explain/bezel';
   import { canvasTarget, cellTarget } from '../../jpeg/explain/hit';
   import { cachedCurve, rdKey } from '../../jpeg/rd';
+  import { markTourSeen, tourSeen, type TourHandoff } from '../../jpeg/tour';
   import { readSummary, readoutOf, type JpegSummary } from '../../jpeg/summary';
   import { NOTICE, stageTex } from '../../jpeg/formulas';
   import { readSegments, readTables, type HuffTableView, type SegmentView } from '../../jpeg/huffman';
@@ -114,6 +116,9 @@
   let qualityFrame = 0;
   /** The cards: what is hovered and what is pinned, for every target on the page. */
   const ctl = new TooltipController();
+  /** The guided tour is open: on the first visit it opens by itself, and the header button opens it again. */
+  let tourOpen = $state(!tourSeen());
+  let howButton: HTMLButtonElement | null = null;
   /** Hit-tests the canvas for the stage (set once the engine is ready). */
   let stageCards: ReturnType<typeof tooltip> | undefined;
   /** The shell's own controls (transport buttons, position readout, speed slider): the shell owns them, so they get their cards here once the page is up. */
@@ -612,11 +617,33 @@
 
   /** The left and right arrow keys step through the ready stages, unless a form control has the keys. */
   function onKey(e: KeyboardEvent) {
+    if (tourOpen) return; // the tour owns the keys while it is open
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     if (e.altKey || e.metaKey || e.ctrlKey || e.defaultPrevented) return;
     const t = e.target;
     if (t instanceof Element && t.closest('input, select, textarea, [contenteditable="true"], [contenteditable=""]')) return;
     setStage(stepStage(stage, e.key === 'ArrowRight' ? 1 : -1));
+  }
+
+  /**
+   * The tour has ended. `h` is what "Show me in the lab" and "Start exploring" carry over; null (skip,
+   * Escape, close) changes nothing. The tour's picture is the lab's own unless the reader picked another
+   * in the tour, and an upload reaches the lab only here.
+   */
+  async function onTourClose(h: TourHandoff | null) {
+    markTourSeen();
+    tourOpen = false;
+    if (h) {
+      quality = h.quality;
+      if (h.imageId !== imageId || h.imageId === 'upload') {
+        await loadImage(() => Promise.resolve(h.image), h.imageId);
+      } else {
+        encode();
+      }
+      setStage(h.stage);
+    }
+    await tick();
+    howButton?.focus();
   }
 
   /** Lay the stage out from the canvas's CSS size and hand the viz its panels in device pixels. */
@@ -727,6 +754,16 @@
   nativeTitles={false}
   {onReady}
 >
+  {#snippet headerAction()}
+    <button
+      class="btn how"
+      type="button"
+      bind:this={howButton}
+      onclick={() => (tourOpen = true)}
+      use:tooltip={{ ctl, target: { id: 'tour.open' }, acts: true }}>How JPEG works</button
+    >
+  {/snippet}
+
   {#snippet controls()}
     <div class="group">
       <span class="name">Picture</span>
@@ -1085,6 +1122,9 @@
 
   {#snippet story()}
     <!-- The cards are fixed to the viewport; they live here, clear of the stage's stacking, so the page header never covers one. -->
+    {#if tourOpen}
+      <JpegTour {imageId} {image} {quality} {subsampling} {huffman} {ctl} onclose={onTourClose} />
+    {/if}
     <TooltipHost {ctl} ctx={explainCtx} />
     <section class="stage-card" aria-live="polite">
       <h2><span class="mark">{stageInfo.mark}</span> {stageInfo.title}</h2>

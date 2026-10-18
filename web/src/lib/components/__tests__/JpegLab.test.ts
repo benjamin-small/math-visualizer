@@ -14,6 +14,7 @@ import { navigate, route } from '../../router.svelte';
 import { decodeUpload, loadPicture } from '../../jpeg/images';
 import { cells, jpegLayout } from '../../jpeg/layout';
 import { RD_PSNR_CAP } from '../../jpeg/rd';
+import { TOUR_SEEN_KEY } from '../../jpeg/tour';
 import type { StageId } from '../../jpeg/stages';
 
 installRafPolyfill();
@@ -79,6 +80,7 @@ async function renderLab(query = '') {
 
 describe('JpegLab.svelte', () => {
   beforeEach(() => {
+    localStorage.setItem(TOUR_SEEN_KEY, '1'); // the tour has its own describe below
     dispatchSpy.mockClear();
     ruleActionSpy.mockClear();
     updateRuleConfigWithImageSpy.mockClear();
@@ -701,6 +703,7 @@ describe('JpegLab.svelte cards', () => {
   const saved = { quality: jpegSummaryFixture.quality, version: jpegSummaryFixture.version };
 
   beforeEach(() => {
+    localStorage.setItem(TOUR_SEEN_KEY, '1');
     dispatchSpy.mockClear();
     ruleActionSpy.mockClear();
     updateRuleConfigWithImageSpy.mockReset();
@@ -1515,5 +1518,133 @@ describe('JpegLab.svelte cards', () => {
       await vi.waitFor(() => expect(hoverText()).toContain('Generation 19'));
       expect(hoverText()).toContain('dB');
     });
+  });
+});
+
+describe('the guided tour', () => {
+  /** Spies this describe makes, restored one by one (a blanket restore would also reset the file's mocks). */
+  let spies: { mockRestore: () => void }[] = [];
+  beforeEach(() => {
+    // jsdom has no canvas: the tour's pictures draw nothing, quietly.
+    spies = [vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)];
+    localStorage.removeItem(TOUR_SEEN_KEY);
+    dispatchSpy.mockClear();
+    updateRuleConfigWithImageSpy.mockClear();
+    updateVizConfigSpy.mockClear();
+  });
+  afterEach(() => {
+    for (const spy of spies) spy.mockRestore();
+    localStorage.setItem(TOUR_SEEN_KEY, '1');
+  });
+
+  const TITLE = 'How a picture becomes a JPEG';
+  const dialogOf = (r: { queryByRole: (role: string, o: { name: string }) => HTMLElement | null }) => r.queryByRole('dialog', { name: TITLE });
+  const key = (el: Element, k: string) => fireEvent.keyDown(el, { key: k });
+
+  it('opens by itself on the first visit and not again', async () => {
+    const first = await renderLab();
+    const dialog = await vi.waitFor(() => first.getByRole('dialog', { name: TITLE }));
+    await key(dialog, 'Escape');
+    await vi.waitFor(() => expect(dialogOf(first)).toBeNull());
+    expect(localStorage.getItem(TOUR_SEEN_KEY)).toBe('1');
+    first.unmount();
+    const again = await renderLab();
+    expect(dialogOf(again)).toBeNull();
+  });
+
+  it('reopens from the How JPEG works button and returns focus to it', async () => {
+    localStorage.setItem(TOUR_SEEN_KEY, '1');
+    const r = await renderLab();
+    expect(dialogOf(r)).toBeNull();
+    const button = r.getByRole('button', { name: 'How JPEG works' });
+    await fireEvent.click(button);
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    await key(dialog, 'Escape');
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    await vi.waitFor(() => expect(document.activeElement).toBe(button));
+  });
+
+  it('Show me in the lab carries the picture and quality', async () => {
+    const r = await renderLab();
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: /^Step 5:/ }));
+    await fireEvent.input(within(dialog).getByLabelText('Quality'), { target: { value: '20' } });
+    const show = within(dialog).getByRole('button', { name: 'Show me in the lab' }) as HTMLButtonElement;
+    await vi.waitFor(() => expect(show.disabled).toBe(false)); // the lab's picture is in
+    await fireEvent.click(show);
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    await vi.waitFor(() => expect(lastPush()[0].quality).toBe(20));
+    const q = new URLSearchParams(route.query);
+    expect(q.get('stage')).toBe('quantize');
+    expect(q.get('q')).toBe('20');
+    expect(q.get('img')).toBeNull(); // still the spring
+    expect(lastPush()[0].image_id).toBe('spring');
+    expect(localStorage.getItem(TOUR_SEEN_KEY)).toBe('1');
+    await vi.waitFor(() => expect(document.activeElement).toBe(r.getByRole('button', { name: 'How JPEG works' })));
+  });
+
+  it('Show me in the lab loads a picture chosen inside the tour', async () => {
+    const r = await renderLab();
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    const pick = within(dialog).getByLabelText('Tour picture') as HTMLSelectElement;
+    await fireEvent.change(pick, { target: { value: 'gradient' } });
+    const show = within(dialog).getByRole('button', { name: 'Show me in the lab' }) as HTMLButtonElement;
+    await vi.waitFor(() => expect(pick.value).toBe('gradient'));
+    await fireEvent.click(show);
+    await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('gradient'));
+    expect(new URLSearchParams(route.query).get('img')).toBe('gradient');
+  });
+
+  it('Escape leaves the lab as it was', async () => {
+    const r = await renderLab();
+    const before = route.query;
+    const pushesBefore = pushes().length;
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: /^Step 5:/ }));
+    await fireEvent.input(within(dialog).getByLabelText('Quality'), { target: { value: '20' } });
+    await key(dialog, 'Escape');
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    expect(lastPush()[0].quality).toBe(50);
+    expect(lastPush()[0].image_id).toBe('spring');
+    expect(pushes().length).toBe(pushesBefore);
+    expect(route.query).toBe(before);
+    expect((r.getByLabelText('Quality') as HTMLInputElement).value).toBe('50');
+  });
+
+  it('keys in the tour stay in the tour', async () => {
+    const r = await renderLab();
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    const before = route.query;
+    await key(dialog, 'ArrowRight');
+    await key(dialog, 'ArrowRight');
+    expect(route.query).toBe(before);
+    expect(route.query).not.toContain('stage=');
+    // Even an arrow aimed at the page behind the dialog is left alone while the tour is open.
+    await key(document.body, 'ArrowRight');
+    expect(route.query).toBe(before);
+    // ... and the lab hears the arrows again once it is closed.
+    await key(dialog, 'Escape');
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    await key(document.body, 'ArrowRight');
+    expect(route.query).toContain('stage=');
+  });
+
+  it('still opens when storage throws', async () => {
+    const blocked = () => {
+      throw new Error('blocked');
+    };
+    // jsdom's storage is either the real Storage or the setup polyfill's plain object; spy on whichever answers.
+    const store = window.localStorage;
+    const target = store instanceof Storage ? Storage.prototype : store;
+    const getItem = vi.spyOn(target, 'getItem').mockImplementation(blocked);
+    const setItem = vi.spyOn(target, 'setItem').mockImplementation(blocked);
+    spies.push(getItem, setItem);
+    const r = await renderLab();
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    await key(dialog, 'Escape');
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    // The blocked storage really was asked (and the tour carried on regardless).
+    expect(getItem).toHaveBeenCalled();
+    expect(setItem).toHaveBeenCalled();
   });
 });

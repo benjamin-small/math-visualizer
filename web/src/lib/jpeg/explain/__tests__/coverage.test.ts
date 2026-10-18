@@ -183,9 +183,7 @@ describe('card coverage', () => {
 
   it('registers every id in a component or the hit-test', () => {
     const sources = [...svelteFiles(componentsDir), join(lib, 'jpeg', 'explain', 'hit.ts')].map(read);
-    // Ids whose component does not register them yet.
-    const NOT_YET: Target['id'][] = ['tour.open']; // added in Task 4
-    const missing = TARGET_IDS.filter((id) => !NOT_YET.includes(id) && !sources.some((s) => new RegExp(`['"\`]${id.replace('.', '\\.')}['"\`]`).test(s)));
+    const missing = TARGET_IDS.filter((id) => !sources.some((s) => new RegExp(`['"\`]${id.replace('.', '\\.')}['"\`]`).test(s)));
     expect(missing).toEqual([]);
   });
 

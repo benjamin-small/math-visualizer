@@ -46,7 +46,9 @@ Math Visualizer is an interactive collection of mathematical visualizations buil
 >   file), then colour conversion, subsampling, blocks, the DCT, quantization (editable
 >   Q tables and a rate–distortion curve), zigzag, run-length, Huffman coding and decode
 >   (wipe, error map, artifact hints, re-save generation loss). Eleven pictures: photos,
->   memes, maths extremes and artifact tests, or upload your own. Share a view with
+>   memes, maths extremes and artifact tests, or upload your own. A nine-step guided tour
+>   opens on your first visit (and from the **How JPEG works** button) to explain the
+>   pipeline in plain words on your own picture. Share a view with
 >   `#/jpeg?img=doge&q=30&stage=dct`.
 >
 > Every lab page has the same shape: a labelled control bezel, the canvas mounted as a
