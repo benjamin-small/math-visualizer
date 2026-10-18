@@ -34,7 +34,7 @@ function qualityCard(t: Extract<Target, { id: 'tour.quality' }>): Explanation {
 function openCard(): Explanation {
   return {
     title: 'How JPEG works',
-    value: 'Nine steps',
+    value: '9 steps',
     body: 'A short walk through how a picture becomes a JPEG, using your picture.',
     consequence: 'Takes about a minute.',
     acts: true,

@@ -148,7 +148,7 @@ describe('card coverage', () => {
     // The reader gets a live number or a consequence of the current settings.
     const live = [e!.value, e!.consequence].filter((s): s is string => !!s && s.trim().length > 0);
     expect(live.length, `${id} has neither a value nor a consequence`).toBeGreaterThan(0);
-    expect(live.join(' '), `${id}: no number or setting`).toMatch(/\d|quality|chroma|Huffman|table|picture|nine/i); // "Nine steps" is the tour button's number
+    expect(live.join(' '), `${id}: no number or setting`).toMatch(/\d|quality|chroma|Huffman|table|picture/i);
   });
 
   it.each(TARGET_IDS)('keeps to the lab voice in %s', (id) => {

@@ -45,6 +45,12 @@
   const shownImage = $derived(picked?.image ?? image);
   /** Why the last picture could not be loaded. */
   let pictureError = $state('');
+  /** True while a picture is being fetched or decoded: the hand-offs would carry the old one. */
+  let loading = $state(false);
+  /** True when the encoder kit could not be loaded. */
+  let kitFailed = $state(false);
+  /** The hand-off buttons wait for a picture, and for a pending pick to land. */
+  const handoffBlocked = $derived(!shownImage || loading);
   /** Each load takes a ticket; only the latest is applied. */
   let ticket = 0;
 
@@ -61,7 +67,7 @@
         if (alive) viz = core;
       },
       () => {
-        // No kit: the steps that need the encoder keep showing their loading state.
+        if (alive) kitFailed = true;
       },
     );
     nextBtn?.focus();
@@ -77,7 +83,7 @@
 
   function handoff(stage: TourHandoff['stage']) {
     const img = shownImage;
-    if (!img) return;
+    if (!img || loading) return;
     onclose({ stage, imageId: shownId, image: img, quality: q });
   }
 
@@ -88,13 +94,16 @@
 
   async function load(get: () => Promise<RgbaImage>, id: ImageId | 'upload') {
     const mine = ++ticket;
+    loading = true;
     try {
       const img = await get();
       if (mine !== ticket) return;
       picked = { id, image: img };
       pictureError = '';
+      loading = false;
     } catch (err) {
       if (mine !== ticket) return;
+      loading = false;
       pictureError = err instanceof Error ? err.message : 'That picture could not be loaded.';
       // The select shows what the reader chose; put it back on the picture in use.
       if (pictureSelect) pictureSelect.value = shownId;
@@ -103,7 +112,13 @@
 
   function onPicture(e: Event) {
     const id = (e.currentTarget as HTMLSelectElement).value;
-    if (id === shownId || id === 'upload') return;
+    if (id === shownId || id === 'upload') {
+      // Back to the picture in use: whatever was still loading is no longer wanted.
+      ticket++;
+      loading = false;
+      pictureError = '';
+      return;
+    }
     void load(() => loadPicture(id as ImageId), id as ImageId);
   }
 
@@ -111,6 +126,22 @@
     if (!file) return;
     void load(() => decodeUpload(file), 'upload');
   }
+
+  // When the focused control goes away (Back on step 1, Next on the last step while a picture loads),
+  // focus moves to a stable control in the dialog, so keys keep reaching the dialog's own listener.
+  $effect(() => {
+    void index;
+    void handoffBlocked;
+    const root = dialogEl;
+    if (!root) return;
+    const at = document.activeElement as HTMLElement | null;
+    const lost =
+      !at ||
+      !root.contains(at) ||
+      (at as HTMLButtonElement).disabled === true ||
+      (at.closest('[aria-hidden="true"]') !== null && at !== root);
+    if (lost) (nextBtn && !nextBtn.disabled ? nextBtn : root).focus();
+  });
 
   /** The dialog's controls in tab order. */
   function focusables(): HTMLElement[] {
@@ -210,12 +241,13 @@
       </button>
     </header>
 
-    <div class="pick">
+    <div class="pick" aria-busy={loading ? 'true' : 'false'}>
       <select
         aria-label="Tour picture"
         value={shownId}
         onchange={onPicture}
         bind:this={pictureSelect}
+        aria-busy={loading ? 'true' : 'false'}
       >
         {#each GROUPS as group (group)}
           <optgroup label={GROUP_LABELS[group]}>
@@ -240,8 +272,12 @@
           input.value = '';
         }}
       />
+      {#if loading}<span class="pic-loading" role="status">Loading the picture</span>{/if}
       {#if pictureError}<p class="pic-error" role="alert">{pictureError}</p>{/if}
     </div>
+    {#if kitFailed}
+      <p class="kit-note" role="status">The pictures couldn't load, but the steps still read fine.</p>
+    {/if}
 
     <ol class="tour-strip">
       {#each TOUR_STEPS as s, i (s.id)}
@@ -294,11 +330,17 @@
     <footer class="actions">
       <button class="text-btn" type="button" onclick={() => onclose(null)}>Skip the tour</button>
       <span class="spacer"></span>
-      {#if index > 0}
-        <button class="btn" type="button" onclick={() => go(index - 1)}>Back</button>
-      {/if}
-      <button class="btn" type="button" disabled={!shownImage} onclick={() => handoff(step.stage)}>Show me in the lab</button>
-      <button class="btn primary" type="button" bind:this={nextBtn} disabled={index === LAST && !shownImage} onclick={onNext}>
+      <!-- Always in the layout, so the buttons do not jump; hidden and out of the tab order on step 1. -->
+      <button
+        class="btn"
+        type="button"
+        disabled={index === 0}
+        aria-hidden={index === 0 ? 'true' : undefined}
+        style:visibility={index === 0 ? 'hidden' : undefined}
+        onclick={() => go(index - 1)}>Back</button
+      >
+      <button class="btn" type="button" disabled={handoffBlocked} onclick={() => handoff(step.stage)}>Show me in the lab</button>
+      <button class="btn primary" type="button" bind:this={nextBtn} disabled={index === LAST && handoffBlocked} onclick={onNext}>
         {index === LAST ? 'Start exploring' : 'Next'}
       </button>
     </footer>
@@ -363,6 +405,8 @@
     font-size: 14px;
   }
   .file { display: none; }
+  .pic-loading { color: var(--stone); font-size: 13px; }
+  .kit-note { margin: 0; color: var(--stone); font-size: 13px; }
   .pic-error { flex-basis: 100%; margin: 0; color: var(--accent-deep); font-size: 13px; }
 
   /* The strip: nine steps, then the file. Arrows between the boxes are drawn with borders. */
@@ -450,17 +494,23 @@
   .text-btn:hover { color: var(--ink); }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* Phones: the strip is a row of dots, the picture sits above the words, nothing scrolls sideways. */
-  @media (max-width: 600px) {
-    .tour-dialog { padding: 16px 14px; gap: 12px; }
+  /* Narrow dialogs: the strip is a row of dots, so the headings never break mid-word. */
+  @media (max-width: 759.98px) {
     .tour-strip { gap: 10px; justify-content: center; }
     .tour-strip li { flex: 0 0 auto; }
     .tour-strip li:not(:last-child)::after { display: none; }
     .tour-strip button { position: relative; width: 14px; height: 14px; padding: 0; border-radius: 50%; }
+    /* The look stays 14 px; the touch target grows to 24 px. */
+    .tour-strip button::before { content: ''; position: absolute; inset: -5px; }
     .tour-strip button.lossy { border-bottom-width: 1px; border-color: var(--accent); }
     .tour-strip button.current { background: var(--accent); outline-offset: 2px; }
     .tour-strip .jpg { display: none; }
     .num, .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  }
+
+  /* Phones: the picture sits above the words, nothing scrolls sideways. */
+  @media (max-width: 599.98px) {
+    .tour-dialog { padding: 16px 14px; gap: 12px; }
     .tour-panel { gap: 8px; }
     .visual { order: -1; }
     .actions .spacer { flex-basis: 100%; height: 0; }

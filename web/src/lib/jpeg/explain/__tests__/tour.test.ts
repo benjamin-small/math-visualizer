@@ -29,7 +29,7 @@ describe('Tour cards', () => {
   it('describes the lab button that opens the tour', () => {
     const e = explain({ id: 'tour.open' }, makeContext({ stage: 'overview' }))!;
     expect(e.title).toBe('How JPEG works');
-    expect(e.value).toBe('Nine steps');
+    expect(e.value).toBe('9 steps');
     expect(e.acts).toBe(true);
   });
 });
