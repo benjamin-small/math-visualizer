@@ -55,6 +55,7 @@
     quality: number;
     subsampling: SubsamplingId;
     huffman: HuffmanId;
+    viz: VizCore;
     rgba: Uint8Array;
     bytes: number;
   }
@@ -84,17 +85,20 @@
 
   // ---- the encoder, for round, codes and open ----
 
+  type Settings = Pick<Encoded, 'image' | 'quality' | 'subsampling' | 'huffman'>;
   const NEEDS_KIT: readonly TourStepId[] = ['round', 'codes', 'open'];
   /** The last encode that arrived. Raw state: the picture must stay the object it was. */
   let encoded = $state.raw<Encoded | null>(null);
+  /** The settings of the newest request that failed, if nothing newer has been asked since. */
+  let failedJob = $state.raw<Settings | null>(null);
   /** The settings of the newest request, so a step change doesn't ask twice. */
-  let requested: Omit<Encoded, 'rgba' | 'bytes'> | null = null;
+  let requested: Settings | null = null;
 
-  const sameSettings = (a: Omit<Encoded, 'rgba' | 'bytes'>, b: Omit<Encoded, 'rgba' | 'bytes'>) =>
+  const sameSettings = (a: Settings, b: Settings) =>
     a.image === b.image && a.quality === b.quality && a.subsampling === b.subsampling && a.huffman === b.huffman;
 
   const encode = latestOnly(
-    async (job: Omit<Encoded, 'rgba' | 'bytes'> & { viz: VizCore }): Promise<Encoded> => {
+    async (job: Settings & { viz: VizCore }): Promise<Encoded> => {
       try {
         const { viz: kit, image: img, quality: q, subsampling: s, huffman: h } = job;
         // The kit is synchronous; going through a promise keeps a burst of requests collapsible.
@@ -102,9 +106,13 @@
         const stats = await Promise.resolve().then(
           () => kit.jpeg_encode_stats(img.rgba, img.w, img.h, q, s, h) as { bytes: number; psnr: number },
         );
-        return { image: img, quality: q, subsampling: s, huffman: h, rgba, bytes: stats.bytes };
+        return { image: img, quality: q, subsampling: s, huffman: h, viz: kit, rgba, bytes: stats.bytes };
       } catch (e) {
-        requested = null; // let the next change try again
+        // Only the newest request's failure matters; the next change (or step) tries again.
+        if (requested && sameSettings(requested, job)) {
+          requested = null;
+          failedJob = { image: job.image, quality: job.quality, subsampling: job.subsampling, huffman: job.huffman };
+        }
         throw e;
       }
     },
@@ -118,18 +126,25 @@
     const job = { image, quality, subsampling, huffman };
     untrack(() => {
       if (requested && sameSettings(requested, job)) return;
-      if (encoded && sameSettings(encoded, job)) return;
+      if (encoded && encoded.viz === viz && sameSettings(encoded, job)) return;
       requested = job;
       encode({ ...job, viz });
     });
   });
 
-  const fresh = $derived(
-    encoded && image && sameSettings(encoded, { image, quality, subsampling, huffman }) ? encoded : null,
+  /** The newest encode for this picture and kit: shown (with its own settings) until a newer one lands. */
+  const shown = $derived(encoded && image && viz && encoded.image === image && encoded.viz === viz ? encoded : null);
+  /** The picture on show is for older settings than the sliders; a newer one is on its way. */
+  const stale = $derived(!!shown && !sameSettings(shown, { image: shown.image, quality, subsampling, huffman }));
+  /** The newest request failed. */
+  const failed = $derived(
+    !!failedJob && !!image && sameSettings(failedJob, { image, quality, subsampling, huffman }),
   );
 
   const needsKit = $derived(NEEDS_KIT.includes(step));
-  const busy = $derived(!image || (needsKit && (!viz || !fresh)));
+  /** Waiting for the picture, or (on an encoder step) for the first result: later changes keep the last result on show. */
+  const busy = $derived(!image || (needsKit && !failed && (!viz || !shown)));
+  const broken = $derived(needsKit && failed && !!viz);
 
   // ---- what each step works out from the picture ----
 
@@ -189,17 +204,17 @@
       case 'tiles':
         return tilesPic ? [tilesPic] : [];
       case 'round':
-        return fresh
+        return shown
           ? [
               { label: 'Before', aria: 'The picture before rounding', img, scale: 1 },
-              { label: 'After', aria: `The picture after rounding at quality ${quality}`, img: { w: img.w, h: img.h, rgba: fresh.rgba }, scale: 1 },
+              { label: 'After', aria: `The picture after rounding at quality ${shown.quality}`, img: { w: img.w, h: img.h, rgba: shown.rgba }, scale: 1 },
             ]
           : [];
       case 'open':
-        return fresh
+        return shown
           ? [
               { label: 'Original', aria: 'The original picture', img, scale: 1 },
-              { label: 'Opened JPEG', aria: `The JPEG opened again, made at quality ${quality}`, img: { w: img.w, h: img.h, rgba: fresh.rgba }, scale: 1 },
+              { label: 'Opened JPEG', aria: `The JPEG opened again, made at quality ${shown.quality}`, img: { w: img.w, h: img.h, rgba: shown.rgba }, scale: 1 },
             ]
           : [];
       default:
@@ -246,7 +261,7 @@
 
   const rawBytes = $derived(image ? image.w * image.h * 3 : 0);
   /** The longer of the two bars is the full width. */
-  const barScale = $derived(Math.max(rawBytes, fresh?.bytes ?? 0, 1));
+  const barScale = $derived(Math.max(rawBytes, shown?.bytes ?? 0, 1));
   const share = (n: number) => `${Math.max(0.5, (100 * n) / barScale)}%`;
 
   /** Draw a picture into its canvas (nothing to draw on where canvas drawing is missing). */
@@ -280,9 +295,11 @@
   ></canvas>
 {/snippet}
 
-<figure class="tour-visual" data-step={step} aria-busy={busy ? 'true' : 'false'}>
+<figure class="tour-visual" class:stale={needsKit && stale} data-step={step} aria-busy={busy ? 'true' : 'false'}>
   {#if busy}
     <p class="busy">Getting the picture ready</p>
+  {:else if broken}
+    <p class="busy">Couldn't make this picture.</p>
   {:else if step === 'waves' && waves}
     <div class="wave-row">
       <div class="pic zoom">{@render canvasOf(waves.zoom)}</div>
@@ -312,7 +329,7 @@
         <span class="chip end">end</span>
       {/if}
     </div>
-  {:else if step === 'codes' && fresh}
+  {:else if step === 'codes' && shown}
     <div class="bars">
       <div class="bar-row">
         <span class="what">Raw pixels</span>
@@ -321,12 +338,12 @@
       </div>
       <div class="bar-row">
         <span class="what">JPEG file</span>
-        <span class="track"><span class="bar file" style:width={share(fresh.bytes)}></span></span>
-        <span class="size mono">{formatBytes(fresh.bytes)}</span>
+        <span class="track"><span class="bar file" style:width={share(shown.bytes)}></span></span>
+        <span class="size mono">{formatBytes(shown.bytes)}</span>
       </div>
     </div>
-    {#if fresh.bytes > 0}
-      <figcaption>{(rawBytes / fresh.bytes).toFixed(1)} times smaller</figcaption>
+    {#if shown.bytes > 0}
+      <figcaption>{(rawBytes / shown.bytes).toFixed(1)} times smaller</figcaption>
     {/if}
   {:else}
     <div class="panels">
@@ -339,10 +356,10 @@
     </div>
     {#if step === 'share'}
       <figcaption>Exaggerated: colour shared over 4 × 4 pixels (JPEG uses 2 × 2).</figcaption>
-    {:else if step === 'round' && fresh}
-      <figcaption>Quality {quality} · {formatBytes(fresh.bytes)}</figcaption>
-    {:else if step === 'open' && fresh}
-      <figcaption>{formatBytes(Math.max(0, rawBytes - fresh.bytes))} saved</figcaption>
+    {:else if step === 'round' && shown}
+      <figcaption>Quality {shown.quality} · {formatBytes(shown.bytes)}</figcaption>
+    {:else if step === 'open' && shown}
+      <figcaption>{formatBytes(Math.max(0, rawBytes - shown.bytes))} saved</figcaption>
     {/if}
   {/if}
 </figure>
@@ -358,6 +375,7 @@
     font-size: 13px;
   }
   .busy { margin: 0; padding: 32px 0; color: var(--stone); }
+  .stale .panels, .stale .bars { opacity: 0.6; transition: opacity 0.15s; }
   figcaption { color: var(--stone); text-align: center; line-height: 1.4; }
 
   .panels, .wave-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; width: 100%; }
