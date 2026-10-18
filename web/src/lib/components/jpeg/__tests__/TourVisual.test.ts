@@ -154,17 +154,123 @@ describe('TourVisual.svelte', () => {
     expect(decode).toHaveBeenCalledTimes(2);
   });
 
-  it('ends on the last quality after a burst of changes', async () => {
-    const { viz, decode } = stubViz((q) => ({ bytes: 100 * q, psnr: 30 }));
+  it('ends on the last quality after a burst of changes, one encode at a time', async () => {
+    // Each decode waits to be resolved by hand, so the runs finish when the test says.
+    const waiting: { q: number; done: () => void }[] = [];
+    let inFlight = 0;
+    let worst = 0;
+    const decode = vi.fn((rgba: Uint8Array, _w: number, _h: number, q: number) => {
+      inFlight++;
+      worst = Math.max(worst, inFlight);
+      return new Promise<Uint8Array>((resolve) => {
+        waiting.push({
+          q,
+          done: () => {
+            inFlight--;
+            resolve(rgba);
+          },
+        });
+      });
+    });
+    const viz = {
+      jpeg_encode_decode: decode,
+      jpeg_encode_stats: vi.fn((_r: Uint8Array, _w: number, _h: number, q: number) => ({ bytes: 100 * q, psnr: 30 })),
+    } as unknown as VizCore;
     const { container, rerender } = render(TourVisual, { step: 'round', ...base, viz, quality: 50 });
-    await rerender({ step: 'round', ...base, viz, quality: 40 });
-    await rerender({ step: 'round', ...base, viz, quality: 30 });
-    await rerender({ step: 'round', ...base, viz, quality: 20 });
+    await settle();
+    for (const q of [40, 30, 20]) await rerender({ step: 'round', ...base, viz, quality: q });
+    await settle();
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(waiting.map((w) => w.q)).toEqual([50]);
+
+    // The first run ends, but a newer request is waiting, so its result is not shown.
+    waiting[0].done();
+    await settle();
+    expect(container.textContent).not.toContain('Quality 50');
+    expect(decode).toHaveBeenCalledTimes(2);
+    expect(waiting.map((w) => w.q)).toEqual([50, 20]);
+
+    waiting[1].done();
     await settle();
     const cap = container.querySelector('figcaption')!.textContent!;
     expect(cap).toContain('Quality 20');
     expect(cap).toContain('2.0 KB');
-    expect(decode.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(container.textContent).not.toContain('Quality 50');
+    expect(worst).toBe(1);
+  });
+
+  it('keeps the last picture and its caption on show while a new one is made', async () => {
+    const waiting: (() => void)[] = [];
+    const decode = vi.fn(
+      (rgba: Uint8Array) =>
+        new Promise<Uint8Array>((resolve) => {
+          waiting.push(() => resolve(rgba));
+        }),
+    );
+    const viz = {
+      jpeg_encode_decode: decode,
+      jpeg_encode_stats: vi.fn((_r: Uint8Array, _w: number, _h: number, q: number) => ({ bytes: 1024 * (q / 10), psnr: 30 })),
+    } as unknown as VizCore;
+    const { container, rerender } = render(TourVisual, { step: 'round', ...base, viz, quality: 50 });
+    const root = () => container.querySelector('.tour-visual')!;
+    await settle();
+    expect(root().getAttribute('aria-busy')).toBe('true');
+    waiting[0]();
+    await settle();
+    expect(root().getAttribute('aria-busy')).toBe('false');
+    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 50 · 5.0 KB');
+
+    await rerender({ step: 'round', ...base, viz, quality: 30 });
+    await settle();
+    expect(decode).toHaveBeenCalledTimes(2);
+    expect(root().getAttribute('aria-busy')).toBe('false');
+    expect(container.textContent).not.toContain('Getting the picture ready');
+    expect(container.querySelectorAll('canvas')).toHaveLength(2);
+    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 50 · 5.0 KB');
+
+    waiting[1]();
+    await settle();
+    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 30 · 3.0 KB');
+    expect(root().getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('says so when the picture cannot be made, and tries again on the next change', async () => {
+    let fail = true;
+    const decode = vi.fn((rgba: Uint8Array) => {
+      if (fail) throw new Error('boom');
+      return rgba;
+    });
+    const viz = {
+      jpeg_encode_decode: decode,
+      jpeg_encode_stats: vi.fn(() => ({ bytes: 4096, psnr: 32 })),
+    } as unknown as VizCore;
+    const { container, rerender } = render(TourVisual, { step: 'round', ...base, viz });
+    await settle();
+    const root = container.querySelector('.tour-visual')!;
+    expect(root.getAttribute('aria-busy')).toBe('false');
+    expect(container.textContent).toContain("Couldn't make this picture.");
+    expect(container.textContent).not.toContain('Getting the picture ready');
+
+    fail = false;
+    await rerender({ step: 'round', ...base, viz, quality: 60 });
+    await settle();
+    expect(container.textContent).not.toContain("Couldn't make this picture.");
+    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 60 · 4.0 KB');
+  });
+
+  it.each(['round', 'codes', 'open'] as TourStepId[])('%s is busy while the kit is missing', (step) => {
+    const { container } = render(TourVisual, { step, ...base, viz: null });
+    expect(container.querySelector('.tour-visual')!.getAttribute('aria-busy')).toBe('true');
+    expect(container.textContent).toContain('Getting the picture ready');
+  });
+
+  it.each(['codes', 'open'] as TourStepId[])('%s is no longer busy once its result arrives', async (step) => {
+    const { viz } = stubViz();
+    const { container } = render(TourVisual, { step, ...base, viz });
+    expect(container.querySelector('.tour-visual')!.getAttribute('aria-busy')).toBe('true');
+    await settle();
+    expect(container.querySelector('.tour-visual')!.getAttribute('aria-busy')).toBe('false');
+    expect(container.querySelector('figcaption')).toBeTruthy();
   });
 
   it('paints the picture, and the grid over it, when the canvas can draw', () => {
