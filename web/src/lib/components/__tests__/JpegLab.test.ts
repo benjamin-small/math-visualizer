@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import {
   installRafPolyfill,
   dispatchSpy,
@@ -1646,5 +1647,99 @@ describe('the guided tour', () => {
     // The blocked storage really was asked (and the tour carried on regardless).
     expect(getItem).toHaveBeenCalled();
     expect(setItem).toHaveBeenCalled();
+    // Another lab and back, in the same page view: the tour stays closed.
+    navigate('fourier', '');
+    await vi.waitFor(() => expect(r.queryByRole('button', { name: 'How JPEG works' })).toBeNull());
+    navigate('jpeg', '');
+    await vi.waitFor(() => r.getByRole('button', { name: 'How JPEG works' }));
+    await tick();
+    expect(dialogOf(r)).toBeNull();
+  });
+
+  it('draws over the page from the end of the body, and leaves the cards working when it closes', async () => {
+    const r = await renderLab();
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    const backdrop = dialog.closest('.tour-backdrop')!;
+    expect(backdrop.parentElement).toBe(document.body);
+    expect(r.container.querySelector('.story .tour-backdrop')).toBeNull();
+    await key(dialog, 'Escape');
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    expect(document.querySelector('.tour-backdrop')).toBeNull();
+    // Focus is back on "How JPEG works", and its card still shows, from the body too.
+    const button = r.getByRole('button', { name: 'How JPEG works' });
+    await vi.waitFor(() => expect(document.activeElement).toBe(button));
+    const card = await vi.waitFor(() => {
+      const el = document.querySelector('[data-testid="tooltip-hover"]');
+      expect(el).toBeTruthy();
+      return el!;
+    });
+    expect(card.parentElement).toBe(document.body);
+    expect(card.textContent).toContain('How JPEG works');
+  });
+
+  it('closes the How JPEG works card when the tour opens', async () => {
+    localStorage.setItem(TOUR_SEEN_KEY, '1');
+    const r = await renderLab();
+    const button = r.getByRole('button', { name: 'How JPEG works' });
+    button.focus();
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="tooltip-hover"]')).toBeTruthy());
+    await fireEvent.click(button);
+    await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    await tick();
+    expect(document.querySelector('[data-testid="tooltip-hover"]')).toBeNull();
+  });
+
+  it('keeps a hand-off made before the lab is ready', async () => {
+    const { loadVizCore } = await import('../../wasm/loader');
+    const { makeVizMock } = await import('../../test/fakeViz');
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => (release = resolve));
+    vi.mocked(loadVizCore).mockImplementation(() => ready.then(() => makeVizMock()));
+    try {
+      navigate('jpeg', '');
+      const r = render(App);
+      // On a first visit the tour opens before the engine; the reader picks a picture and hands it over.
+      const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+      const pick = within(dialog).getByLabelText('Tour picture') as HTMLSelectElement;
+      await fireEvent.change(pick, { target: { value: 'gradient' } });
+      const show = within(dialog).getByRole('button', { name: 'Show me in the lab' }) as HTMLButtonElement;
+      await vi.waitFor(() => expect(show.disabled).toBe(false));
+      await fireEvent.click(show);
+      await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+      expect(pushes()).toHaveLength(0);
+      release();
+      await vi.waitFor(() => expect(pushes().length).toBeGreaterThan(0));
+      await new Promise((done) => setTimeout(done, 30));
+      // The link's own picture (the spring) does not replace the one handed over.
+      expect(pushes().map((p) => p[0].image_id)).toEqual(['gradient']);
+      const q = new URLSearchParams(route.query);
+      expect(q.get('img')).toBe('gradient');
+      expect(q.get('stage')).toBe('color');
+    } finally {
+      vi.mocked(loadVizCore).mockImplementation(() => Promise.resolve(makeVizMock()));
+    }
+  });
+
+  it("Show me in the lab keeps the lab's own upload, and its block, as they are", async () => {
+    localStorage.setItem(TOUR_SEEN_KEY, '1');
+    const r = await renderLab('stage=blocks');
+    vi.mocked(decodeUpload).mockImplementationOnce(async () => ({ w: 64, h: 48, rgba: new Uint8Array(64 * 48 * 4).fill(90) }));
+    const input = r.container.querySelector('input[type="file"]') as HTMLInputElement;
+    await fireEvent.change(input, { target: { files: [new File(['x'], 'x.png', { type: 'image/png' })] } });
+    await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('upload'));
+    // Pick a block, so a reload (which forgets it) would show.
+    await fireEvent.keyDown(await vi.waitFor(() => r.getByRole('button', { name: /Pick a block/ })), { key: 'ArrowLeft' });
+    const block = new URLSearchParams(route.query).get('b');
+    expect(block).toBeTruthy();
+    const decodes = vi.mocked(decodeUpload).mock.calls.length;
+    await fireEvent.click(r.getByRole('button', { name: 'How JPEG works' }));
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    const show = within(dialog).getByRole('button', { name: 'Show me in the lab' }) as HTMLButtonElement;
+    await fireEvent.click(show);
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    await vi.waitFor(() => expect(new URLSearchParams(route.query).get('stage')).toBe('color'));
+    expect(lastPush()[0].image_id).toBe('upload');
+    expect(new URLSearchParams(route.query).get('b')).toBe(block);
+    expect(vi.mocked(decodeUpload).mock.calls.length).toBe(decodes);
   });
 });

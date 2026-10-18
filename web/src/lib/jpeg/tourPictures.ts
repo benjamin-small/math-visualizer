@@ -1,6 +1,6 @@
 // The tour's picture maths: split a picture into brightness and colour, share colour over
-// squares, find a busy tile, take one tile through the 8 × 8 wave transform and rounding, and
-// count its zeros. Pure functions on pixels; the dialog does the drawing.
+// squares, find a busy tile and crop the tiles around it, take one tile through the 8 × 8 wave
+// transform and rounding, and count its zeros. Pure functions on pixels; the dialog does the drawing.
 import { rgbToYcbcr } from './explain/bezel';
 import { roundHalfAway, scaleTable, STD_LUMA, ZIGZAG } from './explain/quality';
 import type { RgbaImage } from './images';
@@ -102,6 +102,44 @@ export function busiestTile(img: RgbaImage): [number, number] {
     }
   }
   return best;
+}
+
+/** A rectangle of pixels in a picture. */
+export interface Crop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One axis of `tileCrop`: where the window starts and how long it is. */
+function cropSpan(size: number, tile: number, count: number): [number, number] {
+  const n = Math.max(1, Math.trunc(count));
+  const tiles = Math.ceil(size / 8);
+  const start = (tile - Math.floor(n / 2)) * 8;
+  const at = Math.min(Math.max(0, start), Math.max(0, (tiles - n) * 8));
+  return [at, Math.min(n * 8, size - at)];
+}
+
+/**
+ * A window `cols` tiles wide and `rows` tiles tall, centred on tile `(bx, by)` as far as the picture
+ * allows. It starts on the tile grid, stays inside the picture (so it can be smaller at an edge, or
+ * the whole of a picture smaller than the window), and always holds the tile.
+ */
+export function tileCrop(img: { w: number; h: number }, bx: number, by: number, cols: number, rows: number): Crop {
+  const [x, w] = cropSpan(img.w, bx, cols);
+  const [y, h] = cropSpan(img.h, by, rows);
+  return { x, y, w, h };
+}
+
+/** The pixels of `c`, which must lie inside `img`, as a picture of their own. */
+export function cropImage(img: RgbaImage, c: Crop): RgbaImage {
+  const rgba = new Uint8Array(c.w * c.h * 4);
+  for (let j = 0; j < c.h; j++) {
+    const from = ((c.y + j) * img.w + c.x) * 4;
+    rgba.set(img.rgba.subarray(from, from + c.w * 4), j * c.w * 4);
+  }
+  return { w: c.w, h: c.h, rgba };
 }
 
 /** The 64 Y values of tile `(bx, by)`, row-major; reads past the picture's edge repeat its last row or column. */

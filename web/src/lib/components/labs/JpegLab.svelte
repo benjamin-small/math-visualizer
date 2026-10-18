@@ -119,6 +119,8 @@
   /** The guided tour is open: on the first visit it opens by itself, and the header button opens it again. */
   let tourOpen = $state(!tourSeen());
   let howButton: HTMLButtonElement | null = null;
+  /** The tour handed a picture over before the engine was ready: the link's own picture must not replace it. */
+  let handedOff = false;
   /** Hit-tests the canvas for the stage (set once the engine is ready). */
   let stageCards: ReturnType<typeof tooltip> | undefined;
   /** The shell's own controls (transport buttons, position readout, speed slider): the shell owns them, so they get their cards here once the page is up. */
@@ -635,7 +637,9 @@
     tourOpen = false;
     if (h) {
       quality = h.quality;
-      if (h.imageId !== imageId || h.imageId === 'upload') {
+      // The lab's own picture (its upload too) is only encoded again, so its block and scan stay.
+      if (h.image !== image) {
+        if (!api) handedOff = true;
         await loadImage(() => Promise.resolve(h.image), h.imageId);
       } else {
         encode();
@@ -695,6 +699,13 @@
     }
     // Until the first picture is in, draw nothing (the viz would otherwise show its own stand-in gradient).
     a.patchVizConfig({ panels: toDevicePanels(BLANK_PANELS, 1) });
+    if (handedOff) {
+      // The tour handed a picture over while the engine was loading: encode that one (if it is
+      // still being read, its own load encodes it when it lands).
+      encode();
+      pushLayout();
+      return;
+    }
     const fellBack = await loadImage(() => firstPicture, linked.img, linked.block);
     // Rewrite junk in the link to what loaded, but not a link whose picture could not be had.
     if (!fellBack && route.query !== currentQuery()) syncUrl();
@@ -1121,7 +1132,7 @@
   {/snippet}
 
   {#snippet story()}
-    <!-- The cards are fixed to the viewport; they live here, clear of the stage's stacking, so the page header never covers one. -->
+    <!-- The tour and the cards move themselves to the end of <body>, clear of the lab's stacking and story styles, so the page header never covers them. -->
     {#if tourOpen}
       <JpegTour {imageId} {image} {quality} {subsampling} {huffman} {ctl} onclose={onTourClose} />
     {/if}

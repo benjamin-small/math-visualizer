@@ -2,8 +2,10 @@
   // One tour step's picture. Most steps are worked out from the picture alone (split the
   // brightness from the colour, share colour, cut into tiles, describe a tile as waves, line
   // the numbers up, count the zeros); three need the real encoder (round, codes, open). The
-  // encoder is asked through `latestOnly`, so a burst of quality changes ends on the last
-  // value, and its result is kept so moving between those three steps doesn't encode again.
+  // encoder is asked through `latestOnly`, after waiting a frame, so a slider drag ends on the
+  // last value, and its result is kept so moving between those three steps doesn't encode again.
+  // Pictures with 8-pixel detail (the tiles, before and after rounding) show a zoomed-in crop
+  // around the busiest tile at a whole-number scale, so the detail stays visible.
   import { untrack } from 'svelte';
   import type { RgbaImage } from '../../jpeg/images';
   import type { HuffmanId, SubsamplingId } from '../../jpeg/params';
@@ -14,11 +16,14 @@
     busiestTile,
     colourImage,
     countZeros,
+    cropImage,
     fdct8,
     shareColour,
     strongestPatterns,
+    tileCrop,
     tileLuma,
     tileNumbers,
+    type Crop,
   } from '../../jpeg/tourPictures';
   import type { VizCore } from '../../wasm/loader';
 
@@ -35,9 +40,18 @@
     huffman: HuffmanId;
     /** The encoder, or null while it loads. */
     viz: VizCore | null;
+    /** True when the encoder could not be loaded: its steps say so instead of waiting. */
+    kitFailed?: boolean;
   }
 
-  let { step, image, quality, subsampling, huffman, viz }: Props = $props();
+  let { step, image, quality, subsampling, huffman, viz, kitFailed = false }: Props = $props();
+
+  /** The largest a picture is drawn, in canvas pixels (CSS may show it smaller to fit). */
+  const CAP = 200;
+  /** The widest the single tiles picture is drawn. */
+  const WIDE_CAP = 360;
+  /** The whole-number enlargement that fits a `w × h` picture in `maxW × maxH` (at least 1). */
+  const fit = (w: number, h: number, maxW: number, maxH: number) => Math.max(1, Math.floor(Math.min(maxW / w, maxH / h)));
 
   /** One picture on a canvas: the pixels, how much to enlarge them, and anything drawn over them. */
   interface Pic {
@@ -59,6 +73,21 @@
     rgba: Uint8Array;
     bytes: number;
   }
+
+  /** The longest an encode waits for a frame: a hidden or occluded page may not draw frames at all. */
+  const FRAME_WAIT_MS = 50;
+  /** Wait for the next frame (or at most FRAME_WAIT_MS where frames are missing or paused), so the inputs of a drag collapse. */
+  const nextFrame = () =>
+    new Promise<void>((resolve) => {
+      let frame = 0;
+      const done = () => {
+        clearTimeout(timer);
+        if (frame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+        resolve();
+      };
+      const timer = setTimeout(done, FRAME_WAIT_MS);
+      if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(done);
+    });
 
   /** The signed whole number as people write it: a real minus sign. */
   const num = (n: number) => (n < 0 ? `−${-n}` : `${n}`);
@@ -101,11 +130,11 @@
     async (job: Settings & { viz: VizCore }): Promise<Encoded> => {
       try {
         const { viz: kit, image: img, quality: q, subsampling: s, huffman: h } = job;
-        // The kit is synchronous; going through a promise keeps a burst of requests collapsible.
-        const rgba = await Promise.resolve().then(() => kit.jpeg_encode_decode(img.rgba, img.w, img.h, q, s, h));
-        const stats = await Promise.resolve().then(
-          () => kit.jpeg_encode_stats(img.rgba, img.w, img.h, q, s, h) as { bytes: number; psnr: number },
-        );
+        // The kit is synchronous and a drag fires an input every few milliseconds: waiting a frame
+        // lets the inputs that arrive meanwhile replace each other, so only the newest is encoded next.
+        await nextFrame();
+        const rgba = await kit.jpeg_encode_decode(img.rgba, img.w, img.h, q, s, h);
+        const stats = kit.jpeg_encode_stats(img.rgba, img.w, img.h, q, s, h) as { bytes: number; psnr: number };
         return { image: img, quality: q, subsampling: s, huffman: h, viz: kit, rgba, bytes: stats.bytes };
       } catch (e) {
         // Only the newest request's failure matters; the next change (or step) tries again.
@@ -143,26 +172,32 @@
 
   const needsKit = $derived(NEEDS_KIT.includes(step));
   /** Waiting for the picture, or (on an encoder step) for the first result: later changes keep the last result on show. */
-  const busy = $derived(!image || (needsKit && !failed && (!viz || !shown)));
-  const broken = $derived(needsKit && failed && !!viz);
+  const busy = $derived(!image || (needsKit && !failed && !kitFailed && (!viz || !shown)));
+  const broken = $derived(needsKit && (kitFailed || (failed && !!viz)));
 
   // ---- what each step works out from the picture ----
 
   const tile = $derived<[number, number] | null>(image ? busiestTile(image) : null);
 
-  /** The picture drawn enlarged so the 8-pixel grid shows; the busiest tile is outlined. */
+  /** The crop around the busiest tile for the before-and-after steps, and its enlargement. */
+  const pairCrop = $derived<Crop | null>(image && tile ? tileCrop(image, tile[0], tile[1], 5, 5) : null);
+  const pairScale = $derived(pairCrop ? fit(pairCrop.w, pairCrop.h, CAP, CAP) : 1);
+
+  /** A crop of the tiles around the busiest one, enlarged so the 8-pixel grid shows; the busiest tile is outlined. */
   const tilesPic = $derived.by<Pic | null>(() => {
     if (step !== 'tiles' || !image || !tile) return null;
     const [bx, by] = tile;
-    const img = image;
-    const scale = Math.max(1, Math.floor(480 / Math.max(img.w, img.h)));
+    const crop = tileCrop(image, bx, by, 9, 5);
+    const img = cropImage(image, crop);
     return {
-      aria: `The picture cut into 8 by 8 pixel tiles; the busiest tile is outlined, column ${bx + 1}, row ${by + 1}`,
+      aria: `A zoomed-in part of the picture cut into 8 by 8 pixel tiles; the busiest tile is outlined, column ${bx + 1}, row ${by + 1}`,
       img,
-      scale,
+      scale: fit(img.w, img.h, WIDE_CAP, CAP),
+      pixelated: true,
       overlay: (ctx, s) => {
         const step8 = 8 * s;
         ctx.beginPath();
+        // The crop starts on the tile grid, so its lines fall every 8 pixels from its corner.
         for (let x = step8; x < img.w * s; x += step8) {
           ctx.moveTo(x + 0.5, 0);
           ctx.lineTo(x + 0.5, img.h * s);
@@ -177,11 +212,13 @@
         ctx.lineWidth = 1;
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
         ctx.stroke();
-        const w = Math.min(img.w - bx * 8, 8) * s;
-        const h = Math.min(img.h - by * 8, 8) * s;
+        const tx = bx * 8 - crop.x;
+        const ty = by * 8 - crop.y;
+        const w = Math.min(img.w - tx, 8) * s;
+        const h = Math.min(img.h - ty, 8) * s;
         ctx.lineWidth = 3;
         ctx.strokeStyle = '#ffd43b';
-        ctx.strokeRect(bx * step8 + 1.5, by * step8 + 1.5, w - 3, h - 3);
+        ctx.strokeRect(tx * s + 1.5, ty * s + 1.5, w - 3, h - 3);
       },
     };
   });
@@ -190,32 +227,45 @@
   const pics = $derived.by<Pic[]>(() => {
     if (!image) return [];
     const img = image;
+    // A whole picture is drawn at its own size, or enlarged by a whole number when it is tiny.
+    const whole = fit(img.w, img.h, CAP, CAP);
+    /** The same zoomed-in crop of the picture and of what the encoder gave back. */
+    const pair = (enc: Encoded, before: [string, string], after: [string, string]): Pic[] => {
+      const crop = pairCrop ?? { x: 0, y: 0, w: img.w, h: img.h };
+      const scale = pairScale;
+      return [
+        { label: before[0], aria: before[1], img: cropImage(img, crop), scale, pixelated: true },
+        { label: after[0], aria: after[1], img: cropImage({ w: img.w, h: img.h, rgba: enc.rgba }, crop), scale, pixelated: true },
+      ];
+    };
     switch (step) {
       case 'split':
         return [
-          { label: 'Brightness', aria: 'The picture as brightness alone', img: brightnessImage(img), scale: 1 },
-          { label: 'Colour', aria: 'The picture as colour alone', img: colourImage(img), scale: 1 },
+          { label: 'Brightness', aria: 'The picture as brightness alone', img: brightnessImage(img), scale: whole },
+          { label: 'Colour', aria: 'The picture as colour alone', img: colourImage(img), scale: whole },
         ];
       case 'share':
         return [
-          { label: 'Before', aria: 'The picture before colour is shared', img, scale: 1 },
-          { label: 'Colour shared', aria: 'The picture with colour shared over 4 by 4 pixels', img: shareColour(img, 4), scale: 1 },
+          { label: 'Before', aria: 'The picture before colour is shared', img, scale: whole },
+          { label: 'Colour shared', aria: 'The picture with colour shared over 4 by 4 pixels', img: shareColour(img, 4), scale: whole },
         ];
       case 'tiles':
         return tilesPic ? [tilesPic] : [];
       case 'round':
         return shown
-          ? [
-              { label: 'Before', aria: 'The picture before rounding', img, scale: 1 },
-              { label: 'After', aria: `The picture after rounding at quality ${shown.quality}`, img: { w: img.w, h: img.h, rgba: shown.rgba }, scale: 1 },
-            ]
+          ? pair(
+              shown,
+              ['Before', 'A zoomed-in part of the picture before rounding'],
+              ['After', `The same part after rounding at quality ${shown.quality}`],
+            )
           : [];
       case 'open':
         return shown
-          ? [
-              { label: 'Original', aria: 'The original picture', img, scale: 1 },
-              { label: 'Opened JPEG', aria: `The JPEG opened again, made at quality ${shown.quality}`, img: { w: img.w, h: img.h, rgba: shown.rgba }, scale: 1 },
-            ]
+          ? pair(
+              shown,
+              ['Original', 'A zoomed-in part of the original picture'],
+              ['Opened JPEG', `The same part of the JPEG opened again, made at quality ${shown.quality}`],
+            )
           : [];
       default:
         return [];
@@ -228,7 +278,7 @@
     const luma = tileLuma(image, tile[0], tile[1]);
     const patterns = strongestPatterns(fdct8(luma.map((v) => v - 128)), 4);
     return {
-      zoom: { aria: 'The busiest tile, enlarged', img: grey(luma, (i) => luma[i]), scale: 1, pixelated: true } satisfies Pic,
+      zoom: { aria: 'The busiest tile, enlarged', img: grey(luma, (i) => luma[i]), scale: 15, pixelated: true } satisfies Pic,
       waves: patterns.map((p) => {
         const amount = Math.round(p.amount);
         return {
@@ -236,7 +286,7 @@
           pic: {
             aria: `A wave pattern, ${p.u} across and ${p.v} down, in an amount of ${num(amount)}`,
             img: waveImage(p.u, p.v),
-            scale: 1,
+            scale: 7,
             pixelated: true,
           } satisfies Pic,
         };
@@ -264,9 +314,15 @@
   const barScale = $derived(Math.max(rawBytes, shown?.bytes ?? 0, 1));
   const share = (n: number) => `${Math.max(0.5, (100 * n) / barScale)}%`;
 
-  /** Draw a picture into its canvas (nothing to draw on where canvas drawing is missing). */
+  /**
+   * Size a canvas for its picture and draw it (nothing to draw on where canvas drawing is missing).
+   * The size is set here, not in the markup, so a canvas reused for a picture of another size is
+   * never cleared by a late attribute change after it was drawn.
+   */
   function paint(node: HTMLCanvasElement, pic: Pic) {
     const draw = (p: Pic) => {
+      node.width = p.img.w * p.scale;
+      node.height = p.img.h * p.scale;
       const ctx = node.getContext('2d');
       if (!ctx) return;
       const src = document.createElement('canvas');
@@ -286,13 +342,7 @@
 </script>
 
 {#snippet canvasOf(p: Pic)}
-  <canvas
-    aria-label={p.aria}
-    class:pixelated={p.pixelated}
-    width={p.img.w * p.scale}
-    height={p.img.h * p.scale}
-    use:paint={p}
-  ></canvas>
+  <canvas aria-label={p.aria} class:pixelated={p.pixelated} use:paint={p}></canvas>
 {/snippet}
 
 <figure class="tour-visual" class:stale={needsKit && stale} data-step={step} aria-busy={busy ? 'true' : 'false'}>
@@ -348,7 +398,7 @@
   {:else}
     <div class="panels">
       {#each pics as p, i (i)}
-        <div class="pic" class:wide={pics.length === 1}>
+        <div class="pic">
           {@render canvasOf(p)}
           {#if p.label}<span class="label">{p.label}</span>{/if}
         </div>
@@ -356,39 +406,55 @@
     </div>
     {#if step === 'share'}
       <figcaption>Exaggerated: colour shared over 4 × 4 pixels (JPEG uses 2 × 2).</figcaption>
+    {:else if step === 'tiles'}
+      <figcaption>Zoomed in: each square is one 8 × 8 tile.</figcaption>
     {:else if step === 'round' && shown}
-      <figcaption>Quality {shown.quality} · {formatBytes(shown.bytes)}</figcaption>
+      <figcaption>Zoomed in · Quality {shown.quality} · {formatBytes(shown.bytes)}</figcaption>
     {:else if step === 'open' && shown}
-      <figcaption>{formatBytes(Math.max(0, rawBytes - shown.bytes))} saved</figcaption>
+      <figcaption>Zoomed in · {formatBytes(Math.max(0, rawBytes - shown.bytes))} saved</figcaption>
     {/if}
   {/if}
 </figure>
 
 <style>
+  /* The figure fills the dialog's picture area (a fixed height there), centred, so the steps don't
+     move the buttons. Canvases keep their shape and shrink to fit: --tour-canvas-max caps their height. */
   .tour-visual {
+    box-sizing: border-box;
+    height: 100%;
     margin: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 10px;
+    min-width: 0;
     color: var(--ink);
     font-size: 13px;
   }
-  .busy { margin: 0; padding: 32px 0; color: var(--stone); }
+  .busy { margin: 0; color: var(--stone); }
   .stale .panels, .stale .bars { opacity: 0.6; transition: opacity 0.15s; }
   figcaption { color: var(--stone); text-align: center; line-height: 1.4; }
 
-  .panels, .wave-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; width: 100%; }
-  .pic { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1 1 140px; max-width: 280px; min-width: 0; }
-  .pic.wide { max-width: 480px; }
-  .label { color: var(--stone); font-size: 12px; }
-  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); }
+  .panels, .wave-row { display: flex; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 12px; width: 100%; min-height: 0; }
+  .pic { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
+  .label { color: var(--stone); font-size: 12px; line-height: 1.2; }
+  canvas {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: var(--tour-canvas-max, 200px);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--paper);
+  }
   canvas.pixelated { image-rendering: pixelated; }
 
-  .wave-row { flex-wrap: nowrap; gap: 8px; }
-  .wave-row .zoom { flex: 0 1 120px; }
-  .wave { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 1 56px; min-width: 0; }
-  .wave .small { flex: none; width: 100%; }
+  .wave-row { gap: 8px; }
+  .wave-row .zoom { flex: 0 1 auto; }
+  .wave { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0; }
+  .wave .small { flex: none; width: 100%; align-items: center; }
   .plus { color: var(--stone); font-size: 18px; flex: none; }
   .amount { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
 
