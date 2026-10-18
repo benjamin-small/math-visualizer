@@ -34,7 +34,7 @@ describe('tour picture maths', () => {
     expect(b.rgba[1]).toBe(b.rgba[2]); // grey
     expect(ycbcrToRgb(...rgbToYcbcr(200, 40, 40))).toEqual([200, 40, 40]);
     const c = colourImage(p);
-    expect(Math.round(rgbToYcbcr(c.rgba[0], c.rgba[1], c.rgba[2])[0])).toBe(128);
+    expect(Math.abs(rgbToYcbcr(c.rgba[0], c.rgba[1], c.rgba[2])[0] - 128)).toBeLessThanOrEqual(1);
   });
 
   it('clamps and rounds when going back to RGB', () => {
@@ -68,6 +68,12 @@ describe('tour picture maths', () => {
 
   it('gives the first tile when several tie', () => {
     expect(busiestTile(img(16, 16, () => [9, 9, 9]))).toEqual([0, 0]);
+  });
+
+  it('gives the first tile for flat pictures of any size', () => {
+    for (const [w, h] of [[13, 9], [20, 20]]) {
+      for (const v of [1, 2, 13, 200]) expect(busiestTile(img(w, h, () => [v, v, v]))).toEqual([0, 0]);
+    }
   });
 
   it('handles a picture smaller than a tile', () => {

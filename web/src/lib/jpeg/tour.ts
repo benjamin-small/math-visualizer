@@ -155,8 +155,8 @@ export interface TourHandoff {
 /**
  * Wrap an async job so only one runs at a time and only the newest request's result is
  * delivered. A call while one is running replaces any waiting call; when a run settles its
- * result is delivered only if nothing is waiting, then the waiting call starts. A rejected
- * run is dropped and later calls carry on.
+ * result is delivered only if nothing is waiting, then the waiting call starts. A rejected or
+ * throwing run, or a throwing `deliver`, is dropped and later calls carry on.
  */
 export function latestOnly<A, R>(
   run: (arg: A) => Promise<R>,
@@ -167,7 +167,13 @@ export function latestOnly<A, R>(
 
   const start = (arg: A): void => {
     running = true;
-    void run(arg)
+    let job: Promise<R>;
+    try {
+      job = run(arg);
+    } catch (e) {
+      job = Promise.reject(e);
+    }
+    void job
       .then(
         (result) => {
           if (pending === null) deliver(result, arg);
@@ -176,6 +182,9 @@ export function latestOnly<A, R>(
           // A failed run is simply dropped.
         },
       )
+      .catch(() => {
+        // A throwing `deliver` must not stop later calls.
+      })
       .then(() => {
         running = false;
         const next = pending;

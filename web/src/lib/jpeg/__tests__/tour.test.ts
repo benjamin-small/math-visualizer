@@ -88,6 +88,42 @@ describe('latestOnly', () => {
     expect(got).toEqual([[3, 'abc']]);
   });
 
+  it('keeps going after deliver throws', async () => {
+    let first = true;
+    const got: number[] = [];
+    const go = latestOnly(
+      async (a: number) => a,
+      (r) => {
+        if (first) {
+          first = false;
+          throw new Error('boom');
+        }
+        got.push(r);
+      },
+    );
+    go(1);
+    await flush();
+    go(2);
+    await flush();
+    expect(got).toEqual([2]);
+  });
+
+  it('keeps going after run throws synchronously', async () => {
+    const got: number[] = [];
+    const go = latestOnly(
+      (a: number): Promise<number> => {
+        if (a === 1) throw new Error('boom');
+        return Promise.resolve(a);
+      },
+      (r) => got.push(r),
+    );
+    go(1);
+    await flush();
+    go(2);
+    await flush();
+    expect(got).toEqual([2]);
+  });
+
   it('keeps going after a run rejects', async () => {
     const got: number[] = [];
     const run = vi.fn(async (a: number) => {
