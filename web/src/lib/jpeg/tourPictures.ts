@@ -88,19 +88,14 @@ export function busiestTile(img: RgbaImage): [number, number] {
   let bestVar = -1;
   for (let by = 0; by < Math.ceil(img.h / 8); by++) {
     for (let bx = 0; bx < Math.ceil(img.w / 8); bx++) {
-      let sum = 0;
-      let sumSq = 0;
-      let n = 0;
+      const ys: number[] = [];
       for (let y = by * 8; y < Math.min(img.h, by * 8 + 8); y++) {
-        for (let x = bx * 8; x < Math.min(img.w, bx * 8 + 8); x++) {
-          const v = ycc(img, x, y)[0];
-          sum += v;
-          sumSq += v * v;
-          n++;
-        }
+        for (let x = bx * 8; x < Math.min(img.w, bx * 8 + 8); x++) ys.push(ycc(img, x, y)[0]);
       }
-      const variance = n > 0 ? sumSq / n - (sum / n) ** 2 : 0;
-      if (variance > bestVar) {
+      // Two passes (mean, then squared deviations) so a flat tile is exactly 0 whatever its size.
+      const mean = ys.reduce((a, v) => a + v, 0) / (ys.length || 1);
+      const variance = ys.reduce((a, v) => a + (v - mean) ** 2, 0) / (ys.length || 1);
+      if (variance > bestVar + 1e-9) {
         bestVar = variance;
         best = [bx, by];
       }
