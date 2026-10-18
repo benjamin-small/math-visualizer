@@ -3,6 +3,7 @@
 // so a coverage test can check each is registered and explained.
 import type { HuffmanId, ImageId, SubsamplingId } from '../params';
 import type { StageId } from '../stages';
+import type { TourStepId } from '../tour';
 import type { ExplainContext } from './context';
 
 export type Target =
@@ -47,7 +48,11 @@ export type Target =
   | { id: 'decode.wipe' | 'decode.error'; x: number; y: number }
   | { id: 'decode.wipeSlider' | 'decode.gainSlider' }
   | { id: 'decode.hint'; kind: 'blocking' | 'ringing' | 'bleed' }
-  | { id: 'decode.resave'; generation: number };
+  | { id: 'decode.resave'; generation: number }
+  /** The guided tour: a step on its strip, its quality slider, and the lab's button that opens it. */
+  | { id: 'tour.step'; step: TourStepId }
+  | { id: 'tour.quality'; quality: number }
+  | { id: 'tour.open' };
 
 /** Every target id, once. A `Record` over the union's ids, so a missing or extra id is a type error. */
 const ID_SET: Record<Target['id'], true> = {
@@ -112,6 +117,9 @@ const ID_SET: Record<Target['id'], true> = {
   'decode.gainSlider': true,
   'decode.hint': true,
   'decode.resave': true,
+  'tour.step': true,
+  'tour.quality': true,
+  'tour.open': true,
 };
 
 /** Every target id, once. */
