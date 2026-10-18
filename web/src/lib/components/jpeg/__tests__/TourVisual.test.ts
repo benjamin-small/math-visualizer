@@ -26,17 +26,29 @@ function testImage(): RgbaImage {
 }
 
 function stubViz(stats: (q: number) => { bytes: number; psnr: number } = () => ({ bytes: 4096, psnr: 32 })) {
-  const decode = vi.fn((rgba: Uint8Array) => rgba);
+  const decode = vi.fn((rgba: Uint8Array, _w?: number, _h?: number, _q?: number) => rgba);
   const encodeStats = vi.fn((_rgba: Uint8Array, _w: number, _h: number, q: number) => stats(q));
   return { viz: { jpeg_encode_decode: decode, jpeg_encode_stats: encodeStats } as unknown as VizCore, decode, encodeStats };
 }
 
+/** One animation frame: each encode waits for one before it starts. */
+const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+/** Let the encodes asked for so far run and land: a frame each, then their promises and Svelte's updates. */
 const settle = async () => {
-  for (let i = 0; i < 6; i++) {
-    await Promise.resolve();
-    await tick();
+  for (let f = 0; f < 3; f++) {
+    await frame();
+    for (let i = 0; i < 4; i++) {
+      await Promise.resolve();
+      await tick();
+    }
   }
 };
+
+const caption = (c: HTMLElement) => c.querySelector('figcaption')!.textContent;
+
+/** A flat grey picture of any size. */
+const flat = (w: number, h: number): RgbaImage => ({ w, h, rgba: new Uint8Array(w * h * 4).fill(120) });
 
 // jsdom has no canvas: say so quietly, as a browser without 2D drawing would.
 vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
@@ -115,7 +127,7 @@ describe('TourVisual.svelte', () => {
     expect(container.querySelector('.tour-visual')!.getAttribute('aria-busy')).toBe('true');
     await settle();
     expect(container.querySelector('.tour-visual')!.getAttribute('aria-busy')).toBe('false');
-    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 50 · 4.0 KB');
+    expect(caption(container)).toBe('Zoomed in · Quality 50 · 4.0 KB');
     expect(container.textContent).toContain('Before');
     expect(container.textContent).toContain('After');
 
@@ -142,7 +154,7 @@ describe('TourVisual.svelte', () => {
     expect(container.querySelector('figcaption')!.textContent).toBe('4.0 times smaller');
     await rerender({ step: 'open', ...props });
     await settle();
-    expect(container.querySelector('figcaption')!.textContent).toBe('576 B saved');
+    expect(caption(container)).toBe('Zoomed in · 576 B saved');
   });
 
   it('encodes again when the settings change', async () => {
@@ -192,7 +204,7 @@ describe('TourVisual.svelte', () => {
 
     waiting[1].done();
     await settle();
-    const cap = container.querySelector('figcaption')!.textContent!;
+    const cap = caption(container)!;
     expect(cap).toContain('Quality 20');
     expect(cap).toContain('2.0 KB');
     expect(container.textContent).not.toContain('Quality 50');
@@ -218,7 +230,7 @@ describe('TourVisual.svelte', () => {
     waiting[0]();
     await settle();
     expect(root().getAttribute('aria-busy')).toBe('false');
-    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 50 · 5.0 KB');
+    expect(caption(container)).toBe('Zoomed in · Quality 50 · 5.0 KB');
 
     await rerender({ step: 'round', ...base, viz, quality: 30 });
     await settle();
@@ -226,11 +238,11 @@ describe('TourVisual.svelte', () => {
     expect(root().getAttribute('aria-busy')).toBe('false');
     expect(container.textContent).not.toContain('Getting the picture ready');
     expect(container.querySelectorAll('canvas')).toHaveLength(2);
-    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 50 · 5.0 KB');
+    expect(caption(container)).toBe('Zoomed in · Quality 50 · 5.0 KB');
 
     waiting[1]();
     await settle();
-    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 30 · 3.0 KB');
+    expect(caption(container)).toBe('Zoomed in · Quality 30 · 3.0 KB');
     expect(root().getAttribute('aria-busy')).toBe('false');
   });
 
@@ -255,7 +267,7 @@ describe('TourVisual.svelte', () => {
     await rerender({ step: 'round', ...base, viz, quality: 60 });
     await settle();
     expect(container.textContent).not.toContain("Couldn't make this picture.");
-    expect(container.querySelector('figcaption')!.textContent).toBe('Quality 60 · 4.0 KB');
+    expect(caption(container)).toBe('Zoomed in · Quality 60 · 4.0 KB');
   });
 
   it.each(['round', 'codes', 'open'] as TourStepId[])('%s is busy while the kit is missing', (step) => {
@@ -293,8 +305,127 @@ describe('TourVisual.svelte', () => {
       expect(calls.some((c) => c.startsWith('putImageData'))).toBe(true);
       expect(calls.some((c) => c.startsWith('drawImage'))).toBe(true);
       expect(calls.some((c) => c.startsWith('strokeRect'))).toBe(true);
-      // 16 × 16 is enlarged so the 8-pixel grid lines stay crisp.
-      expect(Number(container.querySelector('canvas')!.getAttribute('width'))).toBe(16 * 30);
+      // 16 × 16 is smaller than the crop, so all of it is shown, enlarged by a whole number so the grid stays crisp.
+      expect(Number(container.querySelector('canvas')!.getAttribute('width'))).toBe(16 * 12);
+    } finally {
+      spy.mockReturnValue(null);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('zooms in on the tiles around the busiest one, at a whole-number scale', () => {
+    const { container } = render(TourVisual, { step: 'tiles', ...base, image: flat(256, 256), viz: null });
+    const canvas = container.querySelector('canvas')!;
+    // 9 × 5 tiles (72 × 40 pixels), enlarged five times.
+    expect([canvas.getAttribute('width'), canvas.getAttribute('height')]).toEqual(['360', '200']);
+    expect(canvas.classList.contains('pixelated')).toBe(true);
+    expect(caption(container)).toBe('Zoomed in: each square is one 8 × 8 tile.');
+  });
+
+  it.each([
+    ['round', 'Before', 'After'],
+    ['open', 'Original', 'Opened JPEG'],
+  ] as const)('shows the same zoomed-in crop before and after on %s', async (step, before, after) => {
+    const { viz } = stubViz();
+    const { container } = render(TourVisual, { step, ...base, image: flat(256, 256), viz });
+    await settle();
+    const canvases = [...container.querySelectorAll('canvas')];
+    expect(canvases).toHaveLength(2);
+    // 5 × 5 tiles (40 × 40 pixels), enlarged five times, drawn without smoothing.
+    for (const c of canvases) {
+      expect([c.getAttribute('width'), c.getAttribute('height')]).toEqual(['200', '200']);
+      expect(c.classList.contains('pixelated')).toBe(true);
+    }
+    expect(container.textContent).toContain(before);
+    expect(container.textContent).toContain(after);
+    expect(caption(container)).toMatch(/^Zoomed in · /);
+  });
+
+  it('enlarges a tiny picture by a whole number on every picture step', async () => {
+    const { viz } = stubViz();
+    for (const step of ['split', 'share', 'tiles', 'round', 'open'] as TourStepId[]) {
+      const { container, unmount } = render(TourVisual, { step, ...base, image: flat(5, 3), viz });
+      await settle();
+      const canvases = [...container.querySelectorAll('canvas')];
+      expect(canvases.length).toBeGreaterThan(0);
+      for (const c of canvases) {
+        const w = Number(c.getAttribute('width'));
+        const h = Number(c.getAttribute('height'));
+        expect(w % 5).toBe(0);
+        expect(h % 3).toBe(0);
+        expect(w / 5).toBe(h / 3);
+        expect(w).toBeGreaterThan(5);
+      }
+      unmount();
+    }
+  });
+
+  it.each(['round', 'codes', 'open'] as TourStepId[])('%s says it could not make the picture when the kit failed', (step) => {
+    const { container } = render(TourVisual, { step, ...base, viz: null, kitFailed: true });
+    expect(container.querySelector('.tour-visual')!.getAttribute('aria-busy')).toBe('false');
+    expect(container.textContent).toContain("Couldn't make this picture.");
+    expect(container.textContent).not.toContain('Getting the picture ready');
+  });
+
+  it('still draws the steps that need no kit when the kit failed', () => {
+    const { container } = render(TourVisual, { step: 'tiles', ...base, viz: null, kitFailed: true });
+    expect(container.querySelectorAll('canvas')).toHaveLength(1);
+    expect(container.textContent).not.toContain("Couldn't make this picture.");
+  });
+
+  it('collapses a drag on a synchronous kit to the newest quality', async () => {
+    // The real kit answers synchronously, so only waiting a frame lets the drag's inputs replace each other.
+    const { viz, decode } = stubViz((q) => ({ bytes: 100 * q, psnr: 30 }));
+    const { container, rerender } = render(TourVisual, { step: 'round', ...base, viz, quality: 50 });
+    for (const q of [45, 40, 35, 30, 25, 20]) await rerender({ step: 'round', ...base, viz, quality: q });
+    await settle();
+    // The first request was already running; every later one but the newest was replaced while it waited.
+    expect(decode.mock.calls.map((c) => c[3])).toEqual([50, 20]);
+    expect(caption(container)).toBe('Zoomed in · Quality 20 · 2.0 KB');
+  });
+
+  it('still encodes when the page draws no frames', async () => {
+    // A hidden or occluded page may never run animation frames; the encode must not wait for ever.
+    const raf = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 0);
+    try {
+      const { viz, decode } = stubViz();
+      const { container } = render(TourVisual, { step: 'round', ...base, viz });
+      await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(1), { timeout: 500 });
+      await vi.waitFor(() => expect(caption(container)).toBe('Zoomed in · Quality 50 · 4.0 KB'));
+    } finally {
+      raf.mockRestore();
+    }
+  });
+
+  it('keeps the drawing when a canvas is reused for a picture of another size', async () => {
+    // A canvas is cleared whenever its size changes, so the size must be set before the picture is drawn.
+    class FakeImageData {
+      constructor(
+        public data: Uint8ClampedArray,
+        public width: number,
+        public height: number,
+      ) {}
+    }
+    vi.stubGlobal('ImageData', FakeImageData);
+    const drawnAt = new Map<HTMLCanvasElement, number>();
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      const canvas = this;
+      return new Proxy({} as Record<string, unknown>, {
+        get: (t, k: string) =>
+          k in t ? t[k] : (..._a: unknown[]) => (k === 'drawImage' ? void drawnAt.set(canvas, canvas.width) : undefined),
+        set: (t, k: string, v) => ((t[k] = v), true),
+      }) as unknown as CanvasRenderingContext2D;
+    } as unknown as typeof HTMLCanvasElement.prototype.getContext);
+    try {
+      const props = { ...base, image: flat(256, 256), viz: null };
+      const { container, rerender } = render(TourVisual, { step: 'split', ...props });
+      const first = container.querySelector('canvas')!;
+      expect(first.width).toBe(256);
+      await rerender({ step: 'tiles', ...props });
+      await tick();
+      const canvas = container.querySelector('canvas')!;
+      expect(canvas.width).toBe(360);
+      expect(drawnAt.get(canvas)).toBe(360);
     } finally {
       spy.mockReturnValue(null);
       vi.unstubAllGlobals();

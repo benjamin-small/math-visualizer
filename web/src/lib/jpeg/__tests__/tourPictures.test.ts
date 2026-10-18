@@ -7,9 +7,11 @@ import {
   busiestTile,
   colourImage,
   countZeros,
+  cropImage,
   fdct8,
   shareColour,
   strongestPatterns,
+  tileCrop,
   tileLuma,
   tileNumbers,
   ycbcrToRgb,
@@ -131,5 +133,40 @@ describe('tour picture maths', () => {
     });
     expect(countZeros([5, ...Array(63).fill(0)])).toEqual({ first: 5, runs: [], end: true });
     expect(countZeros(Array.from({ length: 64 }, () => 1)).end).toBe(false);
+  });
+
+  it('crops a window of tiles around a tile, on the tile grid', () => {
+    const p = { w: 256, h: 256 };
+    expect(tileCrop(p, 10, 12, 5, 5)).toEqual({ x: 64, y: 80, w: 40, h: 40 });
+    expect(tileCrop(p, 10, 12, 9, 5)).toEqual({ x: 48, y: 80, w: 72, h: 40 });
+  });
+
+  it('clamps the crop at the picture edges and keeps the tile inside it', () => {
+    const p = { w: 256, h: 200 };
+    expect(tileCrop(p, 0, 0, 5, 5)).toEqual({ x: 0, y: 0, w: 40, h: 40 });
+    expect(tileCrop(p, 31, 24, 5, 5)).toEqual({ x: 216, y: 160, w: 40, h: 40 });
+    // A picture that is not a multiple of 8: the last tile is part of one, and the crop stops at the edge.
+    const q = { w: 100, h: 60 };
+    const c = tileCrop(q, 12, 7, 5, 5);
+    expect(c).toEqual({ x: 64, y: 24, w: 36, h: 36 });
+    expect(c.x % 8).toBe(0);
+    expect(c.y % 8).toBe(0);
+    expect(12 * 8).toBeGreaterThanOrEqual(c.x);
+    expect(12 * 8).toBeLessThan(c.x + c.w);
+  });
+
+  it('crops a tiny picture to the whole of it', () => {
+    expect(tileCrop({ w: 5, h: 3 }, 0, 0, 5, 5)).toEqual({ x: 0, y: 0, w: 5, h: 3 });
+    expect(tileCrop({ w: 20, h: 12 }, 2, 1, 5, 5)).toEqual({ x: 0, y: 0, w: 20, h: 12 });
+  });
+
+  it('copies the cropped pixels', () => {
+    const p = img(16, 16, (x, y) => [x, y, 7]);
+    const c = cropImage(p, { x: 8, y: 4, w: 3, h: 2 });
+    expect([c.w, c.h, c.rgba.length]).toEqual([3, 2, 3 * 2 * 4]);
+    expect(Array.from(c.rgba.slice(0, 4))).toEqual([8, 4, 7, 255]);
+    expect(Array.from(c.rgba.slice(-4))).toEqual([10, 5, 7, 255]);
+    // Raw pixels (an encode's output) crop the same way.
+    expect(cropImage({ w: 16, h: 16, rgba: p.rgba }, { x: 0, y: 0, w: 16, h: 16 }).rgba).toEqual(p.rgba);
   });
 });

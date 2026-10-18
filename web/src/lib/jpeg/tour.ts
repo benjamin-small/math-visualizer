@@ -20,6 +20,8 @@ export interface TourStep {
   lossy: boolean;
   /** The step's title, in sentence case. */
   heading: string;
+  /** The strip's label for the step: one or two plain words. */
+  short: string;
   /** The line shown with the picture: at most two sentences. */
   line: string;
   /** The "why it matters" card: one sentence. */
@@ -34,6 +36,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'color',
     lossy: false,
     heading: 'Split brightness from colour',
+    short: 'Split',
     line: 'Your eye notices brightness far more than colour.',
     card: 'Brightness carries the shapes, so colour can be stored more roughly without you noticing.',
   },
@@ -43,6 +46,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'subsample',
     lossy: true,
     heading: 'Shrink the colour',
+    short: 'Shrink colour',
     line: 'Neighbouring pixels share one colour, and you barely notice.',
     card: 'Each 2 × 2 square of pixels keeps one shared colour, so only a quarter of the colour is stored.',
   },
@@ -52,6 +56,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'blocks',
     lossy: false,
     heading: 'Cut into tiles',
+    short: 'Tiles',
     line: 'The picture is cut into 8 × 8 squares.',
     card: 'From here on each tile is handled on its own, which is why a heavily squeezed JPEG looks blocky.',
   },
@@ -61,6 +66,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'dct',
     lossy: false,
     heading: 'Describe each tile as waves',
+    short: 'Waves',
     line: 'Smooth tiles need a few waves; busy ones need many.',
     card: 'Any 8 × 8 tile can be rebuilt by mixing 64 standard wave patterns in different amounts.',
   },
@@ -70,6 +76,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'quantize',
     lossy: true,
     heading: 'Round off fine detail',
+    short: 'Round off',
     line: 'Faint waves round to zero. This is the big saving.',
     card: 'Lower quality rounds harder: a smaller file, but softer edges and visible tiles.',
   },
@@ -79,6 +86,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'zigzag',
     lossy: false,
     heading: 'Line the numbers up',
+    short: 'Line up',
     line: 'The zeros end up together at the end.',
     card: 'Reading a tile from its smooth waves to its busy ones puts the zeros last.',
   },
@@ -88,6 +96,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'rle',
     lossy: false,
     heading: 'Count the zeros',
+    short: 'Count zeros',
     line: '"Five zeros, then a 3" is shorter than writing them all out.',
     card: 'A long run of zeros costs almost nothing once it is counted instead of written.',
   },
@@ -97,6 +106,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'huffman',
     lossy: false,
     heading: 'Short codes for common things',
+    short: 'Short codes',
     line: 'Like Morse code, the most common things get the shortest codes.',
     card: 'Frequent patterns get short codes and rare ones long codes, so the total shrinks.',
   },
@@ -106,6 +116,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     stage: 'decode',
     lossy: false,
     heading: 'Open it again',
+    short: 'Open',
     line: 'Your viewer undoes every step to show the picture.',
     card: 'Nothing is lost here; what was rounded off in steps 2 and 5 stays gone.',
   },
@@ -114,21 +125,28 @@ export const TOUR_STEPS: readonly TourStep[] = [
 /** The localStorage key that remembers the tour has been offered. */
 export const TOUR_SEEN_KEY = 'jpeg-tour-seen';
 
-/** Whether the tour has been seen before; storage that is missing or blocked counts as not seen. */
+/** Set when the tour was closed while storage was blocked: it then stays closed for this page view. */
+let seenWithoutStorage = false;
+
+/**
+ * Whether the tour has been seen before. Storage that is missing or blocked counts as not seen,
+ * unless the tour was already closed in this page view.
+ */
 export function tourSeen(): boolean {
   try {
     return localStorage.getItem(TOUR_SEEN_KEY) === '1';
   } catch {
-    return false;
+    return seenWithoutStorage;
   }
 }
 
-/** Remember that the tour has been seen; a no-op when storage is missing or blocked. */
+/** Remember that the tour has been seen; with storage missing or blocked, only for this page view. */
 export function markTourSeen(): void {
   try {
     localStorage.setItem(TOUR_SEEN_KEY, '1');
   } catch {
-    // Storage is blocked: the tour will simply be offered again.
+    // Storage is blocked: remember it in memory, so going to another lab and back doesn't reopen it.
+    seenWithoutStorage = true;
   }
 }
 

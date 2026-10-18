@@ -17,6 +17,25 @@ describe('tour steps', () => {
     expect(s.heading).toMatch(/^[A-Z][^A-Z]*$/); // sentence case
   });
 
+  it('gives every step a short strip label of at most two plain words', () => {
+    expect(TOUR_STEPS.map((s) => s.short)).toEqual([
+      'Split',
+      'Shrink colour',
+      'Tiles',
+      'Waves',
+      'Round off',
+      'Line up',
+      'Count zeros',
+      'Short codes',
+      'Open',
+    ]);
+    for (const s of TOUR_STEPS) {
+      expect(s.short.split(/\s+/).length).toBeLessThanOrEqual(2);
+      expect(s.short).not.toMatch(TOUR_JARGON);
+      expect(s.short).toMatch(/^[A-Z][^A-Z]*$/); // sentence case
+    }
+  });
+
   it('catches jargon as whole words, in any case', () => {
     for (const w of ['DCT', 'quantize', 'Quantization', 'chroma', 'Huffman', 'coefficient', 'coefficients', 'luma', 'YCbCr', 'MCU']) {
       expect(w).toMatch(TOUR_JARGON);
@@ -51,8 +70,13 @@ describe('first-visit memory', () => {
     });
     expect(tourSeen()).toBe(false);
     expect(() => markTourSeen()).not.toThrow();
+    // Closed once with storage blocked, it stays closed for the rest of this page view.
+    expect(tourSeen()).toBe(true);
     get.mockRestore();
     set.mockRestore();
+    // Storage that works is still the only memory that counts.
+    localStorage.removeItem(TOUR_SEEN_KEY);
+    expect(tourSeen()).toBe(false);
   });
 });
 

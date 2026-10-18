@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { TooltipController } from '../tooltip.svelte';
+import { TooltipController, boxOf } from '../tooltip.svelte';
 import type { RgbaImage } from '../../../jpeg/images';
 import { decodeUpload, loadPicture } from '../../../jpeg/images';
 
@@ -84,6 +84,17 @@ describe('JpegTour.svelte', () => {
     expect(screen.getByRole('heading', { name: 'How a picture becomes a JPEG' })).toBeTruthy();
     expect(stripButtons()).toHaveLength(9);
     expect(current()).toBe('Step 1: Split brightness from colour');
+    expect(stripButtons().map((b) => b.querySelector('.txt')!.textContent)).toEqual([
+      'Split',
+      'Shrink colour',
+      'Tiles',
+      'Waves',
+      'Round off',
+      'Line up',
+      'Count zeros',
+      'Short codes',
+      'Open',
+    ]);
     expect(document.querySelector('.tour-strip .jpg')!.textContent).toBe('file');
     expect(document.querySelectorAll('.tour-strip .lossy')).toHaveLength(2);
     expect(document.activeElement).toBe(next());
@@ -101,7 +112,7 @@ describe('JpegTour.svelte', () => {
     expect(stepLabel()).toBe('Step 2 of 9 · loses detail');
     await fireEvent.click(stripButtons()[4]);
     expect(stepLabel()).toBe('Step 5 of 9 · loses detail');
-    expect(current()).toBe('Step 5: Round off fine detail');
+    expect(current()).toBe('Step 5: Round off fine detail, loses detail');
     await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(stepLabel()).toBe('Step 4 of 9');
   });
@@ -327,7 +338,12 @@ describe('JpegTour.svelte', () => {
     const { loadVizCore } = await import('../../../wasm/loader');
     vi.mocked(loadVizCore).mockRejectedValueOnce(new Error('no wasm'));
     mountTour();
-    await waitFor(() => expect(screen.getByText("The pictures couldn't load, but the steps still read fine.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Some pictures couldn't load, but the steps still read fine.")).toBeTruthy());
+    // The encoder's steps say so too, instead of waiting for ever.
+    await fireEvent.click(stripButtons()[4]);
+    const figure = document.querySelector('figure.tour-visual')!;
+    expect(figure.textContent).toContain("Couldn't make this picture.");
+    expect(figure.getAttribute('aria-busy')).toBe('false');
   });
 
   it('asks the kit once and keeps one picture area while the steps change', async () => {
@@ -339,5 +355,124 @@ describe('JpegTour.svelte', () => {
     await fireEvent.click(next());
     expect(document.querySelector('figure.tour-visual')).toBe(figure);
     expect(loadVizCore).toHaveBeenCalledTimes(1);
+  });
+
+  it('lives at the end of the page body and leaves nothing behind when it closes', () => {
+    // Something else portalled to the body (a card, say) must outlive the tour.
+    const card = document.createElement('div');
+    card.className = 'other-portal';
+    document.body.append(card);
+    const { unmount } = mountTour();
+    const backdrop = document.querySelector('.tour-backdrop')!;
+    expect(backdrop.parentElement).toBe(document.body);
+    expect(backdrop.contains(dialog())).toBe(true);
+    unmount();
+    expect(document.querySelector('.tour-backdrop')).toBeNull();
+    expect(card.isConnected).toBe(true);
+    card.remove();
+  });
+
+  it('names the lossy steps on the strip', () => {
+    mountTour();
+    expect(stripButtons().map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Step 1: Split brightness from colour',
+      'Step 2: Shrink the colour, loses detail',
+      'Step 3: Cut into tiles',
+      'Step 4: Describe each tile as waves',
+      'Step 5: Round off fine detail, loses detail',
+      'Step 6: Line the numbers up',
+      'Step 7: Count the zeros',
+      'Step 8: Short codes for common things',
+      'Step 9: Open it again',
+    ]);
+  });
+
+  it('announces each step politely, apart from the slider and the captions', async () => {
+    mountTour();
+    const live = dialog().querySelector('[aria-live="polite"]')!;
+    expect(live.getAttribute('aria-atomic')).toBe('true');
+    expect(live.textContent).toContain('Step 1 of 9');
+    expect(live.textContent).toContain('Split brightness from colour');
+    expect(live.textContent).toContain('Your eye notices brightness far more than colour.');
+    await fireEvent.click(next());
+    expect(live.textContent).toContain('Step 2 of 9');
+    expect(live.textContent).toContain('Shrink the colour');
+    expect(live.textContent).toContain('Neighbouring pixels share one colour');
+    await fireEvent.click(stripButtons()[4]);
+    expect(live.contains(document.querySelector('figure.tour-visual'))).toBe(false);
+    expect(live.contains(screen.getByRole('slider', { name: 'Quality' }))).toBe(false);
+  });
+
+  it('closes a showing card on the first Escape and the tour on the second', async () => {
+    const ctl = new TooltipController();
+    const { onclose } = mountTour({ ctl });
+    ctl.showNow({ id: 'tour.step', step: 'tiles' }, 10, 10, boxOf(10, 10, 20, 20));
+    await fireEvent.keyDown(dialog(), { key: 'Escape' });
+    expect(onclose).not.toHaveBeenCalled();
+    expect(ctl.hovered).toBeNull();
+    ctl.pin({ id: 'tour.step', step: 'waves' }, boxOf(10, 10, 20, 20));
+    await fireEvent.keyDown(dialog(), { key: 'Escape' });
+    expect(onclose).not.toHaveBeenCalled();
+    expect(ctl.pinned).toBeNull();
+    await fireEvent.keyDown(dialog(), { key: 'Escape' });
+    expect(onclose).toHaveBeenCalledWith(null);
+  });
+
+  it('closes the card that was showing when it opens', () => {
+    const ctl = new TooltipController();
+    ctl.showNow({ id: 'tour.open' }, 10, 10, boxOf(10, 10, 20, 20));
+    ctl.pin({ id: 'tour.open' }, boxOf(10, 10, 20, 20));
+    mountTour({ ctl });
+    expect(ctl.hovered).toBeNull();
+    expect(ctl.pinned).toBeNull();
+  });
+
+  it('moves focus without scrolling, and starts each step scrolled to the top', async () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      mountTour();
+      expect(document.activeElement).toBe(next());
+      const calls = focus.mock.calls.filter((_, i) => focus.mock.contexts[i] === next());
+      expect(calls.length).toBeGreaterThan(0);
+      for (const c of calls) expect(c[0]).toEqual({ preventScroll: true });
+      // Focus lost to a control that went away comes back without scrolling, too.
+      await fireEvent.click(next());
+      const back = screen.getByRole('button', { name: 'Back' });
+      back.focus();
+      focus.mockClear();
+      await fireEvent.click(back);
+      await tick();
+      expect(focus).toHaveBeenCalled();
+      for (const c of focus.mock.calls) expect(c[0]).toEqual({ preventScroll: true });
+    } finally {
+      focus.mockRestore();
+    }
+    const body = dialog().querySelector<HTMLElement>('.tour-body')!;
+    body.scrollTop = 120;
+    await fireEvent.click(next());
+    expect(body.scrollTop).toBe(0);
+  });
+
+  it('keeps the buttons out of the scrolling content', () => {
+    mountTour();
+    const body = dialog().querySelector('.tour-body')!;
+    const footer = dialog().querySelector('footer.actions')!;
+    expect(body.contains(footer)).toBe(false);
+    expect(footer.parentElement).toBe(dialog());
+    for (const part of ['.tour-strip', '.tour-panel', '.pick']) expect(body.querySelector(part)).toBeTruthy();
+    // The step label sits with its heading, in one block.
+    const label = dialog().querySelector('.tour-label')!;
+    expect(label.parentElement).toBe(dialog().querySelector('h3')!.parentElement);
+  });
+
+  it('clears the last picture error when a new picture starts loading', async () => {
+    vi.mocked(loadPicture).mockRejectedValueOnce(new Error('Could not load the picture "Doge".'));
+    mountTour();
+    const select = screen.getByRole('combobox', { name: 'Tour picture' }) as HTMLSelectElement;
+    await fireEvent.change(select, { target: { value: 'doge' } });
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    vi.mocked(loadPicture).mockReturnValueOnce(deferred<RgbaImage>().promise);
+    await fireEvent.change(select, { target: { value: 'shuttle' } });
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
