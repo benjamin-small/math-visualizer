@@ -1,6 +1,6 @@
 # JPEG lab: the guided tour — Design
 
-Status: draft, 2026-10-18. Extends `2026-10-15-jpeg-lab-design.md`, `2026-10-16-jpeg-lab-gallery-design.md` and `2026-10-17-jpeg-lab-tooltips-design.md`.
+Status: implemented, 2026-10-18. Extends `2026-10-15-jpeg-lab-design.md`, `2026-10-16-jpeg-lab-gallery-design.md` and `2026-10-17-jpeg-lab-tooltips-design.md`.
 
 ## Intent
 
@@ -109,3 +109,13 @@ Steps 6–8 don't change the picture, and that is the point: nothing is lost the
 - How each step's picture is drawn: a 2D canvas or an `<img>` from an `ImageData`, and the exact visual treatment of the brightness/colour split, the tile grid, the wave patterns and the size bar.
 - The exact wording, within the limits above.
 - The dialog's look. It follows the lab's dark theme, its tokens and the mockup: the orange "loses detail" tag and the highlighted current step.
+
+## Implementation notes
+
+Differences and details from the build:
+
+- **The header button** is a `headerAction` snippet prop on `LabShell`, rendered beside the `h1` in a `.title-row` flex row that wraps on phones (the button gets a 44 px touch height at 480 px and below).
+- **The tour is mounted in the lab's `story` snippet**, just before `TooltipHost`, so it shares the lab's tooltip controller and the cards (z-index 1000) draw above the overlay (z-index 900).
+- **The lab's arrow-key handler returns early while the tour is open**, as well as the tour stopping its own keys, so an arrow aimed at the page behind the dialog does nothing.
+- **The hand-off re-encodes rather than reloads** when the tour's picture is the lab's own gallery picture: only the quality changes. A different gallery picture, or any upload, is loaded from the pixels the tour already holds, so nothing is fetched twice.
+- **Focus returns to "How JPEG works"** after every exit, including Escape and the close button.

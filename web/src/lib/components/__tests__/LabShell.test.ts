@@ -50,6 +50,18 @@ describe('LabShell teardown', () => {
 });
 
 describe('LabShell layout', () => {
+  it('renders a header action beside the title', async () => {
+    const { getByRole, container } = render(LabShellHost, { props: { showHeaderAction: true } });
+    const row = container.querySelector('.title-row')!;
+    expect(row).toBeTruthy();
+    const heading = getByRole('heading', { level: 1 });
+    const action = getByRole('button', { name: 'Header action' });
+    expect(row.contains(heading)).toBe(true);
+    expect(row.contains(action)).toBe(true);
+    expect(heading.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await vi.waitFor(() => expect(container.textContent).toMatch(/360/)); // engine up, so teardown is clean
+  });
+
   it('renders title, thesis, labelled playback buttons and the readout', async () => {
     const { getByRole, getByText, container } = render(LabShellHost);
     await vi.waitFor(() => expect(container.textContent).toMatch(/360/)); // engine up
@@ -58,6 +70,7 @@ describe('LabShell layout', () => {
     for (const label of ['Reset', 'Back', 'Play', 'Forward']) expect(getByRole('button', { name: label })).toBeTruthy();
     expect(container.querySelector('.readout')).toBeTruthy();
     expect(container.querySelector('.info-toggle')).toBeNull();
+    expect(container.querySelector('.title-row button')).toBeNull(); // no header action unless one is given
     expect(container.querySelector('.playback-bar')).toBeNull();
   });
 
