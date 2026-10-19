@@ -6,7 +6,8 @@
   // last value, and its result is kept so moving between those three steps doesn't encode again.
   // Pictures with 8-pixel detail (the tiles, before and after rounding) show a zoomed-in crop
   // around the busiest tile at a whole-number scale, so the detail stays visible. The scale is
-  // picked for the room the figure has, so the browser never shrinks it by a fraction.
+  // picked for the room the figure has, so the browser never shrinks it by a fraction; the waves
+  // row's tile and waves get whole-number scales the same way.
   import { untrack } from 'svelte';
   import type { RgbaImage } from '../../jpeg/images';
   import type { HuffmanId, SubsamplingId } from '../../jpeg/params';
@@ -82,6 +83,36 @@
   function room(n: number, capW = CAP): [number, number] {
     if (!box) return [capW, CAP];
     return [Math.min(capW, (box.w - GAP * (n - 1)) / n - BORDER), Math.min(CAP, box.h - WORDS_ROOM)];
+  }
+
+  /** The waves row's full enlargements: the tile and each wave are 8 × 8. */
+  const TILE_SCALE = 15;
+  const WAVE_SCALE = 7;
+  /** The gap between the waves row's items (`.wave-row`): the tile, four plus signs and four waves. */
+  const ROW_GAP = 8;
+  /** A plus sign's width (`.plus`). */
+  const PLUS_W = 12;
+  /** One character of an amount (`.amount`, 13 px mono, 0.6 em a character). */
+  const AMOUNT_CH = 7.8;
+
+  /**
+   * The waves row's enlargements, tile then waves: the biggest waves (at most WAVE_SCALE) whose row
+   * leaves the tile room for at least twice their scale, and the biggest tile (at most TILE_SCALE) that
+   * fits beside them. A wave's column is as wide as its canvas or its amount, whichever is wider. The
+   * full sizes until the figure is measured.
+   */
+  function waveScales(amounts: readonly string[]): [number, number] {
+    if (!box) return [TILE_SCALE, WAVE_SCALE];
+    const tileH = Math.min(CAP, box.h - WORDS_ROOM);
+    const gaps = 2 * amounts.length * ROW_GAP + amounts.length * PLUS_W;
+    let tile = 1;
+    for (let wave = WAVE_SCALE; wave >= 1; wave--) {
+      const columns = amounts.reduce((sum, a) => sum + Math.max(8 * wave + BORDER, a.length * AMOUNT_CH), 0);
+      const tileW = box.w - gaps - columns - BORDER;
+      tile = Math.min(TILE_SCALE, fit(8, 8, tileW, tileH));
+      if (tile >= 2 * wave) return [tile, wave];
+    }
+    return [tile, 1];
   }
 
   /** One picture on a canvas: the pixels, how much to enlarge them, and anything drawn over them. */
@@ -308,16 +339,18 @@
     if (step !== 'waves' || !image || !tile) return null;
     const luma = tileLuma(image, tile[0], tile[1]);
     const patterns = strongestPatterns(fdct8(luma.map((v) => v - 128)), 4);
+    const amounts = patterns.map((p) => num(Math.round(p.amount)));
+    const [tileScale, waveScale] = waveScales(amounts);
     return {
-      zoom: { aria: 'The busiest tile, enlarged', img: grey(luma, (i) => luma[i]), scale: 15, pixelated: true } satisfies Pic,
-      waves: patterns.map((p) => {
-        const amount = Math.round(p.amount);
+      zoom: { aria: 'The busiest tile, enlarged', img: grey(luma, (i) => luma[i]), scale: tileScale, pixelated: true } satisfies Pic,
+      waves: patterns.map((p, i) => {
+        const amount = amounts[i];
         return {
-          amount: num(amount),
+          amount,
           pic: {
-            aria: `A wave pattern, ${p.u} across and ${p.v} down, in an amount of ${num(amount)}`,
+            aria: `A wave pattern, ${p.u} across and ${p.v} down, in an amount of ${amount}`,
             img: waveImage(p.u, p.v),
-            scale: 7,
+            scale: waveScale,
             pixelated: true,
           } satisfies Pic,
         };
@@ -486,7 +519,7 @@
   .wave-row .zoom { flex: 0 1 auto; }
   .wave { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 0; }
   .wave .small { flex: none; width: 100%; align-items: center; }
-  .plus { color: var(--stone); font-size: 18px; flex: none; }
+  .plus { width: 12px; text-align: center; color: var(--stone); font-size: 18px; flex: none; }
   .amount { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
 
   .strip { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 2px; width: 100%; max-width: 560px; }

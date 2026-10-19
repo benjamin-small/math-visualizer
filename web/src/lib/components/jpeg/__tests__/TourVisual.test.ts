@@ -402,6 +402,55 @@ describe('TourVisual.svelte', () => {
     }
   });
 
+  it('picks whole-number scales for the waves row that fit the figure, the tile at least twice the waves', async () => {
+    const observers: (() => void)[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private cb: () => void) {}
+        observe() {
+          observers.push(this.cb);
+        }
+        disconnect() {}
+      },
+    );
+    // The test picture's waves come in amounts of −570, 200, −134 and 113: 31.2, 23.4, 31.2 and 23.4 px of mono.
+    let figure = [321, 227];
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('tour-visual') ? figure[0] : 0;
+    });
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('tour-visual') ? figure[1] : 0;
+    });
+    try {
+      const sizes = async () => {
+        const { container, unmount } = render(TourVisual, { step: 'waves', ...base, viz: null });
+        for (const cb of observers.splice(0)) cb();
+        await tick();
+        const canvases = [...container.querySelectorAll('canvas')];
+        unmount();
+        return canvases.map((c) => [Number(c.getAttribute('width')), Number(c.getAttribute('height'))]);
+      };
+      // A phone, 321 wide: eight 8 px gaps, four 12 px plus signs and four 34 px waves (four times)
+      // leave 71 px for the tile, so eight times (64 px), twice the waves.
+      expect(await sizes()).toEqual([[64, 64], ...Array(4).fill([32, 32])]);
+      // Narrower, 290: at three times the waves are 26 px but two amounts need 31.2 px, which leaves the
+      // tile 61.6 px, so seven times (56 px). Counting the canvases alone would have given nine.
+      figure = [290, 227];
+      expect(await sizes()).toEqual([[56, 56], ...Array(4).fill([24, 24])]);
+      // A roomy figure keeps the full sizes: fifteen times and seven times.
+      figure = [716, 260];
+      expect(await sizes()).toEqual([[120, 120], ...Array(4).fill([56, 56])]);
+      // A short figure: 140 - 52 = 88 px of height caps the tile at eleven times, so the waves drop to five times.
+      figure = [716, 140];
+      expect(await sizes()).toEqual([[88, 88], ...Array(4).fill([40, 40])]);
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('enlarges a tiny picture by a whole number on every picture step', async () => {
     const { viz } = stubViz();
     for (const step of ['split', 'share', 'tiles', 'round', 'open'] as TourStepId[]) {
