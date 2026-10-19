@@ -1180,6 +1180,12 @@
       clicking anywhere on the image follows that block through every stage. The left and right arrow keys move between
       stages, the overview included.
     </p>
+    <p class="shoutout">
+      A shout-out to Reducible, whose video
+      <a href="https://www.youtube.com/watch?v=0me3guauqOU&t=1711s" target="_blank" rel="noopener noreferrer"
+        >The Unreasonable Effectiveness of JPEG</a
+      > walks through these same steps with beautiful animations. Well worth a watch.
+    </p>
   {/snippet}
 </LabShell>
 
@@ -1285,6 +1291,7 @@
   .sub { color: var(--stone); margin-top: -4px; }
   .credit { margin: 0 0 16px; color: var(--stone); font-size: 14px; }
   .credit a { color: inherit; text-decoration: underline; }
+  .shoutout a { color: inherit; text-decoration: underline; }
   .step-btn {
     height: 40px;
     padding: 0 18px;

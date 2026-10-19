@@ -261,6 +261,15 @@ describe('JpegLab.svelte', () => {
     expect(getByRole('button', { name: /Pick a block/ })).toBeTruthy();
   });
 
+  it("gives Reducible's JPEG video a shout-out in How it works, opening in a new tab", async () => {
+    const { container, getByRole } = await renderLab();
+    expect(container.textContent).toContain('A shout-out to Reducible');
+    const link = getByRole('link', { name: 'The Unreasonable Effectiveness of JPEG' });
+    expect(link.getAttribute('href')).toBe('https://www.youtube.com/watch?v=0me3guauqOU&t=1711s');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
   it('picks a picture from the gallery', async () => {
     const { getByRole } = await renderLab();
     await fireEvent.click(getByRole('button', { name: 'Made of cosines' }));
