@@ -125,6 +125,14 @@
       pictureError = '';
       return;
     }
+    if (id === imageId && image) {
+      // Back to the lab's own picture: use its pixels, so the lab keeps its block on the way back.
+      ticket++;
+      loading = false;
+      pictureError = '';
+      picked = null;
+      return;
+    }
     void load(() => loadPicture(id as ImageId), id as ImageId);
   }
 
@@ -325,31 +333,44 @@
       </ol>
 
       <section class="tour-panel" onpointerdown={swipeStart} onpointerup={swipeEnd} onpointercancel={() => (swipe = null)}>
-        <!-- The step's words, read out when the step changes; the picture and slider are not. -->
-        <div class="tour-text" aria-live="polite" aria-atomic="true">
-          <p class="tour-label">Step {step.n} of {TOUR_STEPS.length}{#if step.lossy}<span class="loses">{" · loses detail"}</span>{/if}</p>
-          <h3>{step.heading}</h3>
-          <p class="line">{step.line}</p>
+        <!-- Every step's words share one place, all but this step's unseen, so the words take the room of
+             the longest and the buttons below never move. Only this step's are read out when it changes. -->
+        <div class="tour-words">
+          <div class="tour-text" aria-live="polite" aria-atomic="true">
+            <p class="tour-label">Step {step.n} of {TOUR_STEPS.length}{#if step.lossy}<span class="loses">{" · loses detail"}</span>{/if}</p>
+            <h3>{step.heading}</h3>
+            <p class="line">{step.line}</p>
+          </div>
+          {#each TOUR_STEPS as s (s.id)}
+            <div class="tour-text sizer" aria-hidden="true">
+              <p class="tour-label">Step {s.n} of {TOUR_STEPS.length}{#if s.lossy}<span class="loses">{" · loses detail"}</span>{/if}</p>
+              <h3>{s.heading}</h3>
+              <p class="line">{s.line}</p>
+            </div>
+          {/each}
         </div>
         <div class="visual">
           <TourVisual step={step.id} image={shownImage} quality={q} {subsampling} {huffman} {viz} {kitFailed} />
         </div>
-        {#if step.id === 'round'}
-          <label class="quality">
-            Quality
-            <input
-              type="range"
-              min="1"
-              max="100"
-              step="1"
-              value={q}
-              aria-label="Quality"
-              oninput={(e) => (q = Math.min(100, Math.max(1, Math.round(Number((e.currentTarget as HTMLInputElement).value) || 1))))}
-              use:tooltip={{ ctl, target: { id: 'tour.quality', quality: q }, acts: true }}
-            />
-            <span class="tour-quality-value">{q}</span>
-          </label>
-        {/if}
+        <!-- The slider's row is kept on every step, so the buttons don't move when it comes and goes. -->
+        <div class="quality-row">
+          {#if step.id === 'round'}
+            <label class="quality">
+              Quality
+              <input
+                type="range"
+                min="1"
+                max="100"
+                step="1"
+                value={q}
+                aria-label="Quality"
+                oninput={(e) => (q = Math.min(100, Math.max(1, Math.round(Number((e.currentTarget as HTMLInputElement).value) || 1))))}
+                use:tooltip={{ ctl, target: { id: 'tour.quality', quality: q }, acts: true }}
+              />
+              <span class="tour-quality-value">{q}</span>
+            </label>
+          {/if}
+        </div>
         <div class="progress" aria-hidden="true">
           {#each TOUR_STEPS as s, i (s.id)}<span class:done={i <= index}></span>{/each}
         </div>
@@ -391,8 +412,10 @@
     line-height: 1.5;
   }
   /*
-    A fixed height, so the buttons sit in the same place on every step. The header and the buttons
-    never scroll; the body between them takes the rest and scrolls only when it must (phones).
+    As tall as its content, which is the same on every step (the words take the room of the longest
+    step's, the slider's row is always kept, the picture area has a fixed height), so the buttons sit in
+    the same place on every step and no empty band opens above them. At most the window's height: the
+    header and the buttons never scroll; the body between them scrolls only when it must (short windows).
     --pic-h is the picture area's fixed height; the canvases inside it are capped to fit.
   */
   .tour-dialog {
@@ -403,7 +426,7 @@
     flex-direction: column;
     gap: 14px;
     width: min(760px, 100%);
-    height: min(700px, 100%);
+    max-height: 100%;
     overflow: hidden;
     padding: 20px 22px;
     border: 1px solid var(--line);
@@ -515,13 +538,17 @@
 
   .tour-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; touch-action: pan-y; }
   /* The label belongs to the heading: they sit together, the line just below. */
+  .tour-words { display: grid; }
+  .tour-words > .tour-text { grid-area: 1 / 1; }
   .tour-text { display: flex; flex-direction: column; gap: 2px; }
+  .sizer { visibility: hidden; }
   .tour-label { margin: 0; color: var(--stone); font-size: 13px; line-height: 1.4; }
   .loses { color: var(--accent); font-weight: 600; }
   h3 { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; }
   .line { margin: 4px 0 0; font-size: 15px; line-height: 1.45; }
   .visual { flex: none; height: var(--pic-h); min-width: 0; }
-  .quality { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--stone); }
+  .quality-row { min-height: 24px; display: flex; align-items: center; }
+  .quality { flex: 1 1 auto; display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--stone); }
   .quality input { flex: 1 1 auto; min-width: 0; max-width: 320px; }
   .tour-quality-value { width: 3ch; font-family: var(--font-mono); text-align: right; color: var(--ink); }
   .progress { display: flex; gap: 4px; }
@@ -564,9 +591,9 @@
     .num, .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   }
 
-  /* Phones: the dialog fills the screen, the picture sits above the words, nothing scrolls sideways. */
+  /* Phones: the picture sits above the words, nothing scrolls sideways. */
   @media (max-width: 599.98px) {
-    .tour-dialog { --pic-h: min(28vh, 228px); height: 100%; padding: 16px 14px; gap: 12px; }
+    .tour-dialog { --pic-h: min(28vh, 228px); padding: 16px 14px; gap: 12px; }
     .tour-body { gap: 12px; }
     .visual { order: -1; }
     /* Two rows that never rewrap, so the buttons stay put on every step: Skip and Back, then the two ways on. */

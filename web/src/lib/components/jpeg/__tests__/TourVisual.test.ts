@@ -341,6 +341,67 @@ describe('TourVisual.svelte', () => {
     expect(caption(container)).toMatch(/^Zoomed in · /);
   });
 
+  it('picks the whole-number zoom that fits the room the figure has, so nothing shrinks it by a fraction', async () => {
+    // A phone: the figure is 347 × 227, so a canvas has 175 px of height and two side by side 165.5 px of width each.
+    const observers: (() => void)[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private cb: () => void) {}
+        observe() {
+          // As in a browser: the first report comes after the figure is drawn.
+          observers.push(this.cb);
+        }
+        disconnect() {}
+      },
+    );
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('tour-visual') ? 347 : 0;
+    });
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('tour-visual') ? 227 : 0;
+    });
+    try {
+      const { viz } = stubViz();
+      const size = (c: Element) => [Number(c.getAttribute('width')), Number(c.getAttribute('height'))];
+      // Tiles: 72 × 40 pixels; 345 wide by 175 high allows four times (288 × 160).
+      const report = async () => {
+        for (const cb of observers.splice(0)) cb();
+        await tick();
+      };
+      const tiles = render(TourVisual, { step: 'tiles', ...base, image: flat(256, 256), viz: null });
+      await report();
+      expect(size(tiles.container.querySelector('canvas')!)).toEqual([288, 160]);
+      tiles.unmount();
+      // Before and after: 40 × 40 pixels each; 165.5 × 175 allows four times (160 × 160).
+      for (const step of ['round', 'open'] as TourStepId[]) {
+        const { container, unmount } = render(TourVisual, { step, ...base, image: flat(256, 256), viz });
+        await report();
+        await settle();
+        const canvases = [...container.querySelectorAll('canvas')];
+        expect(canvases).toHaveLength(2);
+        for (const c of canvases) expect(size(c)).toEqual([160, 160]);
+        unmount();
+      }
+      // A roomy figure keeps the caps: five times.
+      width.mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains('tour-visual') ? 716 : 0;
+      });
+      height.mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains('tour-visual') ? 260 : 0;
+      });
+      const roomy = render(TourVisual, { step: 'round', ...base, image: flat(256, 256), viz });
+      await report();
+      await settle();
+      for (const c of roomy.container.querySelectorAll('canvas')) expect(size(c)).toEqual([200, 200]);
+      roomy.unmount();
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('enlarges a tiny picture by a whole number on every picture step', async () => {
     const { viz } = stubViz();
     for (const step of ['split', 'share', 'tiles', 'round', 'open'] as TourStepId[]) {

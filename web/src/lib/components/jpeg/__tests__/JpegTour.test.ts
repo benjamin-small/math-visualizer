@@ -28,6 +28,7 @@ vi.mock('../../../jpeg/images', async (importOriginal) => {
 vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
 
 import JpegTour from '../JpegTour.svelte';
+import { TOUR_STEPS } from '../../../jpeg/tour';
 
 const picture = (): RgbaImage => ({ w: 16, h: 16, rgba: new Uint8Array(16 * 16 * 4).fill(120) });
 
@@ -232,6 +233,22 @@ describe('JpegTour.svelte', () => {
     expect(select.value).toBe('spring');
     await fireEvent.click(handoffButton());
     expect(onclose).toHaveBeenCalledWith(expect.objectContaining({ imageId: 'spring' }));
+  });
+
+  it('goes back to the lab\'s own pixels when the lab\'s picture is picked again', async () => {
+    const lab = picture();
+    const { onclose } = mountTour({ image: lab });
+    const select = screen.getByRole('combobox', { name: 'Tour picture' }) as HTMLSelectElement;
+    await fireEvent.change(select, { target: { value: 'doge' } });
+    await waitFor(() => expect(handoffButton().disabled).toBe(false));
+    await fireEvent.change(select, { target: { value: 'spring' } });
+    // Not fetched again: the lab already has it.
+    expect(loadPicture).toHaveBeenCalledTimes(1);
+    expect(handoffButton().disabled).toBe(false);
+    expect(select.value).toBe('spring');
+    await fireEvent.click(handoffButton());
+    expect(onclose.mock.lastCall![0]).toMatchObject({ imageId: 'spring' });
+    expect(onclose.mock.lastCall![0].image).toBe(lab);
   });
 
   it('applies an upload and hands it over as the uploaded picture', async () => {
@@ -451,6 +468,29 @@ describe('JpegTour.svelte', () => {
     body.scrollTop = 120;
     await fireEvent.click(next());
     expect(body.scrollTop).toBe(0);
+  });
+
+  it('keeps room for the longest words and the slider on every step, so the buttons never move', async () => {
+    mountTour();
+    const words = dialog().querySelector('.tour-words')!;
+    // Every step's words sit in the same place, unseen and unread, beside the live one.
+    const sizers = [...words.querySelectorAll('.tour-text.sizer')];
+    expect(sizers.map((el) => el.querySelector('h3')!.textContent)).toEqual(TOUR_STEPS.map((s) => s.heading));
+    expect(sizers.map((el) => el.querySelector('.line')!.textContent)).toEqual(TOUR_STEPS.map((s) => s.line));
+    for (const el of sizers) {
+      expect(el.getAttribute('aria-hidden')).toBe('true');
+      expect(el.hasAttribute('aria-live')).toBe(false);
+    }
+    expect(words.querySelectorAll('[aria-live="polite"]')).toHaveLength(1);
+    // Only the live step's heading is a heading anyone can reach.
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Split brightness from colour']);
+    // The slider's row is there on every step, empty but for step 5.
+    for (let i = 0; i < TOUR_STEPS.length; i++) {
+      await fireEvent.click(stripButtons()[i]);
+      const row = dialog().querySelectorAll('.quality-row');
+      expect(row).toHaveLength(1);
+      expect(row[0].querySelector('input') !== null).toBe(i === 4);
+    }
   });
 
   it('keeps the buttons out of the scrolling content', () => {

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { TOUR_JARGON, TOUR_SEEN_KEY, TOUR_STEPS, latestOnly, markTourSeen, sentenceCount, tourSeen } from '../tour';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TOUR_JARGON, TOUR_SEEN_KEY, TOUR_STEPS, isLabPicture, latestOnly, markTourSeen, resetTourSeen, sentenceCount, tourSeen } from '../tour';
 
 describe('tour steps', () => {
   it('has the nine steps in order with their stages', () => {
@@ -52,8 +52,21 @@ describe('sentenceCount', () => {
 });
 
 describe('first-visit memory', () => {
-  it('remembers the first visit', () => {
+  beforeEach(() => {
+    resetTourSeen();
     localStorage.removeItem(TOUR_SEEN_KEY);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetTourSeen();
+  });
+
+  const storage = () => (localStorage instanceof Storage ? Storage.prototype : localStorage);
+  const blocked = () => {
+    throw new Error('blocked');
+  };
+
+  it('remembers the first visit', () => {
     expect(tourSeen()).toBe(false);
     markTourSeen();
     expect(tourSeen()).toBe(true);
@@ -61,22 +74,52 @@ describe('first-visit memory', () => {
   });
 
   it('treats storage that throws as not seen, and marking as a no-op', () => {
-    const proto = localStorage instanceof Storage ? Storage.prototype : localStorage;
-    const get = vi.spyOn(proto, 'getItem').mockImplementation(() => {
-      throw new Error('blocked');
-    });
-    const set = vi.spyOn(proto, 'setItem').mockImplementation(() => {
-      throw new Error('blocked');
-    });
+    const get = vi.spyOn(storage(), 'getItem').mockImplementation(blocked);
+    const set = vi.spyOn(storage(), 'setItem').mockImplementation(blocked);
     expect(tourSeen()).toBe(false);
     expect(() => markTourSeen()).not.toThrow();
     // Closed once with storage blocked, it stays closed for the rest of this page view.
     expect(tourSeen()).toBe(true);
     get.mockRestore();
     set.mockRestore();
-    // Storage that works is still the only memory that counts.
-    localStorage.removeItem(TOUR_SEEN_KEY);
+    expect(tourSeen()).toBe(true);
+    // A fresh page view with storage that works asks storage again.
+    resetTourSeen();
     expect(tourSeen()).toBe(false);
+  });
+
+  it('stays closed for the page view when storage reads but will not write', () => {
+    // Full storage: reading works, writing throws.
+    vi.spyOn(storage(), 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    expect(tourSeen()).toBe(false);
+    markTourSeen();
+    expect(localStorage.getItem(TOUR_SEEN_KEY)).toBeNull();
+    // Leaving the lab and coming back asks again: the tour must not reopen.
+    expect(tourSeen()).toBe(true);
+  });
+});
+
+describe('isLabPicture', () => {
+  const pic = (fill: number, w = 4, h = 4) => ({ w, h, rgba: new Uint8Array(w * h * 4).fill(fill) });
+
+  it('takes the very same pixels as the lab\'s, an upload too', () => {
+    const lab = pic(10);
+    expect(isLabPicture({ imageId: 'spring', image: lab }, 'spring', lab)).toBe(true);
+    expect(isLabPicture({ imageId: 'upload', image: lab }, 'upload', lab)).toBe(true);
+  });
+
+  it('takes the same gallery picture loaded again with the same pixels', () => {
+    expect(isLabPicture({ imageId: 'spring', image: pic(10) }, 'spring', pic(10))).toBe(true);
+  });
+
+  it('refuses another picture, other pixels, another size, a fresh upload or no lab picture', () => {
+    expect(isLabPicture({ imageId: 'doge', image: pic(10) }, 'spring', pic(10))).toBe(false);
+    expect(isLabPicture({ imageId: 'spring', image: pic(11) }, 'spring', pic(10))).toBe(false);
+    expect(isLabPicture({ imageId: 'spring', image: pic(10, 8, 2) }, 'spring', pic(10))).toBe(false);
+    expect(isLabPicture({ imageId: 'upload', image: pic(10) }, 'upload', pic(10))).toBe(false);
+    expect(isLabPicture({ imageId: 'spring', image: pic(10) }, 'spring', null)).toBe(false);
   });
 });
 

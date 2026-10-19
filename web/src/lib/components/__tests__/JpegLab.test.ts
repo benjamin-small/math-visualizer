@@ -15,7 +15,7 @@ import { navigate, route } from '../../router.svelte';
 import { decodeUpload, loadPicture } from '../../jpeg/images';
 import { cells, jpegLayout } from '../../jpeg/layout';
 import { RD_PSNR_CAP } from '../../jpeg/rd';
-import { TOUR_SEEN_KEY } from '../../jpeg/tour';
+import { TOUR_SEEN_KEY, resetTourSeen } from '../../jpeg/tour';
 import type { StageId } from '../../jpeg/stages';
 
 installRafPolyfill();
@@ -1535,6 +1535,8 @@ describe('the guided tour', () => {
   });
   afterEach(() => {
     for (const spy of spies) spy.mockRestore();
+    // A test that closed the tour with storage refusing it leaves the in-memory "seen" behind.
+    resetTourSeen();
     localStorage.setItem(TOUR_SEEN_KEY, '1');
   });
 
@@ -1596,6 +1598,31 @@ describe('the guided tour', () => {
     expect(new URLSearchParams(route.query).get('img')).toBe('gradient');
   });
 
+  it('picking the lab\'s own picture again in the tour keeps the lab\'s block', async () => {
+    const r = await renderLab('stage=blocks&b=12,7');
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    const show = within(dialog).getByRole('button', { name: 'Show me in the lab' }) as HTMLButtonElement;
+    await vi.waitFor(() => expect(show.disabled).toBe(false)); // the lab's picture is in
+    const pick = within(dialog).getByLabelText('Tour picture') as HTMLSelectElement;
+    await fireEvent.change(pick, { target: { value: 'gradient' } });
+    await vi.waitFor(() => expect(show.disabled).toBe(false));
+    await fireEvent.change(pick, { target: { value: 'spring' } });
+    expect(show.disabled).toBe(false);
+    const springLoads = () => vi.mocked(loadPicture).mock.calls.filter(([id]) => id === 'spring').length;
+    const loadsBefore = springLoads();
+    ruleActionSpy.mockClear();
+    await fireEvent.click(show);
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    await vi.waitFor(() => expect(route.query).toContain('stage=color'));
+    // Not fetched again, and still on the block the link chose.
+    expect(springLoads()).toBe(loadsBefore);
+    expect(route.query).toContain('b=12,7');
+    expect(lastPush()[0].image_id).toBe('spring');
+    await vi.waitFor(() =>
+      expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 12, by: 7 }),
+    );
+  });
+
   it('Escape leaves the lab as it was', async () => {
     const r = await renderLab();
     const before = route.query;
@@ -1648,6 +1675,28 @@ describe('the guided tour', () => {
     expect(getItem).toHaveBeenCalled();
     expect(setItem).toHaveBeenCalled();
     // Another lab and back, in the same page view: the tour stays closed.
+    navigate('fourier', '');
+    await vi.waitFor(() => expect(r.queryByRole('button', { name: 'How JPEG works' })).toBeNull());
+    navigate('jpeg', '');
+    await vi.waitFor(() => r.getByRole('button', { name: 'How JPEG works' }));
+    await tick();
+    expect(dialogOf(r)).toBeNull();
+  });
+
+  it('stays closed after another lab and back when storage is full', async () => {
+    // Full storage reads fine but refuses to write.
+    const store = window.localStorage;
+    const target = store instanceof Storage ? Storage.prototype : store;
+    const setItem = vi.spyOn(target, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    spies.push(setItem);
+    const r = await renderLab();
+    const dialog = await vi.waitFor(() => r.getByRole('dialog', { name: TITLE }));
+    await key(dialog, 'Escape');
+    await vi.waitFor(() => expect(dialogOf(r)).toBeNull());
+    expect(setItem).toHaveBeenCalled();
+    expect(localStorage.getItem(TOUR_SEEN_KEY)).toBeNull();
     navigate('fourier', '');
     await vi.waitFor(() => expect(r.queryByRole('button', { name: 'How JPEG works' })).toBeNull());
     navigate('jpeg', '');
