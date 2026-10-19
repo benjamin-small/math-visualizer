@@ -45,17 +45,17 @@
 
 ## The steps (exact data for `TOUR_STEPS`)
 
-| id | n | stage | lossy | heading | line (on screen) | card (hover, one sentence) |
-|---|---|---|---|---|---|---|
-| `split` | 1 | `color` | no | Split brightness from colour | Your eye notices brightness far more than colour. | Brightness carries the shapes, so colour can be stored more roughly without you noticing. |
-| `share` | 2 | `subsample` | yes | Shrink the colour | Neighbouring pixels share one colour, and you barely notice. | Each 2 × 2 square of pixels keeps one shared colour, so only a quarter of the colour is stored. |
-| `tiles` | 3 | `blocks` | no | Cut into tiles | The picture is cut into 8 × 8 squares. | From here on each tile is handled on its own, which is why a heavily squeezed JPEG looks blocky. |
-| `waves` | 4 | `dct` | no | Describe each tile as waves | Smooth tiles need a few waves; busy ones need many. | Any 8 × 8 tile can be rebuilt by mixing 64 standard wave patterns in different amounts. |
-| `round` | 5 | `quantize` | yes | Round off fine detail | Faint waves round to zero. This is the big saving. | Lower quality rounds harder: a smaller file, but softer edges and visible tiles. |
-| `line` | 6 | `zigzag` | no | Line the numbers up | The zeros end up together at the end. | Reading a tile from its smooth waves to its busy ones puts the zeros last. |
-| `count` | 7 | `rle` | no | Count the zeros | "Five zeros, then a 3" is shorter than writing them all out. | A long run of zeros costs almost nothing once it is counted instead of written. |
-| `codes` | 8 | `huffman` | no | Short codes for common things | Like Morse code, the most common things get the shortest codes. | Frequent patterns get short codes and rare ones long codes, so the total shrinks. |
-| `open` | 9 | `decode` | no | Open it again | Your viewer undoes every step to show the picture. | Nothing is lost here; what was rounded off in steps 2 and 5 stays gone. |
+| id | n | stage | lossy | heading | short (strip label) | line (on screen) | card (hover, one sentence) |
+|---|---|---|---|---|---|---|---|
+| `split` | 1 | `color` | no | Split brightness from colour | Split | Your eye notices brightness far more than colour. | Brightness carries the shapes, so colour can be stored more roughly without you noticing. |
+| `share` | 2 | `subsample` | yes | Shrink the colour | Shrink colour | Neighbouring pixels share one colour, and you barely notice. | Each 2 × 2 square of pixels keeps one shared colour, so only a quarter of the colour is stored. |
+| `tiles` | 3 | `blocks` | no | Cut into tiles | Tiles | The picture is cut into 8 × 8 squares. | From here on each tile is handled on its own, which is why a heavily squeezed JPEG looks blocky. |
+| `waves` | 4 | `dct` | no | Describe each tile as waves | Waves | Smooth tiles need a few waves; busy ones need many. | Any 8 × 8 tile can be rebuilt by mixing 64 standard wave patterns in different amounts. |
+| `round` | 5 | `quantize` | yes | Round off fine detail | Round off | Faint waves round to zero. This is the big saving. | Lower quality rounds harder: a smaller file, but softer edges and visible tiles. |
+| `line` | 6 | `zigzag` | no | Line the numbers up | Line up | The zeros end up together at the end. | Reading a tile from its smooth waves to its busy ones puts the zeros last. |
+| `count` | 7 | `rle` | no | Count the zeros | Count zeros | "Five zeros, then a 3" is shorter than writing them all out. | A long run of zeros costs almost nothing once it is counted instead of written. |
+| `codes` | 8 | `huffman` | no | Short codes for common things | Short codes | Like Morse code, the most common things get the shortest codes. | Frequent patterns get short codes and rare ones long codes, so the total shrinks. |
+| `open` | 9 | `decode` | no | Open it again | Open | Your viewer undoes every step to show the picture. | Nothing is lost here; what was rounded off in steps 2 and 5 stays gone. |
 
 ## Review Focus
 

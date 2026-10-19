@@ -5,7 +5,8 @@
   // encoder is asked through `latestOnly`, after waiting a frame, so a slider drag ends on the
   // last value, and its result is kept so moving between those three steps doesn't encode again.
   // Pictures with 8-pixel detail (the tiles, before and after rounding) show a zoomed-in crop
-  // around the busiest tile at a whole-number scale, so the detail stays visible.
+  // around the busiest tile at a whole-number scale, so the detail stays visible. The scale is
+  // picked for the room the figure has, so the browser never shrinks it by a fraction.
   import { untrack } from 'svelte';
   import type { RgbaImage } from '../../jpeg/images';
   import type { HuffmanId, SubsamplingId } from '../../jpeg/params';
@@ -50,8 +51,38 @@
   const CAP = 200;
   /** The widest the single tiles picture is drawn. */
   const WIDE_CAP = 360;
+  /** The height the label and the caption take from the figure (the dialog's --tour-canvas-max leaves the same). */
+  const WORDS_ROOM = 52;
+  /** The gap between pictures side by side (`.panels`). */
+  const GAP = 12;
+  /** A canvas's border, both sides together. */
+  const BORDER = 2;
   /** The whole-number enlargement that fits a `w × h` picture in `maxW × maxH` (at least 1). */
   const fit = (w: number, h: number, maxW: number, maxH: number) => Math.max(1, Math.floor(Math.min(maxW / w, maxH / h)));
+
+  /** The figure's size once laid out, or null before (and where nothing is laid out). */
+  let box = $state<{ w: number; h: number } | null>(null);
+
+  /** Keep `box` up to date with the figure's size: once on mount, so the first drawing fits, then on every resize. */
+  function measure(node: HTMLElement) {
+    const update = () => {
+      const w = node.clientWidth;
+      const h = node.clientHeight;
+      if (w <= 0 || h <= 0) box = null;
+      else if (!box || box.w !== w || box.h !== h) box = { w, h };
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(update);
+    ro.observe(node);
+    return { destroy: () => ro.disconnect() };
+  }
+
+  /** The canvas room each of `n` pictures side by side has (at most `capW` wide): the caps until the figure is measured. */
+  function room(n: number, capW = CAP): [number, number] {
+    if (!box) return [capW, CAP];
+    return [Math.min(capW, (box.w - GAP * (n - 1)) / n - BORDER), Math.min(CAP, box.h - WORDS_ROOM)];
+  }
 
   /** One picture on a canvas: the pixels, how much to enlarge them, and anything drawn over them. */
   interface Pic {
@@ -181,7 +212,7 @@
 
   /** The crop around the busiest tile for the before-and-after steps, and its enlargement. */
   const pairCrop = $derived<Crop | null>(image && tile ? tileCrop(image, tile[0], tile[1], 5, 5) : null);
-  const pairScale = $derived(pairCrop ? fit(pairCrop.w, pairCrop.h, CAP, CAP) : 1);
+  const pairScale = $derived(pairCrop ? fit(pairCrop.w, pairCrop.h, ...room(2)) : 1);
 
   /** A crop of the tiles around the busiest one, enlarged so the 8-pixel grid shows; the busiest tile is outlined. */
   const tilesPic = $derived.by<Pic | null>(() => {
@@ -192,7 +223,7 @@
     return {
       aria: `A zoomed-in part of the picture cut into 8 by 8 pixel tiles; the busiest tile is outlined, column ${bx + 1}, row ${by + 1}`,
       img,
-      scale: fit(img.w, img.h, WIDE_CAP, CAP),
+      scale: fit(img.w, img.h, ...room(1, WIDE_CAP)),
       pixelated: true,
       overlay: (ctx, s) => {
         const step8 = 8 * s;
@@ -228,7 +259,7 @@
     if (!image) return [];
     const img = image;
     // A whole picture is drawn at its own size, or enlarged by a whole number when it is tiny.
-    const whole = fit(img.w, img.h, CAP, CAP);
+    const whole = fit(img.w, img.h, ...room(2));
     /** The same zoomed-in crop of the picture and of what the encoder gave back. */
     const pair = (enc: Encoded, before: [string, string], after: [string, string]): Pic[] => {
       const crop = pairCrop ?? { x: 0, y: 0, w: img.w, h: img.h };
@@ -345,7 +376,7 @@
   <canvas aria-label={p.aria} class:pixelated={p.pixelated} use:paint={p}></canvas>
 {/snippet}
 
-<figure class="tour-visual" class:stale={needsKit && stale} data-step={step} aria-busy={busy ? 'true' : 'false'}>
+<figure class="tour-visual" class:stale={needsKit && stale} data-step={step} aria-busy={busy ? 'true' : 'false'} use:measure>
   {#if busy}
     <p class="busy">Getting the picture ready</p>
   {:else if broken}

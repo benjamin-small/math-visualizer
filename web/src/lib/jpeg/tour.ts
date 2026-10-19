@@ -125,29 +125,36 @@ export const TOUR_STEPS: readonly TourStep[] = [
 /** The localStorage key that remembers the tour has been offered. */
 export const TOUR_SEEN_KEY = 'jpeg-tour-seen';
 
-/** Set when the tour was closed while storage was blocked: it then stays closed for this page view. */
+/** Set when the tour was closed but storage would not keep it: it then stays closed for this page view. */
 let seenWithoutStorage = false;
 
 /**
  * Whether the tour has been seen before. Storage that is missing or blocked counts as not seen,
- * unless the tour was already closed in this page view.
+ * unless the tour was already closed in this page view (storage that reads but will not write,
+ * when it is full, say, is remembered the same way).
  */
 export function tourSeen(): boolean {
+  if (seenWithoutStorage) return true;
   try {
     return localStorage.getItem(TOUR_SEEN_KEY) === '1';
   } catch {
-    return seenWithoutStorage;
+    return false;
   }
 }
 
-/** Remember that the tour has been seen; with storage missing or blocked, only for this page view. */
+/** Remember that the tour has been seen; with storage missing, blocked or full, only for this page view. */
 export function markTourSeen(): void {
   try {
     localStorage.setItem(TOUR_SEEN_KEY, '1');
   } catch {
-    // Storage is blocked: remember it in memory, so going to another lab and back doesn't reopen it.
+    // Storage would not keep it: remember it in memory, so going to another lab and back doesn't reopen it.
     seenWithoutStorage = true;
   }
+}
+
+/** Forget the in-memory "seen", as a fresh page view would. For tests. */
+export function resetTourSeen(): void {
+  seenWithoutStorage = false;
 }
 
 /** Words the tour's own text must not use (whole words, any case). */
@@ -168,6 +175,25 @@ export interface TourHandoff {
   image: RgbaImage;
   /** The quality the tour was showing. */
   quality: number;
+}
+
+/**
+ * Whether a hand-off carries the lab's own picture, so the lab only encodes it again and keeps its
+ * block: the very same pixels, or the same gallery picture loaded again with identical pixels. An
+ * upload is the lab's only as the very same pixels.
+ */
+export function isLabPicture(
+  h: Pick<TourHandoff, 'imageId' | 'image'>,
+  imageId: ImageId | 'upload',
+  image: RgbaImage | null,
+): boolean {
+  if (!image) return false;
+  if (h.image === image) return true;
+  if (h.imageId === 'upload' || h.imageId !== imageId) return false;
+  const a = h.image;
+  if (a.w !== image.w || a.h !== image.h || a.rgba.length !== image.rgba.length) return false;
+  for (let i = 0; i < a.rgba.length; i++) if (a.rgba[i] !== image.rgba[i]) return false;
+  return true;
 }
 
 /**

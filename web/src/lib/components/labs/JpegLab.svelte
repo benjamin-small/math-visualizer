@@ -42,7 +42,7 @@
   import { saveFileName } from '../../jpeg/explain/bezel';
   import { canvasTarget, cellTarget } from '../../jpeg/explain/hit';
   import { cachedCurve, rdKey } from '../../jpeg/rd';
-  import { markTourSeen, tourSeen, type TourHandoff } from '../../jpeg/tour';
+  import { isLabPicture, markTourSeen, tourSeen, type TourHandoff } from '../../jpeg/tour';
   import { readSummary, readoutOf, type JpegSummary } from '../../jpeg/summary';
   import { NOTICE, stageTex } from '../../jpeg/formulas';
   import { readSegments, readTables, type HuffTableView, type SegmentView } from '../../jpeg/huffman';
@@ -637,8 +637,9 @@
     tourOpen = false;
     if (h) {
       quality = h.quality;
-      // The lab's own picture (its upload too) is only encoded again, so its block and scan stay.
-      if (h.image !== image) {
+      // The lab's own picture (its upload too, or its gallery picture picked again in the tour) is
+      // only encoded again, so its block and scan stay.
+      if (!isLabPicture(h, imageId, image)) {
         if (!api) handedOff = true;
         await loadImage(() => Promise.resolve(h.image), h.imageId);
       } else {
