@@ -230,3 +230,7 @@ The JPEG lab's gallery pictures are bundled in `web/public/jpeg/`. spring and sh
 - doge: "Doge (homemade)" · Euterpia, after a photo by Roberto Vasarri · CC0 · https://commons.wikimedia.org/wiki/File:Doge_homemade_meme.jpg
 - honest-work: "It ain't much, but it's honest work" · Cakelot1, photo by Dianne Johnson, USDA NRCS · Public domain · https://commons.wikimedia.org/wiki/File:Farmer_meme_with_apostrophe.jpg
 - cartoon: "Needs more JPEG" · made for this project · CC0
+
+## Shout-out
+
+A shout-out to [Reducible](https://www.youtube.com/@Reducible), whose video [The Unreasonable Effectiveness of JPEG: A Signal Processing Approach](https://www.youtube.com/watch?v=0me3guauqOU&t=1711s) walks through the same steps as the JPEG lab, with beautiful animations. Well worth a watch.
