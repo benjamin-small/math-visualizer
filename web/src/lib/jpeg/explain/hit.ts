@@ -81,7 +81,7 @@ export function canvasTarget(
   x: number,
   y: number,
   sel: SelectedBlock | null,
-  subsampling: SubsamplingId = '420',
+  subsampling: SubsamplingId,
 ): Target | null {
   const panel = layout.panels.find((p) => inside(p.rect, x, y));
   if (!panel) return null;
@@ -92,8 +92,8 @@ export function canvasTarget(
   }
   if (kind === 'cube') return { id: 'color.cube' };
   if (!(img.w > 0 && img.h > 0)) return null;
-  const window = panel.zoom ? (sel ? zoomWindow(lumaAnchorOf(sel, subsampling), img.w, img.h) : undefined) : panel.crop;
-  const p = pixelAt(rect, x, y, img, window);
+  const crop = panel.zoom ? (sel ? zoomWindow(lumaAnchorOf(sel, subsampling), img.w, img.h) : undefined) : panel.crop;
+  const p = pixelAt(rect, x, y, img, crop);
   switch (kind) {
     case 'image':
     case 'image_grid':

@@ -29,7 +29,7 @@
     onReady?: (api: LabApi) => void;
     /** Speed to dispatch right after construction (skipped when 1, the engine default). */
     initialSpeed?: number;
-    /** When set, the first Play from iteration 0 ramps speed exponentially up to `target` over `durationMs`. */
+    /** When set, the first Play from the start (iteration 0, or `firstStep`) ramps speed exponentially up to `target` over `durationMs`. */
     speedRamp?: { target: number; durationMs: number };
     /** Show the reset/step/play buttons, readout, clock line and speed slider (default true). */
     playback?: boolean;
@@ -100,7 +100,7 @@
     api.snapshot.max_iterations > 0 ? Math.min(100, (100 * api.snapshot.iteration) / api.snapshot.max_iterations) : 0,
   );
 
-  // Speed ramp: when play starts from iteration 0, ramp speed from its current
+  // Speed ramp: when play starts from the start (iteration 0, or firstStep), ramp speed from its current
   // value up to speedRamp.target over speedRamp.durationMs. Any manual speed
   // change, pause, reset, or step cancels the ramp. No-op unless the lab opted
   // in via the `speedRamp` prop.
@@ -145,7 +145,7 @@
   function onTogglePlay() {
     if (playOff) return;
     const wasPlaying = api.snapshot.playing;
-    const wasAtStart = api.snapshot.iteration === 0;
+    const wasAtStart = api.snapshot.iteration <= firstStep;
     api.dispatch(cmd.togglePlay());
     if (wasPlaying) {
       cancelRamp();

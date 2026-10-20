@@ -16,6 +16,7 @@ import { decodeUpload, loadPicture } from '../../jpeg/images';
 import { cells, jpegLayout } from '../../jpeg/layout';
 import { RD_PSNR_CAP } from '../../jpeg/rd';
 import { TOUR_SEEN_KEY, resetTourSeen } from '../../jpeg/tour';
+import { mcuIndexOf } from '../../jpeg/params';
 import type { StageId } from '../../jpeg/stages';
 
 installRafPolyfill();
@@ -779,6 +780,49 @@ describe('JpegLab.svelte current block', () => {
     expect(order(ruleActionSpy, select)).toBeLessThan(order(dispatchSpy, pause));
     expect(order(dispatchSpy, pause)).toBeLessThan(order(dispatchSpy, jump));
     expect(route.query).toBe('stage=dct&b=2,3');
+  });
+
+  /** Select, then Pause, then the jump to just past the block's MCU: the order every way of picking a block shares. */
+  function expectPicked(block: [number, number]) {
+    const select = ruleActionSpy.mock.calls.findIndex(([a]) => (a as { kind: string }).kind === 'select_block');
+    expect(select).toBeGreaterThanOrEqual(0);
+    const pause = kinds().indexOf('Pause');
+    const jump = kinds().indexOf('JumpTo');
+    expect(pause).toBeGreaterThanOrEqual(0);
+    expect(dispatchSpy.mock.calls[jump][0]).toEqual({ kind: 'JumpTo', iteration: mcuIndexOf(block, '420', 256) + 1 });
+    expect(ruleActionSpy.mock.invocationCallOrder[select]).toBeLessThan(dispatchSpy.mock.invocationCallOrder[pause]);
+    expect(dispatchSpy.mock.invocationCallOrder[pause]).toBeLessThan(dispatchSpy.mock.invocationCallOrder[jump]);
+  }
+
+  it('an arrow key on the picture pauses the scan and jumps it there', async () => {
+    const { findByRole } = await renderLab('stage=dct');
+    const pick = await findByRole('button', { name: /Pick a block/ });
+    ruleActionSpy.mockClear();
+    dispatchSpy.mockClear();
+    await fireEvent.keyDown(pick, { key: 'ArrowRight' });
+    // The summary's luma block is (21, 17); one block right.
+    expect(ruleActionSpy.mock.calls.find(([a]) => (a as { kind: string }).kind === 'select_block')![0]).toEqual({
+      kind: 'select_block',
+      component: 0,
+      bx: 22,
+      by: 17,
+    });
+    expectPicked([22, 17]);
+  });
+
+  it('a Decode hint pauses the scan and jumps it there', async () => {
+    const { findByRole } = await renderLab('stage=decode');
+    const chip = await findByRole('button', { name: 'Blocking' });
+    ruleActionSpy.mockClear();
+    dispatchSpy.mockClear();
+    await fireEvent.click(chip);
+    const [bx, by] = jpegSummaryFixture.hints.blocking;
+    expect(ruleActionSpy.mock.calls.find(([a]) => (a as { kind: string }).kind === 'select_block')![0]).toMatchObject({
+      kind: 'select_block',
+      bx,
+      by,
+    });
+    expectPicked([bx, by]);
   });
 
   it('the panels and the link follow the scan while it is paused', async () => {

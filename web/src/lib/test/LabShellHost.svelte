@@ -12,9 +12,10 @@
     showHeaderAction?: boolean;
     firstStep?: number;
     transportOff?: string | null;
+    speedRamp?: { target: number; durationMs: number };
   }
 
-  let { playback, zoom, showOverlay = false, nativeTitles, showHeaderAction = false, firstStep, transportOff }: Props = $props();
+  let { playback, zoom, showOverlay = false, nativeTitles, showHeaderAction = false, firstStep, transportOff, speedRamp }: Props = $props();
 </script>
 
 {#snippet headerActionContent()}
@@ -25,7 +26,7 @@
   <div data-testid="overlay-content">overlay {api.snapshot.iteration}</div>
 {/snippet}
 
-<LabShell labId="sierpinski" title="Test lab" thesis="A thesis." {playback} {zoom} {nativeTitles} {firstStep} {transportOff} headerAction={showHeaderAction ? headerActionContent : undefined} overlay={showOverlay ? overlayContent : undefined}>
+<LabShell labId="sierpinski" title="Test lab" thesis="A thesis." {playback} {zoom} {nativeTitles} {firstStep} {transportOff} {speedRamp} headerAction={showHeaderAction ? headerActionContent : undefined} overlay={showOverlay ? overlayContent : undefined}>
   {#snippet legend()}
     <span class="item"><i class="swatch"></i>Legend item</span>
   {/snippet}
