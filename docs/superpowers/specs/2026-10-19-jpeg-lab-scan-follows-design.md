@@ -124,8 +124,9 @@ nothing looks unavailable and, on hover or focus, says why.
   (not snapped to the MCU's top-left) until the scan moves on.
 - **One outline.** The separate scan-front outline goes; the current block's outline is the only
   one, so the picture never shows two positions.
-- **Opening.** With no `b=` in the link, the current block is the rule's default (block 0, 0),
-  so the scan sits at `n = 1`, paused.
+- **Opening.** With no `b=` in the link, the current block is the encoder's default, the luma
+  block with the most AC energy (amended while planning: the default is not block 0, 0). The
+  scan sits paused just after it: at that block's MCU + 1.
 - **Re-encoding** (quality, subsampling, tables, Huffman): the scan goes back to the current
   block's MCU in the new MCU grid (not "the same share of the picture"), and keeps playing if it
   was playing.
