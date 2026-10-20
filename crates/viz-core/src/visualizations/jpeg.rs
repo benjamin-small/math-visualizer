@@ -4,11 +4,19 @@
 //! here by construction. With no panels (the home tile, the wasm tests) it
 //! fits one "image" panel to the canvas.
 //!
+//! The scan position and the selection are one "current block": the rule keeps
+//! the selection on the last scanned MCU, and every panel that shows the
+//! picture outlines it in the accent colour (there is no separate scan-front
+//! outline). A plane or coded panel with `zoom` set takes its window from the
+//! selection, so it follows the scan without the page re-pushing a crop.
+//!
 //! Panel kinds: `image` (the scan: decoded where scanned, the original dimmed
-//! elsewhere, the selected block outlined), `image_grid` (the same plus the
+//! elsewhere, the current block outlined), `image_grid` (the same plus the
 //! block grid and MCU outlines), `plane_y` / `plane_cb` / `plane_cr` (the
-//! full-resolution planes), `coded_cb` / `coded_cr` (the subsampled chroma as
-//! coded, shown blocky), `cube` (the pixels as points in the colour cube),
+//! full-resolution planes, current block outlined; `crop` or `zoom` magnifies),
+//! `coded_cb` / `coded_cr` (the subsampled chroma as coded, shown blocky,
+//! same outline and magnifying), `cube` (the pixels as points in the colour cube,
+//! dimmed, with the current block's pixels lit on top),
 //! `block` (the selected block's 64 samples), `atlas` (the 64 DCT basis
 //! patterns), `coeffs` (the selected block's DCT, signed), `rebuild` (the
 //! block rebuilt from its first `dct_k` zigzag coefficients), `quant` (the
@@ -17,10 +25,12 @@
 //! grid with the scan path growing through it at `zigzag_speed` cells a
 //! second, restarting when the block or the encode changes; the viz reports
 //! how far it has got through `readout()`),
-//! `wipe` (the original with the decoded image over its left `wipe` share),
+//! `wipe` (the original with the decoded image over its left `wipe` share, the
+//! current block outlined),
 //! `original` and `decoded` (the whole picture before and after compression at
 //! full brightness, whatever the scan position) and `error` (per-pixel
-//! |decoded − original|, brightened by `error_gain`).
+//! |decoded − original|, brightened by `error_gain`, the current block
+//! outlined).
 
 use jpeg::color::{rgb_to_ycbcr, ycbcr_to_rgb};
 use jpeg::dct::{basis, idct, idct_partial};
@@ -52,6 +62,12 @@ pub struct Panel {
     /// how the lab shows subsampled chroma's blocks.
     #[serde(default)]
     pub crop: Option<[f32; 4]>,
+    /// For plane and coded panels: the side, in image pixels, of a square
+    /// window centred on the selected block. Replaces `crop`, so the zoom
+    /// follows the selection (and so the scan) without the page re-pushing
+    /// a crop on every step.
+    #[serde(default)]
+    pub zoom: Option<f32>,
 }
 
 fn default_background() -> [f32; 4] {
@@ -79,7 +95,7 @@ pub struct JpegVizConfig {
     /// Clear colour behind the panels, RGBA in 0–1.
     #[serde(default = "default_background")]
     pub background: [f32; 4],
-    /// Outlines: the selected block, the scan front, hover.
+    /// Outlines: the current block, hover.
     #[serde(default = "default_accent")]
     pub accent: [f32; 4],
     /// Block-grid lines.
@@ -194,6 +210,55 @@ pub fn map_rect(sub: [f32; 4], panel: [f32; 4], img_w: usize, img_h: usize) -> [
     ]
 }
 
+/// `sub` (image pixels) clipped to `crop`, then scaled so that `crop` fills
+/// `panel` (device pixels). `map_rect(sub, panel, w, h)` is the case of a
+/// crop that is the whole `w × h` image.
+pub fn map_rect_in_crop(sub: [f32; 4], panel: [f32; 4], crop: [f32; 4]) -> [f32; 4] {
+    let (sx, sy) = (panel[2] / crop[2].max(1e-6), panel[3] / crop[3].max(1e-6));
+    let x0 = sub[0].clamp(crop[0], crop[0] + crop[2]);
+    let y0 = sub[1].clamp(crop[1], crop[1] + crop[3]);
+    let x1 = (sub[0] + sub[2]).clamp(crop[0], crop[0] + crop[2]);
+    let y1 = (sub[1] + sub[3]).clamp(crop[1], crop[1] + crop[3]);
+    [
+        panel[0] + (x0 - crop[0]) * sx,
+        panel[1] + (y0 - crop[1]) * sy,
+        (x1 - x0) * sx,
+        (y1 - y0) * sy,
+    ]
+}
+
+/// The luma block (in 8 × 8 blocks) at the top-left of the area a block
+/// covers: a luma block is its own anchor, a chroma block's is scaled by the
+/// sampling factors.
+pub fn luma_anchor(sel: Selection, s: Subsampling) -> (usize, usize) {
+    if sel.component == 0 {
+        (sel.bx, sel.by)
+    } else {
+        let (fh, fv) = s.factors();
+        (sel.bx * fh, sel.by * fv)
+    }
+}
+
+/// A `side`-pixel square of an `iw × ih` image centred on luma block
+/// `anchor`, kept inside the image (a smaller image is shown whole), as
+/// `[x, y, w, h]`. The twin of `zoomWindow` in `web/src/lib/jpeg/layout.ts`.
+pub fn zoom_window(anchor: (usize, usize), side: f32, iw: usize, ih: usize) -> [f32; 4] {
+    let side = side.min(iw as f32).min(ih as f32).max(0.0);
+    let centre = |a: usize| a as f32 * 8.0 + 4.0;
+    // Rounds half up like JavaScript's `Math.round`.
+    let place = |c: f32, extent: usize| {
+        (c - side / 2.0 + 0.5)
+            .floor()
+            .clamp(0.0, (extent as f32 - side).max(0.0))
+    };
+    [
+        place(centre(anchor.0), iw),
+        place(centre(anchor.1), ih),
+        side,
+        side,
+    ]
+}
+
 /// Where to draw a texture spanning `span` image pixels (`[w, h]`, from the
 /// image's top-left) so that `crop` (image pixels) lands exactly on `rect`
 /// (device pixels). Scissor to `rect` to hide the rest.
@@ -256,6 +321,22 @@ pub fn outline(rect: [f32; 4], color: [f32; 4], out: &mut Vec<LineVertex>) {
             position: c[(i + 1) % 4],
             color,
         });
+    }
+}
+
+/// The current block outlined on a whole-picture panel at `rect`, in the
+/// accent colour. Does nothing until there is an encode to name the block's
+/// size.
+fn outline_current_block(
+    state: &JpegState,
+    cfg: &JpegVizConfig,
+    rect: [f32; 4],
+    out: &mut Vec<LineVertex>,
+) {
+    if let Some(enc) = &state.encoded {
+        let cur = block_rect(state.selection, enc.trace.options.subsampling);
+        let (iw, ih) = (state.original.w, state.original.h);
+        outline(map_rect(cur, rect, iw, ih), cfg.accent, out);
     }
 }
 
@@ -457,8 +538,40 @@ pub fn hover_index(hover: Option<[u32; 2]>) -> Option<usize> {
         .map(|[u, v]| (u + 8 * v) as usize)
 }
 
-/// Builds the cube's edge lines and pixel points for `mix`.
-fn build_cube(img: &Rgb8Image, version: u32, mix: f32, accent: [f32; 4]) -> CubeCache {
+/// The RGB (0–255) of every image pixel inside the block's rect, clipped to
+/// the picture, row by row.
+pub fn block_pixels(img: &Rgb8Image, sel: Selection, s: Subsampling) -> Vec<[f32; 3]> {
+    let mut out = Vec::new();
+    block_pixels_into(img, sel, s, &mut out);
+    out
+}
+
+/// `block_pixels`, appended to `out` so a caller can reuse its allocation.
+fn block_pixels_into(img: &Rgb8Image, sel: Selection, s: Subsampling, out: &mut Vec<[f32; 3]>) {
+    let [x, y, w, h] = block_rect(sel, s);
+    let (x0, y0) = (x as usize, y as usize);
+    let (x1, y1) = ((x0 + w as usize).min(img.w), (y0 + h as usize).min(img.h));
+    for py in y0..y1 {
+        for px in x0..x1 {
+            let i = (px + img.w * py) * 4;
+            out.push([
+                img.rgba[i] as f32,
+                img.rgba[i + 1] as f32,
+                img.rgba[i + 2] as f32,
+            ]);
+        }
+    }
+}
+
+/// A colour with its RGB scaled by `dim` (clamped to 0–1); alpha unchanged.
+pub fn dimmed(c: [f32; 4], dim: f32) -> [f32; 4] {
+    let d = dim.clamp(0.0, 1.0);
+    [c[0] * d, c[1] * d, c[2] * d, c[3]]
+}
+
+/// Builds the cube's edge lines and pixel points for `mix`, the cloud dimmed
+/// by `dim` so the current block's lit pixels stand out.
+fn build_cube(img: &Rgb8Image, version: u32, mix: f32, dim: f32, accent: [f32; 4]) -> CubeCache {
     let edge_color = [1.0, 1.0, 1.0, 0.35];
     let mut lines: Vec<LineVertex3D> = Vec::with_capacity(26);
     for (a, b) in cube_edges() {
@@ -480,13 +593,14 @@ fn build_cube(img: &Rgb8Image, version: u32, mix: f32, accent: [f32; 4]) -> Cube
         .into_iter()
         .map(|rgb| PointInstance3D {
             position: cube_point(rgb, mix),
-            color: [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.9],
+            color: dimmed([rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.9], dim),
             radius_px: 2.0,
         })
         .collect();
     CubeCache {
         version,
         mix,
+        dim,
         accent,
         lines,
         points,
@@ -506,10 +620,11 @@ struct Textures {
 }
 
 /// The cube's sampled pixels turned into GPU instances, valid for one encode
-/// (`version`), one `cube_mix` and one accent colour.
+/// (`version`), one `cube_mix`, one dimming and one accent colour.
 struct CubeCache {
     version: u32,
     mix: f32,
+    dim: f32,
     accent: [f32; 4],
     lines: Vec<LineVertex3D>,
     points: Vec<PointInstance3D>,
@@ -526,6 +641,10 @@ pub struct JpegViz {
     camera: Camera3D,
     auto_speed: f32,
     cube_cache: Option<CubeCache>,
+    /// Per-frame buffer for the current block's pixels lit in the cube.
+    block_scratch: Vec<[f32; 3]>,
+    /// Per-frame buffer: the cached cloud followed by the lit block.
+    cube_points: Vec<PointInstance3D>,
     quad_scratch: Vec<QuadInstance>,
     line_scratch: Vec<LineVertex>,
     /// The zigzag path's progress in cells (0–64), advanced by `tick`.
@@ -566,6 +685,8 @@ impl JpegViz {
             zig_speed: default_zigzag_speed(),
             zig_key: None,
             cube_cache: None,
+            block_scratch: Vec::new(),
+            cube_points: Vec::new(),
             quad_scratch: Vec::new(),
             line_scratch: Vec::new(),
         }
@@ -731,18 +852,6 @@ impl JpegViz {
                 y += 8;
             }
         }
-        let n = state.n as usize;
-        if n < t.layout.units.len() {
-            let (mx, my) = (n % t.layout.cols, n / t.layout.cols);
-            let front = [
-                (mx * t.layout.mcu_w) as f32,
-                (my * t.layout.mcu_h) as f32,
-                t.layout.mcu_w as f32,
-                t.layout.mcu_h as f32,
-            ];
-            let c = [cfg.accent[0], cfg.accent[1], cfg.accent[2], 0.55];
-            outline(map_rect(front, rect, iw, ih), c, &mut self.line_scratch);
-        }
         let sel = block_rect(state.selection, t.options.subsampling);
         outline(
             map_rect(sel, rect, iw, ih),
@@ -806,12 +915,17 @@ impl JpegViz {
         canvas: [u32; 2],
     ) {
         let mix = cfg.cube_mix;
-        let stale = self
-            .cube_cache
-            .as_ref()
-            .is_none_or(|c| c.version != state.version || c.mix != mix || c.accent != cfg.accent);
+        let stale = self.cube_cache.as_ref().is_none_or(|c| {
+            c.version != state.version || c.mix != mix || c.dim != cfg.dim || c.accent != cfg.accent
+        });
         if stale {
-            self.cube_cache = Some(build_cube(&state.original, state.version, mix, cfg.accent));
+            self.cube_cache = Some(build_cube(
+                &state.original,
+                state.version,
+                mix,
+                cfg.dim,
+                cfg.accent,
+            ));
         }
         let [x, y, w, h] = scissor_box(canvas[1], rect);
         if w <= 0 || h <= 0 {
@@ -826,7 +940,27 @@ impl JpegViz {
                 l.draw(gl, &vp);
             }
             if let Some(p) = self.points_3d.as_mut() {
-                p.upload(gl, &c.points);
+                // The current block's pixels go after the dimmed cloud, at full
+                // brightness and a larger radius, so they draw on top.
+                self.block_scratch.clear();
+                // Without an encode there is no block size to name, so none lights up.
+                if let Some(enc) = &state.encoded {
+                    block_pixels_into(
+                        &state.original,
+                        state.selection,
+                        enc.trace.options.subsampling,
+                        &mut self.block_scratch,
+                    );
+                }
+                self.cube_points.clear();
+                self.cube_points.extend_from_slice(&c.points);
+                self.cube_points
+                    .extend(self.block_scratch.iter().map(|rgb| PointInstance3D {
+                        position: cube_point(*rgb, mix),
+                        color: [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 1.0],
+                        radius_px: 3.5,
+                    }));
+                p.upload(gl, &self.cube_points);
                 p.draw(gl, &vp, [w as u32, h as u32]);
             }
         }
@@ -879,6 +1013,7 @@ impl Visualization for JpegViz {
                 kind: "image".into(),
                 rect: fit_rect(area, state.original.w, state.original.h),
                 crop: None,
+                zoom: None,
             }];
             &fallback
         } else {
@@ -902,7 +1037,13 @@ impl Visualization for JpegViz {
                         continue;
                     };
                     let (iw, ih) = (state.original.w as f32, state.original.h as f32);
-                    let crop = panel.crop.unwrap_or([0.0, 0.0, iw, ih]);
+                    let crop = match panel.zoom {
+                        Some(side) => {
+                            let anchor = luma_anchor(sel, tr.options.subsampling);
+                            zoom_window(anchor, side, state.original.w, state.original.h)
+                        }
+                        None => panel.crop.unwrap_or([0.0, 0.0, iw, ih]),
+                    };
                     let (tex, span) = match panel.kind.as_str() {
                         "plane_y" => (Some(&t.planes[0]), [iw, ih]),
                         "plane_cb" => (Some(&t.planes[1]), [iw, ih]),
@@ -924,6 +1065,12 @@ impl Visualization for JpegViz {
                         gl.scissor(x, y, w, h);
                         q.draw(gl, tex, crop_target(rect, crop, span), canvas, 1.0);
                         gl.disable(Gl::SCISSOR_TEST);
+                        let cur = block_rect(sel, tr.options.subsampling);
+                        outline(
+                            map_rect_in_crop(cur, rect, crop),
+                            cfg.accent,
+                            &mut self.line_scratch,
+                        );
                     }
                 }
                 "block" => {
@@ -1018,11 +1165,13 @@ impl Visualization for JpegViz {
                             position: [edge, rect[1] + rect[3]],
                             color: cfg.accent,
                         });
+                        outline_current_block(state, cfg, rect, &mut self.line_scratch);
                     }
                 }
                 "error" => {
                     if let (Some(q), Some(t)) = (&self.quad, &self.textures) {
                         q.draw(gl, &t.error, rect, canvas, cfg.error_gain.max(0.0));
+                        outline_current_block(state, cfg, rect, &mut self.line_scratch);
                     }
                 }
                 "atlas" => self.draw_atlas(rect, hover, cfg.accent),
@@ -1096,6 +1245,60 @@ mod tests {
             [10.0, 35.0, 100.0, 50.0]
         );
         assert_eq!(fit_rect([0.0, 0.0, 0.0, 10.0], 8, 8)[2], 0.0);
+    }
+
+    #[test]
+    fn luma_anchor_scales_a_chroma_block_to_its_top_left_luma_block() {
+        let s = |component, bx, by| Selection { component, bx, by };
+        assert_eq!(luma_anchor(s(0, 21, 17), Subsampling::S420), (21, 17));
+        assert_eq!(luma_anchor(s(1, 3, 2), Subsampling::S420), (6, 4));
+        assert_eq!(luma_anchor(s(2, 3, 2), Subsampling::S422), (6, 2));
+        assert_eq!(luma_anchor(s(1, 3, 2), Subsampling::S444), (3, 2));
+    }
+
+    #[test]
+    fn zoom_window_matches_the_web_layout() {
+        // ZOOM_WINDOW is 32 on the web side.
+        assert_eq!(
+            zoom_window((21, 17), 32.0, 256, 256),
+            [156.0, 124.0, 32.0, 32.0]
+        );
+        assert_eq!(zoom_window((0, 0), 32.0, 256, 256), [0.0, 0.0, 32.0, 32.0]);
+        assert_eq!(
+            zoom_window((31, 31), 32.0, 256, 256),
+            [224.0, 224.0, 32.0, 32.0]
+        );
+        // Smaller than the window: the window shrinks to the picture's short side.
+        assert_eq!(zoom_window((2, 1), 32.0, 40, 24), [8.0, 0.0, 24.0, 24.0]);
+    }
+
+    #[test]
+    fn map_rect_in_crop_scales_and_clips_to_the_crop() {
+        let crop = [156.0, 124.0, 32.0, 32.0];
+        assert_eq!(
+            map_rect_in_crop([168.0, 136.0, 8.0, 8.0], [0.0, 0.0, 128.0, 128.0], crop),
+            [48.0, 48.0, 32.0, 32.0]
+        );
+        assert_eq!(
+            map_rect_in_crop([150.0, 120.0, 16.0, 16.0], [0.0, 0.0, 128.0, 128.0], crop),
+            [0.0, 0.0, 40.0, 48.0]
+        );
+        let panel = [100.0, 50.0, 512.0, 512.0];
+        assert_eq!(
+            map_rect_in_crop([8.0, 16.0, 8.0, 8.0], panel, [0.0, 0.0, 256.0, 256.0]),
+            map_rect([8.0, 16.0, 8.0, 8.0], panel, 256, 256)
+        );
+    }
+
+    #[test]
+    fn a_panel_reads_zoom_from_json() {
+        let p: Panel =
+            serde_json::from_value(json!({"kind": "plane_cb", "rect": [0, 0, 10, 10], "zoom": 32}))
+                .unwrap();
+        assert_eq!(p.zoom, Some(32.0));
+        let q: Panel =
+            serde_json::from_value(json!({"kind": "plane_cb", "rect": [0, 0, 10, 10]})).unwrap();
+        assert_eq!(q.zoom, None);
     }
 
     #[test]
@@ -1177,6 +1380,52 @@ mod tests {
         let pts = sample_pixels(&img, 4096);
         assert!(pts.len() <= 4096 && pts.len() >= 1024);
         assert_eq!(pts[0], [9.0, 9.0, 9.0]);
+    }
+
+    #[test]
+    fn block_pixels_cover_the_block_clipped_to_the_picture() {
+        let mut rgba = Vec::new();
+        for y in 0..256usize {
+            for x in 0..256usize {
+                rgba.extend([x as u8, y as u8, 7, 255]);
+            }
+        }
+        let img = Rgb8Image::new(256, 256, rgba).unwrap();
+        let luma = block_pixels(
+            &img,
+            Selection {
+                component: 0,
+                bx: 1,
+                by: 1,
+            },
+            Subsampling::S420,
+        );
+        assert_eq!(luma.len(), 64);
+        assert_eq!(luma[0], [8.0, 8.0, 7.0]);
+        assert_eq!(luma[63], [15.0, 15.0, 7.0]);
+        let chroma = block_pixels(
+            &img,
+            Selection {
+                component: 1,
+                bx: 0,
+                by: 0,
+            },
+            Subsampling::S420,
+        );
+        assert_eq!(chroma.len(), 256);
+        let small = Rgb8Image::new(24, 10, vec![0; 24 * 10 * 4]).unwrap();
+        let edge = Selection {
+            component: 0,
+            bx: 2,
+            by: 1,
+        };
+        assert_eq!(block_pixels(&small, edge, Subsampling::S420).len(), 16);
+    }
+
+    #[test]
+    fn dimmed_scales_colour_not_alpha() {
+        assert_eq!(dimmed([1.0, 0.5, 0.2, 0.9], 0.5), [0.5, 0.25, 0.1, 0.9]);
+        assert_eq!(dimmed([1.0, 1.0, 1.0, 1.0], 2.0), [1.0, 1.0, 1.0, 1.0]);
     }
 
     #[test]

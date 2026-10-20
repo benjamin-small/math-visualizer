@@ -88,13 +88,27 @@ describe('JpegLab.svelte', () => {
     updateVizConfigSpy.mockClear();
   });
 
-  it('encodes a picture as a typed array and plays the scan', async () => {
+  it('encodes a picture as a typed array and waits at its current block, scanning four blocks a second', async () => {
     await renderLab('img=gradient');
     const [cfg, w, h, rgba] = lastPush();
     expect(cfg).toEqual({ image_id: 'gradient', quality: 50, subsampling: '420', huffman: 'optimized', max_iterations: 256, tables: null });
     expect([w, h, rgba.length]).toEqual([256, 256, 256 * 256 * 4]);
-    expect(kinds()).toContain('Play');
-    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'SetSpeed', value: 64 });
+    expect(kinds()).not.toContain('Play');
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'SetSpeed', value: 4 });
+  });
+
+  it('does not play on open, on a new picture or on an upload', async () => {
+    const { container, getByLabelText } = await renderLab();
+    expect(kinds()).not.toContain('Play');
+    // The encoder's default block, luma (21, 17) at 4:2:0, is in MCU 138: the scan waits just after it.
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 139 });
+    await fireEvent.change(getByLabelText('Picture'), { target: { value: 'doge' } });
+    await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('doge'));
+    vi.mocked(decodeUpload).mockImplementationOnce(async () => ({ w: 64, h: 48, rgba: new Uint8Array(64 * 48 * 4).fill(90) }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await fireEvent.change(input, { target: { files: [new File(['x'], 'x.png', { type: 'image/png' })] } });
+    await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('upload'));
+    expect(kinds()).not.toContain('Play');
   });
 
   it('opens the spring overview by default', async () => {
@@ -315,16 +329,24 @@ describe('JpegLab.svelte', () => {
     expect(pushes().length).toBe(before + 1);
   });
 
-  it('restores the scan share and keeps playing after a settings change', async () => {
-    Object.assign(snapshotFixture, { iteration: 128, max_iterations: 256, playing: true });
+  it("a settings change returns the scan to the current block's step", async () => {
+    Object.assign(snapshotFixture, { iteration: 139, max_iterations: 256, playing: true });
     try {
       const { getByLabelText, container } = await renderLab();
-      await vi.waitFor(() => expect(container.querySelector('.readout')?.textContent).toContain('128'));
+      await vi.waitFor(() => expect(container.querySelector('.readout')?.textContent).toContain('139'));
       dispatchSpy.mockClear();
+      // The current block is luma (21, 17); at 4:4:4 every block is its own MCU, row-major on a 32-block row.
       await fireEvent.click(getByLabelText('4:4:4'));
       expect(lastPush()[0].max_iterations).toBe(1024);
-      expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 512 });
-      expect(kinds()).toContain('Play');
+      expect(dispatchSpy.mock.calls.map(([c]) => c)).toEqual([{ kind: 'JumpTo', iteration: 17 * 32 + 21 + 1 }, { kind: 'Play' }]);
+      // Paused, a quality change jumps again and does not play.
+      snapshotFixture.playing = false;
+      await vi.waitFor(() => expect(container.querySelectorAll('.transport button')[2].textContent).toContain('Play'));
+      dispatchSpy.mockClear();
+      await fireEvent.input(getByLabelText('Quality'), { target: { value: '20' } });
+      await vi.waitFor(() => expect(lastPush()[0].quality).toBe(20));
+      expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 566 });
+      expect(kinds()).not.toContain('Play');
     } finally {
       Object.assign(snapshotFixture, { iteration: 0, max_iterations: 360, playing: false });
     }
@@ -707,6 +729,158 @@ describe('JpegLab.svelte', () => {
   });
 });
 
+// One current block: the scan and the selection are one position, which Play, Back, Forward, clicks,
+// keys, hints and links all move. The fake engine does not follow the scan itself, so these tests move
+// the summary's selection and the snapshot's clock by hand, as the rule and the engine would.
+describe('JpegLab.svelte current block', () => {
+  const savedSel = { component: jpegSummaryFixture.selected.component, bx: jpegSummaryFixture.selected.bx, by: jpegSummaryFixture.selected.by };
+
+  beforeEach(() => {
+    localStorage.setItem(TOUR_SEEN_KEY, '1');
+    dispatchSpy.mockClear();
+    ruleActionSpy.mockClear();
+    updateRuleConfigWithImageSpy.mockClear();
+    updateVizConfigSpy.mockClear();
+  });
+
+  afterEach(() => {
+    Object.assign(jpegSummaryFixture.selected, savedSel);
+    Object.assign(snapshotFixture, { iteration: 0, max_iterations: 360, playing: false });
+  });
+
+  /** Wait until the shell shows the clock at step `n`. */
+  const atStep = (n: number) =>
+    vi.waitFor(() => expect(document.querySelector('.readout')?.textContent?.startsWith(`${n} `)).toBe(true));
+  /** Move the fake engine one scan step, its selection on luma block `(bx, by)`, as the rule does. */
+  async function scanTo(n: number, bx: number, by: number) {
+    Object.assign(jpegSummaryFixture.selected, { component: 0, bx, by });
+    snapshotFixture.iteration = n;
+    await atStep(n);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  const zigzagPatches = () =>
+    updateVizConfigSpy.mock.calls.map(([c]) => c as { zigzag_speed?: number }).filter((c) => c.zigzag_speed !== undefined);
+
+  it('a click on the picture pauses the scan and jumps it there', async () => {
+    const { findByRole } = await renderLab('stage=dct');
+    const pick = await findByRole('button', { name: /Pick a block/ });
+    const image = jpegLayout('dct', 1134, 585, 256, 256).image;
+    ruleActionSpy.mockClear();
+    dispatchSpy.mockClear();
+    const at = { clientX: image.x + ((2 * 8 + 4) / 256) * image.w, clientY: image.y + ((3 * 8 + 4) / 256) * image.h };
+    await fireEvent(pick, new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, ...at }));
+    const select = ruleActionSpy.mock.calls.findIndex(([a]) => (a as { kind: string }).kind === 'select_block');
+    expect(ruleActionSpy.mock.calls[select][0]).toEqual({ kind: 'select_block', component: 0, bx: 2, by: 3 });
+    const pause = kinds().indexOf('Pause');
+    const jump = kinds().indexOf('JumpTo');
+    // MCU (1, 1) of a 16-MCU row: step 18 has scanned it.
+    expect(dispatchSpy.mock.calls[jump][0]).toEqual({ kind: 'JumpTo', iteration: 18 });
+    const order = (spy: typeof dispatchSpy, i: number) => spy.mock.invocationCallOrder[i];
+    expect(order(ruleActionSpy, select)).toBeLessThan(order(dispatchSpy, pause));
+    expect(order(dispatchSpy, pause)).toBeLessThan(order(dispatchSpy, jump));
+    expect(route.query).toBe('stage=dct&b=2,3');
+  });
+
+  it('the panels and the link follow the scan while it is paused', async () => {
+    await renderLab('stage=dct');
+    await scanTo(5, 8, 0);
+    await vi.waitFor(() => expect(route.query).toContain('b=8,0'));
+  });
+
+  it('following the scan while playing pushes no viz config and writes no link', async () => {
+    await renderLab('stage=dct');
+    snapshotFixture.playing = true;
+    await vi.waitFor(() => expect(zigzagPatches()).toEqual([{ zigzag_speed: 0 }]));
+    updateVizConfigSpy.mockClear();
+    const before = route.query;
+    await scanTo(5, 8, 0);
+    await scanTo(6, 10, 0);
+    await scanTo(7, 12, 0);
+    expect(updateVizConfigSpy).not.toHaveBeenCalled();
+    expect(route.query).toBe(before);
+    snapshotFixture.playing = false;
+    await vi.waitFor(() => expect(route.query).toContain('b=12,0'));
+  });
+
+  it("a shared block off the grid opens the scan at the clamped block's step", async () => {
+    await renderLab('stage=blocks&b=999,999');
+    await vi.waitFor(() => expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 31, by: 31 }));
+    // Luma (31, 31) is in the last MCU of 256.
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 256 });
+    expect(kinds()).not.toContain('Play');
+  });
+
+  it('a link pasted while the lab is open puts the scan on its block', async () => {
+    await renderLab('stage=dct');
+    dispatchSpy.mockClear();
+    navigate('jpeg', 'stage=dct&b=2,3');
+    await vi.waitFor(() => expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 2, by: 3 }));
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 18 });
+    expect(kinds()).not.toContain('Play');
+  });
+
+  it('a link pasted with other settings opens paused on its block, even while the scan was playing', async () => {
+    Object.assign(snapshotFixture, { iteration: 64, max_iterations: 256, playing: true });
+    await renderLab('stage=dct');
+    await atStep(64);
+    dispatchSpy.mockClear();
+    navigate('jpeg', 'stage=dct&q=20&b=2,3');
+    await vi.waitFor(() => expect(lastPush()[0].quality).toBe(20));
+    // MCU (1, 1) of a 16-MCU row: step 18 has scanned it. The re-encode rewinds the engine, and nothing plays it on.
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 18 });
+    expect(kinds()).not.toContain('Play');
+  });
+
+  it('a link with no block, opened from a chroma plane, goes back to the encoder\'s luma block', async () => {
+    const { getByRole } = await renderLab('stage=blocks&b=2,3');
+    await fireEvent.click(getByRole('button', { name: 'Cb' }));
+    expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 1, bx: 1, by: 1 });
+    ruleActionSpy.mockClear();
+    dispatchSpy.mockClear();
+    navigate('jpeg', 'stage=blocks');
+    // The summary's default is luma (21, 17), in MCU 138; the rule must not stay on chroma for the next step to follow.
+    await vi.waitFor(() => expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 21, by: 17 }));
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 139 });
+    expect(kinds()).not.toContain('Play');
+  });
+
+  it('turns Reset and Back off at the first step and Play and Forward off at the end', async () => {
+    Object.assign(snapshotFixture, { iteration: 1, max_iterations: 256, playing: false });
+    const { container } = await renderLab('stage=dct');
+    await atStep(1);
+    const transport = within(container.querySelector<HTMLElement>('.transport')!);
+    const off = (name: RegExp) => transport.getByRole('button', { name }).getAttribute('aria-disabled');
+    // The lab's first step is 1 (the scan waits just after a block), so Reset and Back have nowhere to go.
+    expect([off(/Reset/), off(/Back/), off(/Play/), off(/Forward/)]).toEqual(['true', 'true', null, null]);
+    snapshotFixture.iteration = 256;
+    await atStep(256);
+    expect([off(/Reset/), off(/Back/), off(/Play/), off(/Forward/)]).toEqual([null, null, 'true', 'true']);
+  });
+
+  it('switches the transport off on the overview and on at a stage', async () => {
+    snapshotFixture.iteration = 64; // mid-scan, so nothing is off for being at the start or the end
+    const { container, getByRole } = await renderLab(); // opens on the overview
+    await atStep(64);
+    const transport = () => within(container.querySelector<HTMLElement>('.transport')!);
+    for (const name of [/Reset/, /Back/, /Play/, /Forward/]) expect(transport().getByRole('button', { name }).getAttribute('aria-disabled')).toBe('true');
+    dispatchSpy.mockClear();
+    await fireEvent.click(transport().getByRole('button', { name: /Play/ }));
+    expect(dispatchSpy).not.toHaveBeenCalled();
+    await fireEvent.click(getByRole('button', { name: 'Step 1: Color' }));
+    for (const name of [/Reset/, /Back/, /Play/, /Forward/]) expect(transport().getByRole('button', { name }).getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('shows the zigzag path whole while the scan plays', async () => {
+    await renderLab('stage=zigzag');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(zigzagPatches()).toEqual([]); // not on mount
+    snapshotFixture.playing = true;
+    await vi.waitFor(() => expect(updateVizConfigSpy).toHaveBeenCalledWith(expect.objectContaining({ zigzag_speed: 0 })));
+    snapshotFixture.playing = false;
+    await vi.waitFor(() => expect(updateVizConfigSpy).toHaveBeenLastCalledWith(expect.objectContaining({ zigzag_speed: 24 })));
+  });
+});
+
 // The cards (hover, pin, keyboard) on the DCT and Quantize stages. The fake engine's summary follows each push, as
 // the real one does: a new version, and the quality that was asked for.
 describe('JpegLab.svelte cards', () => {
@@ -734,7 +908,7 @@ describe('JpegLab.svelte cards', () => {
   const ptr = (type: string, x: number, y: number, init: MouseEventInit = {}) =>
     new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, ...init });
 
-  const layoutOf = (stage: StageId) => jpegLayout(stage, 1134, 585, 256, 256, [21, 17]);
+  const layoutOf = (stage: StageId) => jpegLayout(stage, 1134, 585, 256, 256);
   /** The centre of cell `(u, v)` of a stage's panel. */
   function centreOf(stage: StageId, kind: string, u: number, v: number) {
     const rect = layoutOf(stage).panels.find((p) => p.kind === kind)!.rect;
@@ -1226,16 +1400,21 @@ describe('JpegLab.svelte cards', () => {
     });
 
     it('keeps the transport buttons clicking', async () => {
-      const { container } = await renderLab();
-      const [reset, , , forward] = await vi.waitFor(() => {
-        const found = [...container.querySelectorAll<HTMLButtonElement>('.transport button')];
-        expect(found).toHaveLength(4);
-        return found;
-      });
-      dispatchSpy.mockClear();
-      await fireEvent.click(reset);
-      await fireEvent.click(forward);
-      expect(kinds()).toEqual(expect.arrayContaining(['Reset', 'StepForward']));
+      snapshotFixture.iteration = 10; // mid-scan: at the first step the shell disables Reset
+      try {
+        const { container } = await renderLab('stage=dct'); // the overview switches the transport off
+        const [reset, , , forward] = await vi.waitFor(() => {
+          const found = [...container.querySelectorAll<HTMLButtonElement>('.transport button')];
+          expect(found).toHaveLength(4);
+          return found;
+        });
+        dispatchSpy.mockClear();
+        await fireEvent.click(reset);
+        await fireEvent.click(forward);
+        expect(kinds()).toEqual(expect.arrayContaining(['Reset', 'StepForward']));
+      } finally {
+        snapshotFixture.iteration = 0;
+      }
     });
 
     it('renders no native tooltip anywhere, the shell included', async () => {
@@ -1605,6 +1784,7 @@ describe('the guided tour', () => {
     await fireEvent.click(show);
     await vi.waitFor(() => expect(lastPush()[0].image_id).toBe('gradient'));
     expect(new URLSearchParams(route.query).get('img')).toBe('gradient');
+    expect(kinds()).not.toContain('Play'); // a hand-off waits at its block, like any new picture
   });
 
   it('picking the lab\'s own picture again in the tour keeps the lab\'s block', async () => {

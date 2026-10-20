@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULTS, buildParams, clampQuality, mcuCount, mcuSize, parseParams } from '../params';
+import { DEFAULTS, buildParams, clampQuality, lumaAnchorOf, mcuCount, mcuIndexOf, mcuSize, parseParams } from '../params';
 import { STAGES, readyStage, stepStage } from '../stages';
 
 describe('params', () => {
@@ -49,6 +49,20 @@ describe('params', () => {
     expect(mcuCount(256, 256, '444')).toBe(1024);
     expect(mcuCount(99, 61, '420')).toBe(28);
     expect(mcuCount(1, 1, '422')).toBe(1);
+  });
+
+  it('finds the scan step of a luma block', () => {
+    expect(mcuIndexOf([21, 17], '420', 256)).toBe(8 * 16 + 10);
+    expect(mcuIndexOf([3, 0], '444', 256)).toBe(3);
+    expect(mcuIndexOf([5, 3], '422', 256)).toBe(3 * 16 + 2);
+    expect(mcuIndexOf([2, 0], '420', 24)).toBe(1); // padded: 2 MCUs across
+  });
+
+  it('maps a selection to its top-left luma block', () => {
+    expect(lumaAnchorOf({ component: 0, bx: 21, by: 17 }, '420')).toEqual([21, 17]);
+    expect(lumaAnchorOf({ component: 1, bx: 3, by: 2 }, '420')).toEqual([6, 4]);
+    expect(lumaAnchorOf({ component: 2, bx: 3, by: 2 }, '422')).toEqual([6, 2]);
+    expect(lumaAnchorOf({ component: 1, bx: 3, by: 2 }, '444')).toEqual([3, 2]);
   });
 });
 

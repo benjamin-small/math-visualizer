@@ -54,6 +54,11 @@ export interface Panel {
   label: string;
   /** For plane panels: the part of the image shown, `[x, y, w, h]` in image pixels (default: all). */
   crop?: [number, number, number, number];
+  /**
+   * For plane and coded panels: the side, in image pixels, of a square window the viz centres on the
+   * current block itself, so the window follows the scan without a layout push. Replaces `crop`.
+   */
+  zoom?: number;
 }
 
 /** Where everything goes on one stage. */
@@ -150,8 +155,9 @@ function overviewLayout(cssW: number, cssH: number, imgW: number, imgH: number):
  * The stage's panels. Landscape: the image at the left (up to 45% of the
  * width), the stage's focus panels to its right. Portrait (narrower than
  * `PORTRAIT_BELOW`): the image on top (42% of the height), focus below.
- * `block` (luma block coordinates) centres the subsample stage's magnified
- * window. A canvas too small for anything gives empty panels.
+ * The subsample stage's magnified window is the viz's to place (`zoom`), so
+ * the layout does not depend on the current block. A canvas too small for
+ * anything gives empty panels.
  */
 export function jpegLayout(
   stage: StageId,
@@ -159,7 +165,6 @@ export function jpegLayout(
   cssH: number,
   imgW: number,
   imgH: number,
-  block: [number, number] = [0, 0],
 ): StageLayout {
   const m = MARGIN;
   if (!(cssW > 2 * m + 40 && cssH > 2 * m + LABEL + 40 && imgW > 0 && imgH > 0)) {
@@ -201,8 +206,8 @@ export function jpegLayout(
       break;
     }
     case 'subsample': {
-      const crop = zoomWindow(block, imgW, imgH);
-      const zoom = `${crop[2]} × ${crop[3]} px around the block`;
+      const side = Math.min(ZOOM_WINDOW, imgW, imgH);
+      const caption = `${side} × ${side} px around the block`;
       const [left, right] = columns(focus, 2, g);
       const half = (r: Rect): [Rect, Rect] => {
         const h = (r.h - g) / 2;
@@ -214,10 +219,10 @@ export function jpegLayout(
       const [cbFull, crFull] = half(left);
       const [cbKept, crKept] = half(right);
       const sq = (r: Rect) => fit(belowLabel(r), 1, 1);
-      panels.push({ kind: 'plane_cb', rect: sq(cbFull), label: `Cb as measured — ${zoom}`, crop });
-      panels.push({ kind: 'coded_cb', rect: sq(cbKept), label: 'Cb as kept', crop });
-      panels.push({ kind: 'plane_cr', rect: sq(crFull), label: `Cr as measured — ${zoom}`, crop });
-      panels.push({ kind: 'coded_cr', rect: sq(crKept), label: 'Cr as kept', crop });
+      panels.push({ kind: 'plane_cb', rect: sq(cbFull), label: `Cb as measured — ${caption}`, zoom: ZOOM_WINDOW });
+      panels.push({ kind: 'coded_cb', rect: sq(cbKept), label: 'Cb as kept', zoom: ZOOM_WINDOW });
+      panels.push({ kind: 'plane_cr', rect: sq(crFull), label: `Cr as measured — ${caption}`, zoom: ZOOM_WINDOW });
+      panels.push({ kind: 'coded_cr', rect: sq(crKept), label: 'Cr as kept', zoom: ZOOM_WINDOW });
       break;
     }
     case 'blocks': {
@@ -301,11 +306,18 @@ export const BLANK_PANELS: Panel[] = [{ kind: 'image', rect: { x: 0, y: 0, w: 0,
 export function toDevicePanels(
   panels: Panel[],
   dpr: number,
-): { kind: PanelKind; rect: [number, number, number, number]; crop: [number, number, number, number] | null }[] {
+): {
+  kind: PanelKind;
+  rect: [number, number, number, number];
+  crop: [number, number, number, number] | null;
+  /** In image pixels, so not scaled by `dpr`. */
+  zoom: number | null;
+}[] {
   return panels.map((p) => ({
     kind: p.kind,
     rect: [p.rect.x * dpr, p.rect.y * dpr, p.rect.w * dpr, p.rect.h * dpr],
     crop: p.crop ?? null,
+    zoom: p.zoom ?? null,
   }));
 }
 
