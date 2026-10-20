@@ -81,6 +81,8 @@
   /** Decode stage: the decoded share of the comparison, and the error map's brightness. */
   let wipe = $state(0.5);
   let errorGain = $state(4);
+  /** Decode stage: how far the wipe and the error map are magnified around the current block (1 = the whole picture). Not in the link. */
+  let decodeZoom = $state(4);
   /** Custom quantization tables `[luma, chroma]`, row-major; null = scaled from the quality. */
   let customTables = $state.raw<[number[], number[]] | null>(null);
   /** Huffman stage: the rule's four tables and the file's segments, read once per encode. */
@@ -669,6 +671,49 @@
     api?.patchVizConfig({ wipe });
   }
 
+  /** A zoom chip: a reader's choice, so re-laying the stage out here is fine (never per scan step). */
+  function onZoom(f: number) {
+    if (f === decodeZoom) return;
+    decodeZoom = f;
+    pushLayout();
+  }
+
+  /** The pointer dragging the wipe line, while one is. */
+  let wipeDrag: number | null = null;
+
+  /** Put the wipe line under the pointer, as a share of the wipe panel's width. */
+  function wipeTo(e: PointerEvent) {
+    const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (!(box.width > 0)) return;
+    onWipe(Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)));
+  }
+
+  /** A press on the wipe (the primary button, or a finger) takes the line to the pointer and starts a drag. */
+  function onWipeDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    wipeDrag = e.pointerId ?? 0;
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch {
+      // No capture (an id the browser does not know): the drag still works while the pointer stays on the panel.
+    }
+    wipeTo(e);
+  }
+
+  function onWipeMove(e: PointerEvent) {
+    if (wipeDrag === null || (e.pointerId ?? 0) !== wipeDrag) return;
+    // A release this panel never heard (it was gone, or the button came up elsewhere) ends the drag.
+    if (e.buttons === 0) {
+      wipeDrag = null;
+      return;
+    }
+    wipeTo(e);
+  }
+
+  function onWipeUp(e: PointerEvent) {
+    if ((e.pointerId ?? 0) === wipeDrag) wipeDrag = null;
+  }
+
   function onGain(v: number) {
     errorGain = v;
     api?.patchVizConfig({ error_gain: errorGain });
@@ -730,7 +775,7 @@
     const canvas = overlayEl?.closest('.stage')?.querySelector('canvas');
     if (!api?.engine || !canvas || !image) return;
     const dpr = window.devicePixelRatio || 1;
-    layout = jpegLayout(stage, canvas.clientWidth, canvas.clientHeight, image.w, image.h);
+    layout = jpegLayout(stage, canvas.clientWidth, canvas.clientHeight, image.w, image.h, decodeZoom);
     api.patchVizConfig({ panels: toDevicePanels(layout.panels, dpr), cube_mix: cubeMix, dct_k: dctK, hover, wipe, error_gain: errorGain });
   }
 
@@ -817,6 +862,7 @@
       playing: api?.snapshot.playing ?? false,
       dctK,
       wipe,
+      decodeZoom,
       errorGain,
       huffTables,
       segments,
@@ -992,7 +1038,7 @@
 
     <div class="marks" bind:this={overlayEl}>
       {#each layout.panels as p (p.kind)}
-        <span class="caption" style:left="{p.rect.x}px" style:top="{p.rect.y - 20}px" style:max-width="{Math.max(p.rect.w, CAPTION_MIN)}px">{p.label}</span>
+        <span class="caption" style:left="{p.rect.x}px" style:top="{p.rect.y - 20}px" style:max-width="{p.captionW ?? Math.max(p.rect.w, CAPTION_MIN)}px">{p.label}</span>
       {/each}
       {#if layout.image.w > 0 && stage !== 'overview'}
         <button
@@ -1044,6 +1090,25 @@
             use:tooltip={{ ctl, target: hitTarget, keyTarget: () => panelKey(p.kind) }}
           ></div>
         {/each}
+      {/if}
+
+      {#if stage === 'decode' && panel('wipe')}
+        {@const r = panel('wipe')!}
+        <!-- The pointer's way to move the wipe line: press and drag on the picture. The Wipe slider is the accessible control, so this is hidden from assistive tech; its card is the pixel's, as on the canvas. -->
+        <div
+          class="wipe-drag"
+          aria-hidden="true"
+          style:left="{r.x}px"
+          style:top="{r.y}px"
+          style:width="{r.w}px"
+          style:height="{r.h}px"
+          onpointerdown={onWipeDown}
+          onpointermove={onWipeMove}
+          onpointerup={onWipeUp}
+          onpointercancel={onWipeUp}
+          onlostpointercapture={onWipeUp}
+          use:tooltip={{ ctl, target: hitTarget, acts: true }}
+        ></div>
       {/if}
 
       {#if stage === 'overview' && layout.slots.stats && image}
@@ -1185,8 +1250,10 @@
           hints={summary?.hints ?? null}
           custom={customTables !== null}
           {wipe}
+          zoom={decodeZoom}
           gain={errorGain}
           onwipe={onWipe}
+          onzoom={onZoom}
           ongain={onGain}
           onpick={pickBlock}
           {ctl}
@@ -1312,6 +1379,8 @@
   }
   .hit { position: absolute; padding: 0; border: 0; background: none; cursor: crosshair; pointer-events: auto; }
   .hover-area { position: absolute; pointer-events: auto; }
+  /* A drag past the panel selects no text. */
+  .wipe-drag { position: absolute; pointer-events: auto; cursor: ew-resize; touch-action: none; -webkit-user-select: none; user-select: none; }
   .kept:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   .hover-area:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   /* The cell the arrow keys are on; shown only while the grid has the keyboard. */

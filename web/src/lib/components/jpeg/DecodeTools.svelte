@@ -1,12 +1,13 @@
 <script lang="ts">
   // The Decode stage's controls and its generation-loss chart: the wipe
-  // between decoded and original, the error map's brightness, buttons that
+  // between decoded and original, how far the wipe and the error map are
+  // magnified around the current block, the error map's brightness, buttons that
   // jump to where blocking, ringing and colour bleed are worst, and "Re-save"
   // — decode, encode again with the same settings, repeat — plotting how far
   // each generation has drifted from the original.
   import { onDestroy } from 'svelte';
   import { loadVizCore } from '../../wasm/loader';
-  import type { Rect } from '../../jpeg/layout';
+  import { DECODE_TOOLS, DECODE_ZOOMS, decodeWindow, type Rect } from '../../jpeg/layout';
   import type { RgbaImage } from '../../jpeg/images';
   import type { Hints } from '../../jpeg/summary';
   import { psnrOf } from '../../jpeg/math';
@@ -23,8 +24,12 @@
     /** True while custom quantization tables are in use (Re-save cannot use them). */
     custom: boolean;
     wipe: number;
+    /** The zoom factor in use (one of `DECODE_ZOOMS`; 1 is the whole picture). */
+    zoom: number;
     gain: number;
     onwipe: (v: number) => void;
+    /** Choose a zoom factor. */
+    onzoom: (f: number) => void;
     ongain: (v: number) => void;
     /** Select a luma block (from a hint). */
     onpick: (block: [number, number]) => void;
@@ -34,7 +39,7 @@
     history?: number[];
   }
 
-  let { rect, image, quality, subsampling, huffman, hints, custom, wipe, gain, onwipe, ongain, onpick, ctl, history = $bindable([]) }: Props = $props();
+  let { rect, image, quality, subsampling, huffman, hints, custom, wipe, zoom, gain, onwipe, onzoom, ongain, onpick, ctl, history = $bindable([]) }: Props = $props();
 
   /** Generations re-saved per click. */
   const GENERATIONS = 20;
@@ -77,8 +82,17 @@
     frame = requestAnimationFrame(step);
   }
 
+  /** Side, in picture pixels, of the window the wipe and the error map show (null for the whole picture). */
+  const windowSide = $derived(decodeWindow(zoom, image.w, image.h));
+  /**
+   * Below this width the zoom chips' row (Whole picture, 2×, 4×, 8×: about 220 px of chips and gaps) would wrap,
+   * so the first chip says Whole; its accessible name and its card still say Whole picture.
+   */
+  const ZOOM_ROW_W = 224;
+  const compact = $derived(rect.w < ZOOM_ROW_W);
   const W = $derived(Math.max(0, rect.w - 8));
-  const H = $derived(Math.max(0, rect.h - 150));
+  // The rows above the chart (the sliders, the zoom chips and their window line, the hints and Re-save) take `DECODE_TOOLS`.
+  const H = $derived(Math.max(0, rect.h - DECODE_TOOLS));
   const finite = $derived(history.filter((v) => Number.isFinite(v)));
   const top = $derived(Math.max(10, ...finite) + 2);
   const bottom = $derived(Math.max(0, Math.min(...(finite.length ? finite : [top - 10])) - 2));
@@ -134,6 +148,20 @@
       <span>Wipe</span>
       <input type="range" min="0" max="1" step="0.01" value={wipe} oninput={(e) => onwipe(Number((e.currentTarget as HTMLInputElement).value))} use:tooltip={{ ctl, target: { id: 'decode.wipeSlider' }, acts: true }} />
     </label>
+    <div class="zoom" role="group" aria-label="Zoom">
+      {#each DECODE_ZOOMS as f (f)}
+        <button
+          class="chip"
+          aria-pressed={zoom === f}
+          aria-label={f === 1 ? 'Whole picture' : undefined}
+          onclick={() => onzoom(f)}
+          use:tooltip={{ ctl, target: { id: 'decode.zoom', factor: f }, acts: true }}>{f === 1 ? (compact ? 'Whole' : 'Whole picture') : `${f}×`}</button
+        >
+      {/each}
+    </div>
+    {#if windowSide !== null}
+      <span class="note window">{windowSide} × {windowSide} px around the block</span>
+    {/if}
     <label class="ctl">
       <span>Error × <span class="mono">{gain}</span></span>
       <input type="range" min="1" max="16" step="1" value={gain} oninput={(e) => ongain(Number((e.currentTarget as HTMLInputElement).value))} use:tooltip={{ ctl, target: { id: 'decode.gainSlider' }, acts: true }} />
@@ -189,11 +217,13 @@
 {/if}
 
 <style>
-  .tools { position: absolute; display: flex; flex-direction: column; gap: 8px; color: rgba(255, 255, 255, 0.8); font-size: 12px; pointer-events: auto; overflow: auto; }
-  .ctl { display: flex; align-items: center; gap: 8px; }
+  /* Row heights and gaps here are what the layout's DECODE_TOOLS_FIT and DECODE_TOOLS_MIN_W count on. */
+  .tools { position: absolute; display: flex; flex-direction: column; gap: 6px; color: rgba(255, 255, 255, 0.8); font-size: 12px; pointer-events: auto; overflow: auto; }
+  .ctl { display: flex; align-items: center; gap: 8px; height: 20px; flex: none; }
   .ctl > span { width: 70px; flex: none; }
-  .ctl input { flex: 1; accent-color: var(--accent); }
-  .hints, .resave { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .ctl input { flex: 1; min-width: 96px; margin: 0; accent-color: var(--accent); }
+  .zoom, .hints, .resave { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .window { line-height: 15px; }
   .chip {
     height: 26px;
     padding: 0 10px;
@@ -205,6 +235,7 @@
     cursor: pointer;
   }
   .chip:disabled, .chip[aria-disabled='true'] { opacity: 0.45; cursor: default; }
+  .chip[aria-pressed='true'] { border-color: var(--accent); color: #fff; }
   .note { color: rgba(255, 255, 255, 0.6); }
   svg { display: block; overflow: visible; margin-left: 4px; }
   svg:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }

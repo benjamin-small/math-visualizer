@@ -104,6 +104,19 @@ describe('canvasTarget', () => {
     expect([flat.x, flat.y]).toEqual([12, 4]);
   });
 
+  it('reads the decode stage\'s wipe and error map through a window of their own side', () => {
+    const layout = layoutOf('decode'); // 4×: a 64-pixel window
+    const sel = { component: 0, bx: 10, by: 10 } as SelectedBlock;
+    for (const kind of ['wipe', 'error']) {
+      const r = rectOf('decode', kind);
+      // Luma block (10, 10) centres at 84: the window is [52, 52, 64, 64].
+      const start = canvasTarget(layout, 'decode', IMG, r.x + 0.01, r.y + 0.01, sel, '420') as { x: number; y: number };
+      expect([start.x, start.y]).toEqual([52, 52]);
+      const end = canvasTarget(layout, 'decode', IMG, r.x + r.w - 0.01, r.y + r.h - 0.01, sel, '420') as { x: number; y: number };
+      expect([end.x, end.y]).toEqual([52 + 63, 52 + 63]);
+    }
+  });
+
   it('reads a zoomed panel as the whole picture while no block is selected', () => {
     const layout = layoutOf('subsample');
     const panel = layout.panels.find((p) => p.kind === 'coded_cr')!;

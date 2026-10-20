@@ -92,7 +92,7 @@ export function canvasTarget(
   }
   if (kind === 'cube') return { id: 'color.cube' };
   if (!(img.w > 0 && img.h > 0)) return null;
-  const crop = panel.zoom ? (sel ? zoomWindow(lumaAnchorOf(sel, subsampling), img.w, img.h) : undefined) : panel.crop;
+  const crop = panel.zoom ? (sel ? zoomWindow(lumaAnchorOf(sel, subsampling), img.w, img.h, panel.zoom) : undefined) : panel.crop;
   const p = pixelAt(rect, x, y, img, crop);
   switch (kind) {
     case 'image':

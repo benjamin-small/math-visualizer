@@ -715,6 +715,111 @@ describe('JpegLab.svelte', () => {
     }
   });
 
+  /** The panels of the last viz config push that carried them. */
+  const lastPanels = () =>
+    [...updateVizConfigSpy.mock.calls].reverse().map(([c]) => c as { panels?: { kind: string; zoom: number | null }[] }).find((c) => c.panels)?.panels ?? [];
+  const zoomOf = (kind: string) => lastPanels().find((p) => p.kind === kind)?.zoom;
+
+  it('magnifies the decode stage 4× around the block by default, with the zoom it pushes', async () => {
+    const { getByRole } = await renderLab('stage=decode');
+    await vi.waitFor(() => expect(zoomOf('wipe')).toBe(64));
+    expect(zoomOf('error')).toBe(64);
+    const group = getByRole('group', { name: 'Zoom' });
+    const chips = within(group).getAllByRole('button');
+    expect(chips.map((c) => c.textContent?.trim())).toEqual(['Whole picture', '2×', '4×', '8×']);
+    expect(chips.map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true', 'false']);
+    // The window's size is said once, under the chips; the captions stay short.
+    expect(document.querySelector('.tools .window')?.textContent).toBe('64 × 64 px around the block');
+    expect([...document.querySelectorAll('.caption')].map((c) => c.textContent).join(' | ')).not.toContain('px around');
+  });
+
+  it('zooms in and out from the chips, and keeps the zoom out of the link', async () => {
+    const { getByRole } = await renderLab('stage=decode');
+    await vi.waitFor(() => expect(zoomOf('wipe')).toBe(64));
+    const before = route.query;
+    await fireEvent.click(getByRole('button', { name: '8×' }));
+    await vi.waitFor(() => expect(zoomOf('wipe')).toBe(32));
+    expect(zoomOf('error')).toBe(32);
+    expect(document.querySelector('.tools .window')?.textContent).toBe('32 × 32 px around the block');
+    expect(getByRole('button', { name: '8×' }).getAttribute('aria-pressed')).toBe('true');
+    expect(getByRole('button', { name: '4×' }).getAttribute('aria-pressed')).toBe('false');
+    await fireEvent.click(getByRole('button', { name: 'Whole picture' }));
+    await vi.waitFor(() => expect(zoomOf('wipe')).toBeNull());
+    expect(zoomOf('error')).toBeNull();
+    expect(getByRole('button', { name: 'Whole picture' }).getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('.tools .window')).toBeNull();
+    expect(route.query).toBe(before);
+  });
+
+  it('moves the wipe line with a drag on the picture, as the Wipe slider does', async () => {
+    const { container, getByRole } = await renderLab('stage=decode');
+    const drag = await vi.waitFor(() => {
+      const el = container.querySelector<HTMLElement>('.wipe-drag');
+      expect(el).toBeTruthy();
+      return el!;
+    });
+    // It sits on the wipe panel, hidden from assistive tech (the Wipe slider is the accessible control).
+    const wipeRect = jpegLayout('decode', 1134, 585, 256, 256).panels.find((p) => p.kind === 'wipe')!.rect;
+    expect(parseFloat(drag.style.left)).toBeCloseTo(wipeRect.x);
+    expect(parseFloat(drag.style.width)).toBeCloseTo(wipeRect.w);
+    expect(drag.getAttribute('aria-hidden')).toBe('true');
+    drag.getBoundingClientRect = () => ({ left: 100, top: 50, width: 400, height: 400, right: 500, bottom: 450, x: 100, y: 50, toJSON: () => ({}) }) as DOMRect;
+    const at = (type: string, x: number, init: MouseEventInit = {}) =>
+      fireEvent(drag, new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 200, button: 0, ...init }));
+    const slider = getByRole('slider', { name: 'Wipe' }) as HTMLInputElement;
+    // A hover without a press moves nothing.
+    await at('pointermove', 300, { buttons: 0 });
+    expect(slider.value).toBe('0.5');
+    await at('pointerdown', 200, { buttons: 1 });
+    expect(slider.value).toBe('0.25');
+    expect(lastViz().wipe).toBe(0.25);
+    await at('pointermove', 400, { buttons: 1 });
+    expect(slider.value).toBe('0.75');
+    // Past the edge it stops at the edge.
+    await at('pointermove', 900, { buttons: 1 });
+    expect(slider.value).toBe('1');
+    await at('pointerup', 900);
+    await at('pointermove', 300, { buttons: 0 });
+    expect(slider.value).toBe('1');
+    // A secondary button is not a drag.
+    await at('pointerdown', 200, { button: 2, buttons: 2 });
+    expect(slider.value).toBe('1');
+    // Only the decode stage has it.
+    await fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    await vi.waitFor(() => expect(container.querySelector('.wipe-drag')).toBeNull());
+  });
+
+  it('keeps the zoom chips on one row in a narrow controls column, saying Whole for the whole picture', async () => {
+    // At 1000 × 768 the controls column beside the wipe is about 212 px: too narrow for "Whole picture".
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1000, 0));
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 768));
+    try {
+      const { getByRole } = await renderLab('stage=decode');
+      const whole = await vi.waitFor(() => getByRole('button', { name: 'Whole picture' }));
+      expect(whole.textContent?.trim()).toBe('Whole');
+      expect(within(getByRole('group', { name: 'Zoom' })).getAllByRole('button').map((c) => c.textContent?.trim())).toEqual(['Whole', '2×', '4×', '8×']);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1134, 0));
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 585));
+    }
+  });
+
+  it('fits the Decode controls on a phone stage', async () => {
+    // The canvas at a 375 × 812 viewport.
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(343, 0));
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 447));
+    try {
+      const { container, getByRole } = await renderLab('stage=decode');
+      await vi.waitFor(() => getByRole('slider', { name: 'Wipe' }));
+      const tools = container.querySelector<HTMLElement>('.tools')!;
+      expect(parseFloat(tools.style.width)).toBeCloseTo(343 - 32);
+      expect(getByRole('button', { name: 'Whole picture' }).textContent?.trim()).toBe('Whole picture');
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1134, 0));
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 585));
+    }
+  });
+
   it('keeps the Decode controls on a short laptop stage', async () => {
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(800, 0));
     Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 420));

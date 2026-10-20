@@ -52,11 +52,17 @@ export interface Panel {
   rect: Rect;
   /** Caption the overlay prints above the panel. */
   label: string;
-  /** For plane panels: the part of the image shown, `[x, y, w, h]` in image pixels (default: all). */
+  /**
+   * How wide (CSS px) the caption may run, when the layout knows: the band above the panel is free that far (wider
+   * than the panel, or narrower than `CAPTION_MIN` where something else starts). Otherwise the panel's width, at
+   * least `CAPTION_MIN`.
+   */
+  captionW?: number;
+  /** For plane, wipe and error panels: the part of the image shown, `[x, y, w, h]` in image pixels (default: all). */
   crop?: [number, number, number, number];
   /**
-   * For plane and coded panels: the side, in image pixels, of a square window the viz centres on the
-   * current block itself, so the window follows the scan without a layout push. Replaces `crop`.
+   * For plane, coded, wipe and error panels: the side, in image pixels, of a square window the viz
+   * centres on the current block itself, so the window follows the scan without a layout push. Replaces `crop`.
    */
   zoom?: number;
 }
@@ -83,6 +89,57 @@ export const CAPTION_MIN = 120;
 export const TOOLS = 44;
 /** Side, in image pixels, of the window the subsample stage magnifies around the selected block. */
 export const ZOOM_WINDOW = 32;
+/** The decode stage's zoom factors: 1 is the whole picture. */
+export const DECODE_ZOOMS = [1, 2, 4, 8] as const;
+/** Share of the decode stage's focus area (below its caption) the wipe may take in height. */
+const WIPE_SHARE = 0.64;
+/** Height the decode tools' rows (sliders, zoom and its window line, hints, Re-save) take above the re-save chart. */
+export const DECODE_TOOLS = 206;
+/** The decode tools' slot height that leaves a re-save chart worth drawing. */
+const DECODE_TOOLS_ROOM = DECODE_TOOLS + 48;
+/** The narrowest column beside the wipe the decode tools may take. */
+const DECODE_SIDE_MIN = 200;
+/** The scan picture's share (of the width, or of the height in portrait) on the decode stage, so the wipe leads. */
+const DECODE_IMAGE_SHARE = 0.28;
+/**
+ * Width (CSS px) of the decode tools' widest row, the three hint chips. A `.chip` (DecodeTools) is its text plus
+ * 2 × 10 px padding and 2 × 1 px border, 6 px apart; at 12 px a character is about 6 px, so Blocking, Ringing and
+ * Colour bleed (8, 7 and 12 characters) are 70 + 64 + 94 = 228 px with the two gaps, rounded up to 240. The zoom
+ * chips' row (Whole picture, 2×, 4×, 8×) is about 220 px, so it fits too.
+ */
+export const DECODE_TOOLS_MIN_W = 240;
+/**
+ * Height (CSS px) the decode tools' rows need, one above the other, with no chart: from DecodeTools' CSS, two
+ * slider rows (`.ctl`, 20 px), the zoom chips, the hints and Re-save (`.chip`, 26 px), the window line (15 px), and
+ * five 6 px gaps make 163, plus 5 to spare.
+ */
+export const DECODE_TOOLS_FIT = 168;
+/** On a short phone, the narrowest column beside the wipe for the scan picture and the error map. */
+const DECODE_COLUMN_MIN = 88;
+/** Below this caption room (CSS px) a decode caption keeps its first words rather than be cut off. */
+const CAPTION_FULL = 150;
+/** On the decode stage the scan picture covers at most this share of the wipe's area, so the wipe leads. */
+const DECODE_IMAGE_MAX = 0.8;
+/** The smallest error map worth keeping a re-save chart for; a shorter stage drops the chart instead. */
+const DECODE_ERROR_MIN = 48;
+
+/** `r` scaled about its centre so its area is at most `max`. */
+function shrinkTo(r: Rect, max: number): Rect {
+  const a = r.w * r.h;
+  if (!(a > max) || !(max > 0)) return r;
+  const s = Math.sqrt(max / a);
+  return { x: r.x + (r.w * (1 - s)) / 2, y: r.y + (r.h * (1 - s)) / 2, w: r.w * s, h: r.h * s };
+}
+
+/**
+ * Side, in image pixels, of the square window the decode stage shows at zoom
+ * `factor` (the picture's shorter side over the factor, at least one block),
+ * or null for the whole picture.
+ */
+export function decodeWindow(factor: number, imgW: number, imgH: number): number | null {
+  if (!(factor > 1)) return null;
+  return Math.max(8, Math.round(Math.min(imgW, imgH) / factor));
+}
 
 const ZERO: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
@@ -107,11 +164,12 @@ function belowLabel(r: Rect): Rect {
 }
 
 /**
- * A `ZOOM_WINDOW`-pixel square of the image centred on luma block `block`,
- * kept inside the image (smaller images are shown whole).
+ * A square of the image `side` pixels across (`ZOOM_WINDOW` unless given)
+ * centred on luma block `block`, kept inside the image (smaller images are
+ * shown whole). The viz's `zoom_window` places it the same way.
  */
-export function zoomWindow(block: [number, number], imgW: number, imgH: number): [number, number, number, number] {
-  const side = Math.min(ZOOM_WINDOW, imgW, imgH);
+export function zoomWindow(block: [number, number], imgW: number, imgH: number, side0: number = ZOOM_WINDOW): [number, number, number, number] {
+  const side = Math.max(0, Math.min(side0, imgW, imgH));
   const cx = block[0] * 8 + 4;
   const cy = block[1] * 8 + 4;
   const x = Math.max(0, Math.min(imgW - side, Math.round(cx - side / 2)));
@@ -151,13 +209,77 @@ function overviewLayout(cssW: number, cssH: number, imgW: number, imgH: number):
   };
 }
 
+/** The decode stage's error-map caption, kept to its first words where it has little room. */
+const errorCaption = (room: number) => (room >= CAPTION_FULL ? 'What was lost, brightened' : 'What was lost');
+
+/**
+ * The decode stage on a portrait (phone) stage: the wipe as large as it can be while the controls fit below it
+ * without scrolling (at least `DECODE_TOOLS_MIN_W` by `DECODE_TOOLS_FIT`). Of two arrangements, the one with the
+ * larger wipe: the scan picture in a row on top (28% of the height) with the error map beside the controls under
+ * the wipe; or, on a short phone, the scan picture and the error map in a column beside the wipe, with the
+ * controls across the full width below.
+ */
+function decodePortraitLayout(cssW: number, cssH: number, imgW: number, imgH: number, decodeZoom: number): StageLayout {
+  const m = MARGIN;
+  const g = m;
+  const side = decodeWindow(decodeZoom, imgW, imgH);
+  const [aw, ah] = side === null ? [imgW, imgH] : [1, 1];
+  const zoom = side === null ? {} : { zoom: side };
+  const wipeLabel = 'Decoded (left of the line) against the original';
+  const w = cssW - 2 * m;
+  const rowH = (cssH - 3 * m) * DECODE_IMAGE_SHARE;
+  const stacked: Rect = { x: m, y: 2 * m + rowH + LABEL, w, h: cssH - 3 * m - rowH - LABEL };
+  const stackedH = Math.max(0, Math.min(stacked.h * WIPE_SHARE, (w * ah) / aw, stacked.h - g - DECODE_TOOLS_FIT));
+  const beside: Rect = { x: m, y: m + LABEL, w, h: cssH - 2 * m - LABEL };
+  const besideH = Math.max(0, Math.min(beside.h - g - DECODE_TOOLS_FIT, ((w - g - DECODE_COLUMN_MIN) * ah) / aw));
+
+  if (besideH > stackedH) {
+    // The wipe's caption runs the full width above it; the column's own captions start below that band.
+    const wipe = { x: m, y: beside.y, w: (besideH * aw) / ah, h: besideH };
+    const col = { x: m + wipe.w + g, y: beside.y, w: Math.max(0, w - wipe.w - g), h: besideH };
+    const each = Math.max(0, Math.min(col.w, (besideH - 2 * LABEL - g) / 2));
+    const pic = fit({ x: col.x, y: col.y + LABEL, w: col.w, h: each }, imgW, imgH);
+    const image = { ...pic, x: col.x };
+    const err = fit({ x: col.x, y: col.y + 2 * LABEL + each + g, w: col.w, h: each }, aw, ah);
+    const below = beside.y + besideH + g;
+    return {
+      image,
+      panels: [
+        { kind: 'image', rect: image, label: col.w >= CAPTION_FULL ? 'The image — click a block' : 'Click a block', captionW: col.w },
+        { kind: 'wipe', rect: wipe, label: wipeLabel, captionW: w, ...zoom },
+        { kind: 'error', rect: { ...err, x: col.x }, label: errorCaption(col.w), captionW: col.w, ...zoom },
+      ],
+      slots: { resave: { x: m, y: below, w, h: Math.max(0, beside.y + beside.h - below) } },
+    };
+  }
+
+  const image = fit(belowLabel({ x: m, y: m, w, h: rowH }), imgW, imgH);
+  const wipe = fit({ x: m, y: stacked.y, w, h: stackedH }, aw, ah);
+  const bottom = { x: m, y: stacked.y + stackedH + g, w, h: Math.max(0, stacked.y + stacked.h - (stacked.y + stackedH + g)) };
+  // The error map gives the controls the width their widest row needs.
+  const errSide = Math.max(0, Math.min(bottom.h - LABEL, w - g - DECODE_TOOLS_MIN_W));
+  const err = fit({ x: m, y: bottom.y + LABEL, w: errSide, h: errSide }, aw, ah);
+  return {
+    image,
+    panels: [
+      { kind: 'image', rect: image, label: 'The image — click a block' },
+      { kind: 'wipe', rect: wipe, label: wipeLabel, captionW: m + w - wipe.x, ...zoom },
+      { kind: 'error', rect: { ...err, x: m }, label: errorCaption(errSide), captionW: errSide, ...zoom },
+    ],
+    slots: { resave: { x: m + errSide + g, y: bottom.y, w: Math.max(0, w - errSide - g), h: bottom.h } },
+  };
+}
+
 /**
  * The stage's panels. Landscape: the image at the left (up to 45% of the
  * width), the stage's focus panels to its right. Portrait (narrower than
- * `PORTRAIT_BELOW`): the image on top (42% of the height), focus below.
- * The subsample stage's magnified window is the viz's to place (`zoom`), so
- * the layout does not depend on the current block. A canvas too small for
- * anything gives empty panels.
+ * `PORTRAIT_BELOW`): the image on top (42% of the height), focus below. The
+ * decode stage gives the image 28% in both, so its wipe is the largest panel
+ * (`decodePortraitLayout` arranges its portrait stage).
+ * The magnified windows of the subsample and decode stages are the viz's to
+ * place (`zoom`), so the layout does not depend on the current block.
+ * `decodeZoom` is the decode stage's zoom factor (one of `DECODE_ZOOMS`; 1
+ * shows the whole picture). A canvas too small for anything gives empty panels.
  */
 export function jpegLayout(
   stage: StageId,
@@ -165,24 +287,26 @@ export function jpegLayout(
   cssH: number,
   imgW: number,
   imgH: number,
+  decodeZoom = 4,
 ): StageLayout {
   const m = MARGIN;
   if (!(cssW > 2 * m + 40 && cssH > 2 * m + LABEL + 40 && imgW > 0 && imgH > 0)) {
     return { image: ZERO, panels: [], slots: {} };
   }
   if (stage === 'overview') return overviewLayout(cssW, cssH, imgW, imgH);
+  if (stage === 'decode' && cssW < PORTRAIT_BELOW) return decodePortraitLayout(cssW, cssH, imgW, imgH, decodeZoom);
   let imageArea: Rect;
   let focus: Rect;
   if (cssW >= PORTRAIT_BELOW) {
-    const colW = Math.min(cssH - 2 * m - LABEL, (cssW - 3 * m) * 0.45);
+    const colW = Math.min(cssH - 2 * m - LABEL, (cssW - 3 * m) * (stage === 'decode' ? DECODE_IMAGE_SHARE : 0.45));
     imageArea = { x: m, y: m, w: colW, h: cssH - 2 * m };
     focus = { x: 2 * m + colW, y: m, w: cssW - 3 * m - colW, h: cssH - 2 * m };
   } else {
-    const rowH = (cssH - 3 * m) * 0.42;
+    const rowH = (cssH - 3 * m) * (stage === 'decode' ? DECODE_IMAGE_SHARE : 0.42);
     imageArea = { x: m, y: m, w: cssW - 2 * m, h: rowH };
     focus = { x: m, y: 2 * m + rowH, w: cssW - 2 * m, h: cssH - 3 * m - rowH };
   }
-  const image = fit(belowLabel(imageArea), imgW, imgH);
+  let image = fit(belowLabel(imageArea), imgW, imgH);
   const panels: Panel[] = [
     { kind: stage === 'blocks' ? 'image_grid' : 'image', rect: image, label: 'The image — click a block' },
   ];
@@ -280,12 +404,51 @@ export function jpegLayout(
       break;
     }
     case 'decode': {
+      // The wipe is the main panel: the full width and most of the height, a square window around the
+      // block when zoomed (the error map shows the same window), the whole picture otherwise.
+      const side = decodeWindow(decodeZoom, imgW, imgH);
+      const [aw, ah] = side === null ? [imgW, imgH] : [1, 1];
+      const zoom = side === null ? {} : { zoom: side };
+      // The window's size is said under the zoom chips (DecodeTools), so the captions stay short enough for a phone.
+      const wipeLabel = 'Decoded (left of the line) against the original';
+      const errorLabel = 'What was lost, brightened';
       const area = belowLabel(focus);
-      const topH = Math.max(0, area.h * 0.56);
-      panels.push({ kind: 'wipe', rect: fit({ x: area.x, y: area.y, w: area.w, h: topH }, imgW, imgH), label: 'Decoded (left of the line) against the original' });
+      // Two arrangements; the one with the larger wipe wins. Beside: the wipe takes the full height (as wide as
+      // leaves the column `DECODE_SIDE_MIN`), the error map and the controls one above the other in the column.
+      const sideW = Math.max(0, Math.min(area.w - g - DECODE_SIDE_MIN, (area.h * aw) / ah));
+      const sideH = (sideW * ah) / aw;
+      // Below: the wipe across the top (64% of the height), the error map and the controls under it; the wipe gives
+      // up some height so the controls' chart fits, down to half.
+      let topH = Math.max(0, Math.min(area.h * WIPE_SHARE, (area.w * ah) / aw));
+      const roomy = area.h - g - DECODE_TOOLS_ROOM;
+      if (roomy >= area.h * 0.5) topH = Math.min(topH, roomy);
+      // The scan picture steps back further where it would rival the wipe (a tall picture on a short stage).
+      const lead = (wipeArea: number) => {
+        image = shrinkTo(image, wipeArea * DECODE_IMAGE_MAX);
+        panels[0] = { ...panels[0], rect: image };
+      };
+      if (sideW * sideH >= ((topH * aw) / ah) * topH) {
+        const wipe = { x: area.x, y: area.y, w: sideW, h: sideH };
+        // The column's error caption shares the wipe's caption band, so the wipe's runs only its own width.
+        panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: sideW, ...zoom });
+        const col = { x: area.x + sideW + g, w: area.w - sideW - g };
+        let errH = Math.min(col.w, area.h - g - DECODE_TOOLS_ROOM);
+        if (errH < DECODE_ERROR_MIN) errH = Math.max(0, Math.min(col.w, area.h - g - DECODE_TOOLS_FIT));
+        const error = fit({ x: col.x, y: area.y, w: col.w, h: errH }, aw, ah);
+        panels.push({ kind: 'error', rect: { ...error, x: col.x, y: area.y }, label: errorCaption(col.w), captionW: col.w, ...zoom });
+        const top = area.y + error.h + g;
+        slots.resave = { x: col.x, y: top, w: col.w, h: Math.max(0, area.y + area.h - top) };
+        lead(wipe.w * wipe.h);
+        break;
+      }
+      const wipe = fit({ x: area.x, y: area.y, w: area.w, h: topH }, aw, ah);
+      lead(wipe.w * wipe.h);
+      panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: area.x + area.w - wipe.x, ...zoom });
       const below = belowLabel({ x: area.x, y: area.y + topH + g, w: area.w, h: area.y + area.h - (area.y + topH + g) });
       const [l, r] = columns(below, 2, g);
-      panels.push({ kind: 'error', rect: fit(l, imgW, imgH), label: 'What was lost, brightened' });
+      // At the left of its column, so its caption has the column's width.
+      const error = fit(l, aw, ah);
+      panels.push({ kind: 'error', rect: { ...error, x: l.x }, label: errorLabel, captionW: l.w, ...zoom });
       slots.resave = { x: r.x, y: r.y - LABEL, w: r.w, h: r.h + LABEL };
       break;
     }
