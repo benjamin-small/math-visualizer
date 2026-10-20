@@ -986,7 +986,7 @@ mod tests {
         assert!(JpegRule.summary(&t)["hints"]["ringing"].is_array());
     }
 
-    /// A config around a `w × h` picture of seeded noise-free pixels.
+    /// A config around a `w × h` picture of a deterministic pixel pattern.
     fn picture_cfg(w: usize, h: usize, subsampling: &str) -> JpegConfig {
         let mut c = cfg();
         let mut rgba = vec![255u8; w * h * 4];
@@ -1109,6 +1109,58 @@ mod tests {
                 by: 0
             }
         );
+    }
+
+    #[test]
+    fn the_follow_clamps_a_runaway_step_to_the_last_mcu() {
+        // 24 × 10 at 4:2:0: luma grid 4 × 2, the last MCU holds columns 2-3.
+        let c = picture_cfg(24, 10, "420");
+        let mut s = JpegRule.init(&c, 0);
+        let first = json!({"kind": "select_block", "component": 0, "bx": 0, "by": 0});
+        JpegRule.apply_action(&mut s, &c, &first).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 99);
+        assert_eq!(s.n, s.total());
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 0,
+                bx: 2,
+                by: 0
+            }
+        );
+    }
+
+    #[test]
+    fn a_padded_row_block_in_the_current_mcu_is_kept() {
+        // (2, 1) is luma row 1 of MCU 1: the row that is partly padding.
+        let c = picture_cfg(24, 10, "420");
+        let mut s = JpegRule.init(&c, 0);
+        let pick = json!({"kind": "select_block", "component": 0, "bx": 2, "by": 1});
+        JpegRule.apply_action(&mut s, &c, &pick).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 2);
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 0,
+                bx: 2,
+                by: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_failed_encode_leaves_the_selection_alone() {
+        let c = picture_cfg(24, 10, "420");
+        let original = JpegRule.init(&c, 0).original;
+        let mut s = JpegState::failed(original, "no".into());
+        let kept = Selection {
+            component: 1,
+            bx: 3,
+            by: 2,
+        };
+        s.selection = kept;
+        JpegRule.advance_to(&mut s, &c, 0, 3);
+        assert_eq!(s.selection, kept);
     }
 
     #[test]

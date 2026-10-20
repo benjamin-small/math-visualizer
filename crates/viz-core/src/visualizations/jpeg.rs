@@ -195,19 +195,9 @@ pub fn fit_rect(area: [f32; 4], img_w: usize, img_h: usize) -> [f32; 4] {
 }
 
 /// `sub` (image pixels) mapped into `panel` (device pixels), clipped to the
-/// image.
+/// image. A zero-size image maps to a zero-size rect at the panel's corner.
 pub fn map_rect(sub: [f32; 4], panel: [f32; 4], img_w: usize, img_h: usize) -> [f32; 4] {
-    let (sx, sy) = (panel[2] / img_w as f32, panel[3] / img_h as f32);
-    let x0 = sub[0].clamp(0.0, img_w as f32);
-    let y0 = sub[1].clamp(0.0, img_h as f32);
-    let x1 = (sub[0] + sub[2]).clamp(0.0, img_w as f32);
-    let y1 = (sub[1] + sub[3]).clamp(0.0, img_h as f32);
-    [
-        panel[0] + x0 * sx,
-        panel[1] + y0 * sy,
-        (x1 - x0) * sx,
-        (y1 - y0) * sy,
-    ]
+    map_rect_in_crop(sub, panel, [0.0, 0.0, img_w as f32, img_h as f32])
 }
 
 /// `sub` (image pixels) clipped to `crop`, then scaled so that `crop` fills
@@ -321,6 +311,19 @@ pub fn outline(rect: [f32; 4], color: [f32; 4], out: &mut Vec<LineVertex>) {
             position: c[(i + 1) % 4],
             color,
         });
+    }
+}
+
+/// Whether a clipped rect has any area. A selection wholly outside a panel's
+/// crop clips to zero width or height, and outlining that draws a stray edge.
+fn visible(rect: [f32; 4]) -> bool {
+    rect[2] > 0.0 && rect[3] > 0.0
+}
+
+/// `outline`, skipped when the rect has no area.
+fn outline_if_visible(rect: [f32; 4], color: [f32; 4], out: &mut Vec<LineVertex>) {
+    if visible(rect) {
+        outline(rect, color, out);
     }
 }
 
@@ -630,6 +633,38 @@ struct CubeCache {
     points: Vec<PointInstance3D>,
 }
 
+/// A NaN or infinite `dim` (JS can send one) falls back to the default, so it
+/// cannot defeat the cube cache's equality check; a finite one is clamped to 0–1.
+fn sane_dim(dim: f32) -> f32 {
+    if dim.is_finite() {
+        dim.clamp(0.0, 1.0)
+    } else {
+        default_dim()
+    }
+}
+
+/// A NaN or infinite `cube_mix` falls back to the default (0, plain RGB), for
+/// the same reason as `sane_dim`; a finite one is clamped to 0–1.
+fn sane_mix(mix: f32) -> f32 {
+    if mix.is_finite() {
+        mix.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// Whether `cache` must be rebuilt for these keys. The selection is not one:
+/// the lit block is added per frame on top of the cached cloud.
+fn cube_cache_stale(
+    cache: Option<&CubeCache>,
+    version: u32,
+    mix: f32,
+    dim: f32,
+    accent: [f32; 4],
+) -> bool {
+    cache.is_none_or(|c| c.version != version || c.mix != mix || c.dim != dim || c.accent != accent)
+}
+
 /// GPU resources and view state.
 pub struct JpegViz {
     quad: Option<TextureQuad>,
@@ -914,16 +949,20 @@ impl JpegViz {
         rect: [f32; 4],
         canvas: [u32; 2],
     ) {
-        let mix = cfg.cube_mix;
-        let stale = self.cube_cache.as_ref().is_none_or(|c| {
-            c.version != state.version || c.mix != mix || c.dim != cfg.dim || c.accent != cfg.accent
-        });
-        if stale {
+        let mix = sane_mix(cfg.cube_mix);
+        let dim = sane_dim(cfg.dim);
+        if cube_cache_stale(
+            self.cube_cache.as_ref(),
+            state.version,
+            mix,
+            dim,
+            cfg.accent,
+        ) {
             self.cube_cache = Some(build_cube(
                 &state.original,
                 state.version,
                 mix,
-                cfg.dim,
+                dim,
                 cfg.accent,
             ));
         }
@@ -1066,7 +1105,7 @@ impl Visualization for JpegViz {
                         q.draw(gl, tex, crop_target(rect, crop, span), canvas, 1.0);
                         gl.disable(Gl::SCISSOR_TEST);
                         let cur = block_rect(sel, tr.options.subsampling);
-                        outline(
+                        outline_if_visible(
                             map_rect_in_crop(cur, rect, crop),
                             cfg.accent,
                             &mut self.line_scratch,
@@ -1288,6 +1327,108 @@ mod tests {
             map_rect_in_crop([8.0, 16.0, 8.0, 8.0], panel, [0.0, 0.0, 256.0, 256.0]),
             map_rect([8.0, 16.0, 8.0, 8.0], panel, 256, 256)
         );
+    }
+
+    #[test]
+    fn a_selection_outside_the_crop_is_not_visible() {
+        let crop = [156.0, 124.0, 32.0, 32.0];
+        let panel = [0.0, 0.0, 128.0, 128.0];
+        // Wholly left of, and wholly below, the crop: clipped to a zero-size rect.
+        let left = map_rect_in_crop([0.0, 130.0, 8.0, 8.0], panel, crop);
+        let below = map_rect_in_crop([160.0, 200.0, 8.0, 8.0], panel, crop);
+        assert!(!visible(left));
+        assert!(!visible(below));
+        // Inside, and straddling an edge of, the crop.
+        assert!(visible(map_rect_in_crop(
+            [168.0, 136.0, 8.0, 8.0],
+            panel,
+            crop
+        )));
+        assert!(visible(map_rect_in_crop(
+            [150.0, 120.0, 16.0, 16.0],
+            panel,
+            crop
+        )));
+    }
+
+    #[test]
+    fn outline_if_visible_draws_only_what_overlaps() {
+        let mut out = Vec::new();
+        outline_if_visible([0.0, 0.0, 0.0, 5.0], [1.0; 4], &mut out);
+        outline_if_visible([0.0, 0.0, 5.0, 0.0], [1.0; 4], &mut out);
+        assert!(out.is_empty());
+        outline_if_visible([0.0, 0.0, 5.0, 5.0], [1.0; 4], &mut out);
+        assert_eq!(out.len(), 8);
+    }
+
+    #[test]
+    fn map_rect_of_an_empty_image_is_finite() {
+        let r = map_rect([0.0, 0.0, 8.0, 8.0], [10.0, 20.0, 64.0, 64.0], 0, 0);
+        assert_eq!(r, [10.0, 20.0, 0.0, 0.0]);
+    }
+
+    fn cube_of(version: u32, mix: f32, dim: f32, accent: [f32; 4]) -> CubeCache {
+        let img = Rgb8Image::new(2, 1, vec![10, 10, 10, 255, 0, 0, 0, 255]).unwrap();
+        build_cube(&img, version, mix, dim, accent)
+    }
+
+    #[test]
+    fn the_cube_cache_is_stale_when_a_key_changes() {
+        let acc = [1.0, 0.5, 0.0, 1.0];
+        assert!(cube_cache_stale(None, 1, 0.0, 0.35, acc));
+        let c = cube_of(1, 0.0, 0.35, acc);
+        assert!(!cube_cache_stale(Some(&c), 1, 0.0, 0.35, acc));
+        assert!(cube_cache_stale(Some(&c), 2, 0.0, 0.35, acc));
+        assert!(cube_cache_stale(Some(&c), 1, 0.5, 0.35, acc));
+        assert!(cube_cache_stale(Some(&c), 1, 0.0, 0.5, acc));
+        assert!(cube_cache_stale(
+            Some(&c),
+            1,
+            0.0,
+            0.35,
+            [0.0, 0.5, 0.0, 1.0]
+        ));
+    }
+
+    #[test]
+    fn the_selection_is_not_a_cube_cache_key() {
+        // The key is (version, mix, dim, accent) only: two builds for different
+        // selections on the same encode share one cache.
+        let acc = [1.0, 0.5, 0.0, 1.0];
+        let c = cube_of(1, 0.0, 0.35, acc);
+        assert!(!cube_cache_stale(Some(&c), 1, 0.0, 0.35, acc));
+    }
+
+    #[test]
+    fn a_nan_dim_or_mix_does_not_rebuild_the_cube_every_frame() {
+        let acc = [1.0, 0.5, 0.0, 1.0];
+        // Raw NaN never equals itself, so it would always read as stale.
+        let raw = cube_of(1, 0.0, f32::NAN, acc);
+        assert!(cube_cache_stale(Some(&raw), 1, 0.0, f32::NAN, acc));
+        // Sanitised once, the second frame finds the first frame's cache fresh.
+        let c = cube_of(1, 0.0, sane_dim(f32::NAN), acc);
+        assert!(!cube_cache_stale(Some(&c), 1, 0.0, sane_dim(f32::NAN), acc));
+        assert_eq!(sane_dim(f32::NAN), 0.35);
+        // The same for a NaN mix.
+        let raw = cube_of(1, f32::NAN, 0.35, acc);
+        assert!(cube_cache_stale(Some(&raw), 1, f32::NAN, 0.35, acc));
+        let c = cube_of(1, sane_mix(f32::NAN), 0.35, acc);
+        assert!(!cube_cache_stale(
+            Some(&c),
+            1,
+            sane_mix(f32::NAN),
+            0.35,
+            acc
+        ));
+        assert_eq!(sane_mix(f32::NAN), 0.0);
+        assert_eq!(sane_mix(f32::INFINITY), 0.0);
+        assert_eq!(sane_mix(2.0), 1.0);
+        assert_eq!(sane_mix(-1.0), 0.0);
+        assert_eq!(sane_mix(0.5), 0.5);
+        assert_eq!(sane_dim(f32::INFINITY), 0.35);
+        assert_eq!(sane_dim(2.0), 1.0);
+        assert_eq!(sane_dim(-1.0), 0.0);
+        assert_eq!(sane_dim(0.5), 0.5);
     }
 
     #[test]
