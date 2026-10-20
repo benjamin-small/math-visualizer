@@ -5,6 +5,7 @@ import {
   MARGIN,
   PORTRAIT_BELOW,
   TOOLS,
+  ZOOM_WINDOW,
   blockAt,
   cellAt,
   cells,
@@ -30,7 +31,7 @@ describe('jpegLayout', () => {
   ]) {
     for (const stage of stages) {
       it(`keeps every ${stage} panel on a ${w}×${h} stage, captions included, without overlaps`, () => {
-        const l = jpegLayout(stage, w, h, 256, 256, [10, 10]);
+        const l = jpegLayout(stage, w, h, 256, 256);
         // Every stage has the image plus at least one panel or slot of its own.
         expect(l.panels.length + Object.keys(l.slots).length).toBeGreaterThan(1);
         for (const p of l.panels) {
@@ -73,16 +74,26 @@ describe('jpegLayout', () => {
     expect(rebuild.y + rebuild.h + TOOLS).toBeLessThanOrEqual(h);
   });
 
-  it('magnifies the same window around the block in all four subsample panels', () => {
-    const l = jpegLayout('subsample', 1134, 585, 256, 256, [21, 17]);
-    const crops = l.panels.filter((p) => p.crop).map((p) => p.crop);
-    expect(crops).toHaveLength(4);
-    expect(new Set(crops.map((c) => c!.join()))).toEqual(new Set(['156,124,32,32']));
+  it('zooms the subsample stage around the selection, not a fixed crop', () => {
+    const l = jpegLayout('subsample', 900, 600, 256, 256);
+    const planes = l.panels.filter((p) => p.kind.startsWith('plane_') || p.kind.startsWith('coded_'));
+    expect(planes).toHaveLength(4);
+    for (const p of planes) {
+      expect(p.zoom).toBe(ZOOM_WINDOW);
+      expect(p.crop).toBeUndefined();
+    }
+    expect(toDevicePanels(planes, 2)[0]).toMatchObject({ zoom: ZOOM_WINDOW, crop: null });
+  });
+
+  it('captions the subsample zoom with the side it shows, clipped to a small picture', () => {
+    const label = (w: number, h: number) => jpegLayout('subsample', 1134, 585, w, h).panels.find((p) => p.kind === 'plane_cb')!.label;
+    expect(label(256, 256)).toBe('Cb as measured — 32 × 32 px around the block');
+    expect(label(20, 12)).toBe('Cb as measured — 12 × 12 px around the block');
   });
 
   it('gives each new stage its panels and slots', () => {
-    const kinds = (st: StageId) => jpegLayout(st, 1134, 585, 256, 256, [10, 10]).panels.map((p) => p.kind);
-    const slots = (st: StageId) => Object.keys(jpegLayout(st, 1134, 585, 256, 256, [10, 10]).slots).sort();
+    const kinds = (st: StageId) => jpegLayout(st, 1134, 585, 256, 256).panels.map((p) => p.kind);
+    const slots = (st: StageId) => Object.keys(jpegLayout(st, 1134, 585, 256, 256).slots).sort();
     expect(kinds('quantize')).toEqual(['image', 'coeffs', 'quant', 'dequant_rebuild']);
     expect(slots('quantize')).toEqual(['qtable', 'rd']);
     expect(kinds('zigzag')).toEqual(['image', 'zigzag']);
@@ -97,7 +108,7 @@ describe('jpegLayout', () => {
   });
 
   it('starts the R–D chart clear of the rebuild caption on a phone', () => {
-    const l = jpegLayout('quantize', 343, 520, 256, 256, [10, 10]);
+    const l = jpegLayout('quantize', 343, 520, 256, 256);
     const rebuild = l.panels.find((p) => p.kind === 'dequant_rebuild')!.rect;
     expect(rebuild.w).toBeLessThan(CAPTION_MIN);
     expect(l.slots.rd!.x).toBeGreaterThanOrEqual(rebuild.x + CAPTION_MIN);
@@ -154,8 +165,10 @@ describe('jpegLayout', () => {
 
   it('hands the viz device pixels and the crop', () => {
     const [p] = toDevicePanels([{ kind: 'plane_cb', rect: { x: 1, y: 2, w: 3, h: 4 }, label: '', crop: [0, 0, 8, 8] }], 2);
-    expect(p).toEqual({ kind: 'plane_cb', rect: [2, 4, 6, 8], crop: [0, 0, 8, 8] });
-    expect(toDevicePanels([{ kind: 'image', rect: { x: 0, y: 0, w: 1, h: 1 }, label: '' }], 1)[0].crop).toBeNull();
+    expect(p).toEqual({ kind: 'plane_cb', rect: [2, 4, 6, 8], crop: [0, 0, 8, 8], zoom: null });
+    const [plain] = toDevicePanels([{ kind: 'image', rect: { x: 0, y: 0, w: 1, h: 1 }, label: '' }], 1);
+    expect(plain.crop).toBeNull();
+    expect(plain.zoom).toBeNull();
   });
 });
 

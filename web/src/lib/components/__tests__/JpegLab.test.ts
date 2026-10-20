@@ -764,7 +764,7 @@ describe('JpegLab.svelte current block', () => {
   it('a click on the picture pauses the scan and jumps it there', async () => {
     const { findByRole } = await renderLab('stage=dct');
     const pick = await findByRole('button', { name: /Pick a block/ });
-    const image = jpegLayout('dct', 1134, 585, 256, 256, [21, 17]).image;
+    const image = jpegLayout('dct', 1134, 585, 256, 256).image;
     ruleActionSpy.mockClear();
     dispatchSpy.mockClear();
     const at = { clientX: image.x + ((2 * 8 + 4) / 256) * image.w, clientY: image.y + ((3 * 8 + 4) / 256) * image.h };
@@ -870,7 +870,7 @@ describe('JpegLab.svelte cards', () => {
   const ptr = (type: string, x: number, y: number, init: MouseEventInit = {}) =>
     new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, ...init });
 
-  const layoutOf = (stage: StageId) => jpegLayout(stage, 1134, 585, 256, 256, [21, 17]);
+  const layoutOf = (stage: StageId) => jpegLayout(stage, 1134, 585, 256, 256);
   /** The centre of cell `(u, v)` of a stage's panel. */
   function centreOf(stage: StageId, kind: string, u: number, v: number) {
     const rect = layoutOf(stage).panels.find((p) => p.kind === kind)!.rect;

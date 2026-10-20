@@ -1,7 +1,8 @@
 // Which card a point on the canvas belongs to. The viz draws the panels; the
 // page asks here what lies under the pointer, in the same CSS pixels the
 // layout uses, so the answer matches what the reader sees.
-import { cells, type PanelKind, type Rect, type StageLayout } from '../layout';
+import { cells, zoomWindow, type PanelKind, type Rect, type StageLayout } from '../layout';
+import { lumaAnchorOf, type SubsamplingId } from '../params';
 import type { StageId } from '../stages';
 import type { SelectedBlock } from '../summary';
 import type { Target } from './targets';
@@ -69,8 +70,9 @@ function pixelAt(r: Rect, x: number, y: number, img: { w: number; h: number }, c
 /**
  * The target under the point `(x, y)` (CSS pixels, relative to the overlay),
  * or null when the point is on no panel. `img` is the picture's size in
- * pixels; `sel` is the block the stages follow (reserved for the panels whose
- * cards depend on it).
+ * pixels; `sel` is the block the stages follow, which a zoomed panel centres
+ * its window on (the whole picture while it is unknown); `subsampling` maps a
+ * chroma block to the luma block the viz anchors that window at.
  */
 export function canvasTarget(
   layout: StageLayout,
@@ -78,7 +80,8 @@ export function canvasTarget(
   img: { w: number; h: number },
   x: number,
   y: number,
-  _sel: SelectedBlock | null,
+  sel: SelectedBlock | null,
+  subsampling: SubsamplingId = '420',
 ): Target | null {
   const panel = layout.panels.find((p) => inside(p.rect, x, y));
   if (!panel) return null;
@@ -89,7 +92,8 @@ export function canvasTarget(
   }
   if (kind === 'cube') return { id: 'color.cube' };
   if (!(img.w > 0 && img.h > 0)) return null;
-  const p = pixelAt(rect, x, y, img, panel.crop);
+  const window = panel.zoom ? (sel ? zoomWindow(lumaAnchorOf(sel, subsampling), img.w, img.h) : undefined) : panel.crop;
+  const p = pixelAt(rect, x, y, img, window);
   switch (kind) {
     case 'image':
     case 'image_grid':

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import type { SubsamplingId } from '../../params';
 import { cells, jpegLayout } from '../../layout';
 import type { StageId } from '../../stages';
+import type { SelectedBlock } from '../../summary';
 import { canvasTarget, cellTarget } from '../hit';
 
-const layoutOf = (stage: StageId) => jpegLayout(stage, 1134, 585, 256, 256, [10, 10]);
+const layoutOf = (stage: StageId) => jpegLayout(stage, 1134, 585, 256, 256);
 const IMG = { w: 256, h: 256 };
 const dpr = () => window.devicePixelRatio || 1;
 const rectOf = (stage: StageId, kind: string) => layoutOf(stage).panels.find((p) => p.kind === kind)!.rect;
@@ -86,17 +88,30 @@ describe('canvasTarget', () => {
     expect(at('decode', 'error')).toMatchObject({ id: 'decode.error' });
   });
 
-  it('reads a magnified colour plane through its crop', () => {
+  it('reads a pixel under a zoomed panel through the selection\'s window', () => {
     const layout = layoutOf('subsample');
     const panel = layout.panels.find((p) => p.kind === 'plane_cb')!;
-    const crop = panel.crop!;
-    const t = canvasTarget(layout, 'subsample', IMG, panel.rect.x + 0.01, panel.rect.y + 0.01, null) as { x: number; y: number };
-    expect([t.x, t.y]).toEqual([crop[0], crop[1]]);
+    // A chroma block (3, 2) at 4:2:0 anchors at luma block (6, 4): the window is zoomWindow([6, 4], 256, 256) = [36, 20, 32, 32].
+    const sel = { component: 1, bx: 3, by: 2 } as SelectedBlock;
+    const at = (x: number, y: number, s: SelectedBlock | null = sel, sub?: SubsamplingId) =>
+      canvasTarget(layout, 'subsample', IMG, x, y, s, sub) as { x: number; y: number };
+    const start = at(panel.rect.x + 0.01, panel.rect.y + 0.01);
+    expect([start.x, start.y]).toEqual([36, 20]);
+    const end = at(panel.rect.x + panel.rect.w - 0.01, panel.rect.y + panel.rect.h - 0.01);
+    expect([end.x, end.y]).toEqual([36 + 31, 20 + 31]);
+    // 4:4:4 has no chroma-to-luma scaling: the same block anchors at (3, 2), window [12, 4, 32, 32].
+    const flat = at(panel.rect.x + 0.01, panel.rect.y + 0.01, sel, '444');
+    expect([flat.x, flat.y]).toEqual([12, 4]);
+  });
+
+  it('reads a zoomed panel as the whole picture while no block is selected', () => {
+    const layout = layoutOf('subsample');
+    const panel = layout.panels.find((p) => p.kind === 'coded_cr')!;
     const end = canvasTarget(layout, 'subsample', IMG, panel.rect.x + panel.rect.w - 0.01, panel.rect.y + panel.rect.h - 0.01, null) as {
       x: number;
       y: number;
     };
-    expect([end.x, end.y]).toEqual([crop[0] + crop[2] - 1, crop[1] + crop[3] - 1]);
+    expect([end.x, end.y]).toEqual([255, 255]);
   });
 
   it('gives null outside every panel', () => {

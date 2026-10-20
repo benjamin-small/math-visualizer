@@ -505,7 +505,6 @@
     selectAnchor();
     api.dispatch(cmd.pause());
     api.dispatch(cmd.jumpTo(mcuIndexOf(anchor, subsampling, image.w) + 1));
-    pushLayout(); // the subsample stage's zoom window centres on the block
     syncUrl();
   }
 
@@ -550,7 +549,7 @@
   function hitTarget(e: MouseEvent): Target | null {
     if (!image || !overlayEl) return null;
     const box = overlayEl.getBoundingClientRect();
-    return canvasTarget(layout, stage, image, e.clientX - box.left, e.clientY - box.top, sel);
+    return canvasTarget(layout, stage, image, e.clientX - box.left, e.clientY - box.top, sel, subsampling);
   }
 
   /** For the keyboard: the card of the first pixel of the block being followed. */
@@ -716,9 +715,7 @@
     const canvas = overlayEl?.closest('.stage')?.querySelector('canvas');
     if (!api?.engine || !canvas || !image) return;
     const dpr = window.devicePixelRatio || 1;
-    const sel = summary?.selected;
-    const block = anchor ?? (sel && sel.component === 0 ? ([sel.bx, sel.by] as [number, number]) : undefined);
-    layout = jpegLayout(stage, canvas.clientWidth, canvas.clientHeight, image.w, image.h, block);
+    layout = jpegLayout(stage, canvas.clientWidth, canvas.clientHeight, image.w, image.h);
     api.patchVizConfig({ panels: toDevicePanels(layout.panels, dpr), cube_mix: cubeMix, dct_k: dctK, hover, wipe, error_gain: errorGain });
   }
 
