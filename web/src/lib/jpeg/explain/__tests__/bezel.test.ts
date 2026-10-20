@@ -174,6 +174,11 @@ describe('the transport controls and the position readout', () => {
   const back = { id: 'bezel.step', dir: 'back' } as const;
   const forward = { id: 'bezel.step', dir: 'forward' } as const;
   const position = { id: 'bezel.position' } as const;
+  /** A context with `n` of `total` steps scanned. */
+  const withScan = (n: number, total: number) => {
+    const s = makeContext().summary!;
+    return makeContext({ summary: { ...s, n, total } });
+  };
 
   it('Play says what playing does to the scan and where it is', () => {
     const e = card(play, makeContext({ speed: 64 }));
@@ -192,20 +197,18 @@ describe('the transport controls and the position readout', () => {
   });
 
   it('says so at the end of the scan', () => {
-    const s = makeContext().summary!;
-    const e = card(play, makeContext({ summary: { ...s, n: 256 } }));
-    expect(e.body).toMatch(/end/);
+    const e = card(play, withScan(256, 256));
+    expect(e.body).toBe('The scan has reached the last block.');
     expect(e.consequence).not.toMatch(/NaN|Infinity/);
   });
 
   it('Reset rewinds the scan and leaves the picture encoded', () => {
     const e = card(reset);
     expect(e.acts).toBe(true);
-    expect(e.body).toMatch(/rewinds the scan to the start/i);
+    expect(e.body).toMatch(/rewinds the scan to the first block/i);
     expect(e.body).toMatch(/stays encoded/);
     expect(e.consequence).toContain('step 64 of 256');
-    const s = makeContext().summary!;
-    expect(card(reset, makeContext({ summary: { ...s, n: 0 } })).consequence).toMatch(/already at the start/i);
+    expect(card(reset, withScan(1, 256)).consequence).toBe('The scan is already at the first block.');
   });
 
   it('Back and Forward move one step, which is one patch', () => {
@@ -222,9 +225,47 @@ describe('the transport controls and the position readout', () => {
   });
 
   it('Back and Forward say when there is nowhere to go', () => {
-    const s = makeContext().summary!;
-    expect(card(back, makeContext({ summary: { ...s, n: 0 } })).consequence).toMatch(/already at the start/i);
-    expect(card(forward, makeContext({ summary: { ...s, n: 256 } })).consequence).toMatch(/already at the end/i);
+    expect(card(back, withScan(1, 256)).consequence).toBe('The scan is already at the first block.');
+    expect(card(forward, withScan(256, 256)).consequence).toBe('The scan has reached the last block. Reset to scan again.');
+  });
+
+  it('says the overview has no scan to play', () => {
+    const overview = makeContext({ stage: 'overview' });
+    for (const t of [play, reset, back, forward]) {
+      expect(card(t, overview).consequence).toBe(
+        'The overview shows the whole picture at once, so the scan has nothing to show here. Pick a stage to follow it one block at a time.',
+      );
+    }
+  });
+
+  it('keeps the live readout and details on the overview', () => {
+    const overview = makeContext({ stage: 'overview' });
+    for (const t of [play, reset, back, forward]) {
+      const e = card(t, overview);
+      expect(e.value).toMatch(/step 64 of 256/i);
+      expect(e.details.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('treats step 1 as the start, and step 0 too', () => {
+    expect(card(back, withScan(0, 256)).consequence).toBe('The scan is already at the first block.');
+    expect(card(reset, withScan(0, 256)).consequence).toBe('The scan is already at the first block.');
+    expect(card(back, withScan(2, 256)).consequence).toBe('From step 2 to step 1 of 256.');
+    expect(card(reset, withScan(2, 256)).consequence).not.toContain('already');
+  });
+
+  it('says Reset at the end', () => {
+    const end = withScan(256, 256);
+    expect(card(play, end).consequence).toBe('All 256 steps are done. Reset to scan again.');
+    expect(card(forward, end).consequence).toBe('The scan has reached the last block. Reset to scan again.');
+  });
+
+  it('says the panels follow the scan', () => {
+    const e = card(play, withScan(64, 256));
+    expect(e.body).toContain('the panels follow each block as it is scanned');
+    expect(e.body).toBe(
+      'Plays the scan: the lab walks across the picture one step at a time, in the order the file is written, and the panels follow each block as it is scanned.',
+    );
   });
 
   it('the readout explains "n of total steps scanned"', () => {

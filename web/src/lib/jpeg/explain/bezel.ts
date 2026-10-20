@@ -271,6 +271,10 @@ function scanFacts(ctx: ExplainContext) {
   };
 }
 
+/** Why the transport does nothing on the overview: it shows the whole picture, so there is no scan to follow. */
+const OVERVIEW_NO_SCAN =
+  'The overview shows the whole picture at once, so the scan has nothing to show here. Pick a stage to follow it one block at a time.';
+
 const STEP_DETAIL: Detail = {
   kind: 'text',
   text: 'The scan replays the way the file is written, one patch of the picture at a time. A step is a 16 × 16-pixel patch at 4:2:0 (8 × 8 at 4:4:4, 16 × 8 at 4:2:2): the smallest piece the file is written in. Its technical name is an MCU. These buttons only move the replay; the file never changes.',
@@ -284,10 +288,13 @@ function playCard(ctx: ExplainContext): Explanation {
   const where = f.known ? `step ${count(f.n)} of ${count(f.total)}` : null;
   let body: string;
   if (ctx.playing) body = 'Pauses the scan where it is. The part of the picture scanned so far stays on screen.';
-  else if (done) body = 'The scan has reached the end of the picture. The picture stays as it is.';
-  else body = 'Plays the scan: the lab walks across the picture one step at a time, in the order the file is written.';
+  else if (done) body = 'The scan has reached the last block.';
+  else
+    body =
+      'Plays the scan: the lab walks across the picture one step at a time, in the order the file is written, and the panels follow each block as it is scanned.';
   let consequence = `Each step scans a ${f.patch}.`;
-  if (where && done) consequence = `${consequence} All ${count(f.total)} steps are done.`;
+  if (ctx.stage === 'overview') consequence = OVERVIEW_NO_SCAN;
+  else if (where && done) consequence = `All ${count(f.total)} steps are done. Reset to scan again.`;
   else if (where) consequence = `${count(f.n)} of ${count(f.total)} steps done; each step scans a ${f.patch}${secs ? `, so the rest takes ${secs} s at ${stepsPerSecond(ctx.speed)}` : ''}.`;
   return {
     title: ctx.playing ? 'Pause the scan' : 'Play the scan',
@@ -304,12 +311,15 @@ function resetCard(ctx: ExplainContext): Explanation {
   return {
     title: 'Back to the start',
     value: f.known ? `Step ${count(f.n)} of ${count(f.total)}` : undefined,
-    body: 'Rewinds the scan to the start. The picture stays encoded; only the replay goes back.',
-    consequence: !f.known
-      ? `Each step scans a ${f.patch}.`
-      : f.n === 0
-        ? 'The scan is already at the start.'
-        : `The scan is at step ${count(f.n)} of ${count(f.total)}; Reset puts it at step 0. ${lead(ctx)}, the file does not change.`,
+    body: 'Rewinds the scan to the first block. The picture stays encoded; only the replay goes back.',
+    consequence:
+      ctx.stage === 'overview'
+        ? OVERVIEW_NO_SCAN
+        : !f.known
+          ? `Each step scans a ${f.patch}.`
+          : f.n <= 1
+            ? 'The scan is already at the first block.'
+            : `The scan is at step ${count(f.n)} of ${count(f.total)}; Reset puts it at step 1. ${lead(ctx)}, the file does not change.`,
     acts: true,
     details: [STEP_DETAIL],
   };
@@ -318,17 +328,22 @@ function resetCard(ctx: ExplainContext): Explanation {
 function stepCard(dir: 'back' | 'forward', ctx: ExplainContext): Explanation {
   const f = scanFacts(ctx);
   const back = dir === 'back';
-  const blocked = f.known && (back ? f.n <= 0 : f.n >= f.total);
+  const blocked = f.known && (back ? f.n <= 1 : f.n >= f.total);
   const to = f.n + (back ? -1 : 1);
   return {
     title: back ? 'Step back' : 'Step forward',
     value: f.known ? `Step ${count(f.n)} of ${count(f.total)}` : undefined,
     body: `Moves the scan ${back ? 'back' : 'on'} by one step: one ${f.patch}, the smallest piece the file is written in.`,
-    consequence: !f.known
-      ? `Each step is a ${f.patch}.`
-      : blocked
-        ? `The scan is already at the ${back ? 'start' : 'end'}.`
-        : `From step ${count(f.n)} to step ${count(to)} of ${count(f.total)}.`,
+    consequence:
+      ctx.stage === 'overview'
+        ? OVERVIEW_NO_SCAN
+        : !f.known
+          ? `Each step is a ${f.patch}.`
+          : blocked
+            ? back
+              ? 'The scan is already at the first block.'
+              : 'The scan has reached the last block. Reset to scan again.'
+            : `From step ${count(f.n)} to step ${count(to)} of ${count(f.total)}.`,
     acts: true,
     details: [STEP_DETAIL],
   };

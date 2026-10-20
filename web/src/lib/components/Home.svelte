@@ -151,7 +151,7 @@
             if (reduce) {
               api.dispatch(cmd.jumpTo(mcuCount(img.w, img.h, '420')));
             } else {
-              api.dispatch(cmd.setSpeed(64)); // the lab's pace: the 256² photo scans in four seconds
+              api.dispatch(cmd.setSpeed(64)); // the tile's own pace (the lab runs at 4 steps a second): the 256² photo scans in four seconds
               api.dispatch(cmd.play());
             }
           } catch (err) {
