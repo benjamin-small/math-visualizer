@@ -15,7 +15,8 @@
 //! block grid and MCU outlines), `plane_y` / `plane_cb` / `plane_cr` (the
 //! full-resolution planes, current block outlined; `crop` or `zoom` magnifies),
 //! `coded_cb` / `coded_cr` (the subsampled chroma as coded, shown blocky,
-//! same outline and magnifying), `cube` (the pixels as points in the colour cube),
+//! same outline and magnifying), `cube` (the pixels as points in the colour cube,
+//! dimmed, with the current block's pixels lit on top),
 //! `block` (the selected block's 64 samples), `atlas` (the 64 DCT basis
 //! patterns), `coeffs` (the selected block's DCT, signed), `rebuild` (the
 //! block rebuilt from its first `dct_k` zigzag coefficients), `quant` (the
@@ -537,8 +538,40 @@ pub fn hover_index(hover: Option<[u32; 2]>) -> Option<usize> {
         .map(|[u, v]| (u + 8 * v) as usize)
 }
 
-/// Builds the cube's edge lines and pixel points for `mix`.
-fn build_cube(img: &Rgb8Image, version: u32, mix: f32, accent: [f32; 4]) -> CubeCache {
+/// The RGB (0–255) of every image pixel inside the block's rect, clipped to
+/// the picture, row by row.
+pub fn block_pixels(img: &Rgb8Image, sel: Selection, s: Subsampling) -> Vec<[f32; 3]> {
+    let mut out = Vec::new();
+    block_pixels_into(img, sel, s, &mut out);
+    out
+}
+
+/// `block_pixels`, appended to `out` so a caller can reuse its allocation.
+fn block_pixels_into(img: &Rgb8Image, sel: Selection, s: Subsampling, out: &mut Vec<[f32; 3]>) {
+    let [x, y, w, h] = block_rect(sel, s);
+    let (x0, y0) = (x as usize, y as usize);
+    let (x1, y1) = ((x0 + w as usize).min(img.w), (y0 + h as usize).min(img.h));
+    for py in y0..y1 {
+        for px in x0..x1 {
+            let i = (px + img.w * py) * 4;
+            out.push([
+                img.rgba[i] as f32,
+                img.rgba[i + 1] as f32,
+                img.rgba[i + 2] as f32,
+            ]);
+        }
+    }
+}
+
+/// A colour with its RGB scaled by `dim` (clamped to 0–1); alpha unchanged.
+pub fn dimmed(c: [f32; 4], dim: f32) -> [f32; 4] {
+    let d = dim.clamp(0.0, 1.0);
+    [c[0] * d, c[1] * d, c[2] * d, c[3]]
+}
+
+/// Builds the cube's edge lines and pixel points for `mix`, the cloud dimmed
+/// by `dim` so the current block's lit pixels stand out.
+fn build_cube(img: &Rgb8Image, version: u32, mix: f32, dim: f32, accent: [f32; 4]) -> CubeCache {
     let edge_color = [1.0, 1.0, 1.0, 0.35];
     let mut lines: Vec<LineVertex3D> = Vec::with_capacity(26);
     for (a, b) in cube_edges() {
@@ -560,13 +593,14 @@ fn build_cube(img: &Rgb8Image, version: u32, mix: f32, accent: [f32; 4]) -> Cube
         .into_iter()
         .map(|rgb| PointInstance3D {
             position: cube_point(rgb, mix),
-            color: [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.9],
+            color: dimmed([rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.9], dim),
             radius_px: 2.0,
         })
         .collect();
     CubeCache {
         version,
         mix,
+        dim,
         accent,
         lines,
         points,
@@ -586,10 +620,11 @@ struct Textures {
 }
 
 /// The cube's sampled pixels turned into GPU instances, valid for one encode
-/// (`version`), one `cube_mix` and one accent colour.
+/// (`version`), one `cube_mix`, one dimming and one accent colour.
 struct CubeCache {
     version: u32,
     mix: f32,
+    dim: f32,
     accent: [f32; 4],
     lines: Vec<LineVertex3D>,
     points: Vec<PointInstance3D>,
@@ -606,6 +641,10 @@ pub struct JpegViz {
     camera: Camera3D,
     auto_speed: f32,
     cube_cache: Option<CubeCache>,
+    /// Per-frame buffer for the current block's pixels lit in the cube.
+    block_scratch: Vec<[f32; 3]>,
+    /// Per-frame buffer: the cached cloud followed by the lit block.
+    cube_points: Vec<PointInstance3D>,
     quad_scratch: Vec<QuadInstance>,
     line_scratch: Vec<LineVertex>,
     /// The zigzag path's progress in cells (0–64), advanced by `tick`.
@@ -646,6 +685,8 @@ impl JpegViz {
             zig_speed: default_zigzag_speed(),
             zig_key: None,
             cube_cache: None,
+            block_scratch: Vec::new(),
+            cube_points: Vec::new(),
             quad_scratch: Vec::new(),
             line_scratch: Vec::new(),
         }
@@ -874,12 +915,17 @@ impl JpegViz {
         canvas: [u32; 2],
     ) {
         let mix = cfg.cube_mix;
-        let stale = self
-            .cube_cache
-            .as_ref()
-            .is_none_or(|c| c.version != state.version || c.mix != mix || c.accent != cfg.accent);
+        let stale = self.cube_cache.as_ref().is_none_or(|c| {
+            c.version != state.version || c.mix != mix || c.dim != cfg.dim || c.accent != cfg.accent
+        });
         if stale {
-            self.cube_cache = Some(build_cube(&state.original, state.version, mix, cfg.accent));
+            self.cube_cache = Some(build_cube(
+                &state.original,
+                state.version,
+                mix,
+                cfg.dim,
+                cfg.accent,
+            ));
         }
         let [x, y, w, h] = scissor_box(canvas[1], rect);
         if w <= 0 || h <= 0 {
@@ -894,7 +940,27 @@ impl JpegViz {
                 l.draw(gl, &vp);
             }
             if let Some(p) = self.points_3d.as_mut() {
-                p.upload(gl, &c.points);
+                // The current block's pixels go after the dimmed cloud, at full
+                // brightness and a larger radius, so they draw on top.
+                self.block_scratch.clear();
+                // Without an encode there is no block size to name, so none lights up.
+                if let Some(enc) = &state.encoded {
+                    block_pixels_into(
+                        &state.original,
+                        state.selection,
+                        enc.trace.options.subsampling,
+                        &mut self.block_scratch,
+                    );
+                }
+                self.cube_points.clear();
+                self.cube_points.extend_from_slice(&c.points);
+                self.cube_points
+                    .extend(self.block_scratch.iter().map(|rgb| PointInstance3D {
+                        position: cube_point(*rgb, mix),
+                        color: [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 1.0],
+                        radius_px: 3.5,
+                    }));
+                p.upload(gl, &self.cube_points);
                 p.draw(gl, &vp, [w as u32, h as u32]);
             }
         }
@@ -1314,6 +1380,52 @@ mod tests {
         let pts = sample_pixels(&img, 4096);
         assert!(pts.len() <= 4096 && pts.len() >= 1024);
         assert_eq!(pts[0], [9.0, 9.0, 9.0]);
+    }
+
+    #[test]
+    fn block_pixels_cover_the_block_clipped_to_the_picture() {
+        let mut rgba = Vec::new();
+        for y in 0..256usize {
+            for x in 0..256usize {
+                rgba.extend([x as u8, y as u8, 7, 255]);
+            }
+        }
+        let img = Rgb8Image::new(256, 256, rgba).unwrap();
+        let luma = block_pixels(
+            &img,
+            Selection {
+                component: 0,
+                bx: 1,
+                by: 1,
+            },
+            Subsampling::S420,
+        );
+        assert_eq!(luma.len(), 64);
+        assert_eq!(luma[0], [8.0, 8.0, 7.0]);
+        assert_eq!(luma[63], [15.0, 15.0, 7.0]);
+        let chroma = block_pixels(
+            &img,
+            Selection {
+                component: 1,
+                bx: 0,
+                by: 0,
+            },
+            Subsampling::S420,
+        );
+        assert_eq!(chroma.len(), 256);
+        let small = Rgb8Image::new(24, 10, vec![0; 24 * 10 * 4]).unwrap();
+        let edge = Selection {
+            component: 0,
+            bx: 2,
+            by: 1,
+        };
+        assert_eq!(block_pixels(&small, edge, Subsampling::S420).len(), 16);
+    }
+
+    #[test]
+    fn dimmed_scales_colour_not_alpha() {
+        assert_eq!(dimmed([1.0, 0.5, 0.2, 0.9], 0.5), [0.5, 0.25, 0.1, 0.9]);
+        assert_eq!(dimmed([1.0, 1.0, 1.0, 1.0], 2.0), [1.0, 1.0, 1.0, 1.0]);
     }
 
     #[test]
