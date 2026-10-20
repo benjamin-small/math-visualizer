@@ -52,7 +52,11 @@ export interface Panel {
   rect: Rect;
   /** Caption the overlay prints above the panel. */
   label: string;
-  /** How wide (CSS px) the caption may run when that is wider than the panel: the band above it is free that far. */
+  /**
+   * How wide (CSS px) the caption may run, when the layout knows: the band above the panel is free that far (wider
+   * than the panel, or narrower than `CAPTION_MIN` where something else starts). Otherwise the panel's width, at
+   * least `CAPTION_MIN`.
+   */
   captionW?: number;
   /** For plane, wipe and error panels: the part of the image shown, `[x, y, w, h]` in image pixels (default: all). */
   crop?: [number, number, number, number];
@@ -97,6 +101,23 @@ const DECODE_TOOLS_ROOM = DECODE_TOOLS + 48;
 const DECODE_SIDE_MIN = 200;
 /** The scan picture's share (of the width, or of the height in portrait) on the decode stage, so the wipe leads. */
 const DECODE_IMAGE_SHARE = 0.28;
+/**
+ * Width (CSS px) of the decode tools' widest row, the three hint chips. A `.chip` (DecodeTools) is its text plus
+ * 2 × 10 px padding and 2 × 1 px border, 6 px apart; at 12 px a character is about 6 px, so Blocking, Ringing and
+ * Colour bleed (8, 7 and 12 characters) are 70 + 64 + 94 = 228 px with the two gaps, rounded up to 240. The zoom
+ * chips' row (Whole picture, 2×, 4×, 8×) is about 220 px, so it fits too.
+ */
+export const DECODE_TOOLS_MIN_W = 240;
+/**
+ * Height (CSS px) the decode tools' rows need, one above the other, with no chart: from DecodeTools' CSS, two
+ * slider rows (`.ctl`, 20 px), the zoom chips, the hints and Re-save (`.chip`, 26 px), the window line (15 px), and
+ * five 6 px gaps make 163, plus 5 to spare.
+ */
+export const DECODE_TOOLS_FIT = 168;
+/** On a short phone, the narrowest column beside the wipe for the scan picture and the error map. */
+const DECODE_COLUMN_MIN = 88;
+/** Below this caption room (CSS px) a decode caption keeps its first words rather than be cut off. */
+const CAPTION_FULL = 150;
 
 /**
  * Side, in image pixels, of the square window the decode stage shows at zoom
@@ -176,11 +197,73 @@ function overviewLayout(cssW: number, cssH: number, imgW: number, imgH: number):
   };
 }
 
+/** The decode stage's error-map caption, kept to its first words where it has little room. */
+const errorCaption = (room: number) => (room >= CAPTION_FULL ? 'What was lost, brightened' : 'What was lost');
+
+/**
+ * The decode stage on a portrait (phone) stage: the wipe as large as it can be while the controls fit below it
+ * without scrolling (at least `DECODE_TOOLS_MIN_W` by `DECODE_TOOLS_FIT`). Of two arrangements, the one with the
+ * larger wipe: the scan picture in a row on top (28% of the height) with the error map beside the controls under
+ * the wipe; or, on a short phone, the scan picture and the error map in a column beside the wipe, with the
+ * controls across the full width below.
+ */
+function decodePortraitLayout(cssW: number, cssH: number, imgW: number, imgH: number, decodeZoom: number): StageLayout {
+  const m = MARGIN;
+  const g = m;
+  const side = decodeWindow(decodeZoom, imgW, imgH);
+  const [aw, ah] = side === null ? [imgW, imgH] : [1, 1];
+  const zoom = side === null ? {} : { zoom: side };
+  const wipeLabel = 'Decoded (left of the line) against the original';
+  const w = cssW - 2 * m;
+  const rowH = (cssH - 3 * m) * DECODE_IMAGE_SHARE;
+  const stacked: Rect = { x: m, y: 2 * m + rowH + LABEL, w, h: cssH - 3 * m - rowH - LABEL };
+  const stackedH = Math.max(0, Math.min(stacked.h * WIPE_SHARE, (w * ah) / aw, stacked.h - g - DECODE_TOOLS_FIT));
+  const beside: Rect = { x: m, y: m + LABEL, w, h: cssH - 2 * m - LABEL };
+  const besideH = Math.max(0, Math.min(beside.h - g - DECODE_TOOLS_FIT, ((w - g - DECODE_COLUMN_MIN) * ah) / aw));
+
+  if (besideH > stackedH) {
+    // The wipe's caption runs the full width above it; the column's own captions start below that band.
+    const wipe = { x: m, y: beside.y, w: (besideH * aw) / ah, h: besideH };
+    const col = { x: m + wipe.w + g, y: beside.y, w: Math.max(0, w - wipe.w - g), h: besideH };
+    const each = Math.max(0, Math.min(col.w, (besideH - 2 * LABEL - g) / 2));
+    const pic = fit({ x: col.x, y: col.y + LABEL, w: col.w, h: each }, imgW, imgH);
+    const image = { ...pic, x: col.x };
+    const err = fit({ x: col.x, y: col.y + 2 * LABEL + each + g, w: col.w, h: each }, aw, ah);
+    const below = beside.y + besideH + g;
+    return {
+      image,
+      panels: [
+        { kind: 'image', rect: image, label: col.w >= CAPTION_FULL ? 'The image — click a block' : 'Click a block', captionW: col.w },
+        { kind: 'wipe', rect: wipe, label: wipeLabel, captionW: w, ...zoom },
+        { kind: 'error', rect: { ...err, x: col.x }, label: errorCaption(col.w), captionW: col.w, ...zoom },
+      ],
+      slots: { resave: { x: m, y: below, w, h: Math.max(0, beside.y + beside.h - below) } },
+    };
+  }
+
+  const image = fit(belowLabel({ x: m, y: m, w, h: rowH }), imgW, imgH);
+  const wipe = fit({ x: m, y: stacked.y, w, h: stackedH }, aw, ah);
+  const bottom = { x: m, y: stacked.y + stackedH + g, w, h: Math.max(0, stacked.y + stacked.h - (stacked.y + stackedH + g)) };
+  // The error map gives the controls the width their widest row needs.
+  const errSide = Math.max(0, Math.min(bottom.h - LABEL, w - g - DECODE_TOOLS_MIN_W));
+  const err = fit({ x: m, y: bottom.y + LABEL, w: errSide, h: errSide }, aw, ah);
+  return {
+    image,
+    panels: [
+      { kind: 'image', rect: image, label: 'The image — click a block' },
+      { kind: 'wipe', rect: wipe, label: wipeLabel, captionW: m + w - wipe.x, ...zoom },
+      { kind: 'error', rect: { ...err, x: m }, label: errorCaption(errSide), captionW: errSide, ...zoom },
+    ],
+    slots: { resave: { x: m + errSide + g, y: bottom.y, w: Math.max(0, w - errSide - g), h: bottom.h } },
+  };
+}
+
 /**
  * The stage's panels. Landscape: the image at the left (up to 45% of the
  * width), the stage's focus panels to its right. Portrait (narrower than
  * `PORTRAIT_BELOW`): the image on top (42% of the height), focus below. The
- * decode stage gives the image 28% in both, so its wipe is the largest panel.
+ * decode stage gives the image 28% in both, so its wipe is the largest panel
+ * (`decodePortraitLayout` arranges its portrait stage).
  * The magnified windows of the subsample and decode stages are the viz's to
  * place (`zoom`), so the layout does not depend on the current block.
  * `decodeZoom` is the decode stage's zoom factor (one of `DECODE_ZOOMS`; 1
@@ -199,10 +282,10 @@ export function jpegLayout(
     return { image: ZERO, panels: [], slots: {} };
   }
   if (stage === 'overview') return overviewLayout(cssW, cssH, imgW, imgH);
+  if (stage === 'decode' && cssW < PORTRAIT_BELOW) return decodePortraitLayout(cssW, cssH, imgW, imgH, decodeZoom);
   let imageArea: Rect;
   let focus: Rect;
-  const landscape = cssW >= PORTRAIT_BELOW;
-  if (landscape) {
+  if (cssW >= PORTRAIT_BELOW) {
     const colW = Math.min(cssH - 2 * m - LABEL, (cssW - 3 * m) * (stage === 'decode' ? DECODE_IMAGE_SHARE : 0.45));
     imageArea = { x: m, y: m, w: colW, h: cssH - 2 * m };
     focus = { x: 2 * m + colW, y: m, w: cssW - 3 * m - colW, h: cssH - 2 * m };
@@ -332,10 +415,9 @@ export function jpegLayout(
         slots.resave = { x: area.x + wipe.w + g, y: area.y, w: sideW, h: area.h };
         break;
       }
-      // The controls go below, beside the error map. On a landscape stage the wipe gives up some height so their
-      // chart fits, down to half; a phone keeps the wipe large and lets the controls scroll.
+      // The controls go below, beside the error map: the wipe gives up some height so their chart fits, down to half.
       const roomy = area.h - g - DECODE_TOOLS_ROOM;
-      if (landscape && roomy >= area.h * 0.5) topH = Math.min(topH, roomy);
+      if (roomy >= area.h * 0.5) topH = Math.min(topH, roomy);
       const wipe = fit({ x: area.x, y: area.y, w: area.w, h: topH }, aw, ah);
       panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: area.x + area.w - wipe.x, ...zoom });
       const below = belowLabel({ x: area.x, y: area.y + topH + g, w: area.w, h: area.y + area.h - (area.y + topH + g) });

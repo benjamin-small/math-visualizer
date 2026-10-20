@@ -789,6 +789,37 @@ describe('JpegLab.svelte', () => {
     await vi.waitFor(() => expect(container.querySelector('.wipe-drag')).toBeNull());
   });
 
+  it('keeps the zoom chips on one row in a narrow controls column, saying Whole for the whole picture', async () => {
+    // At 1000 × 768 the controls column beside the wipe is about 212 px: too narrow for "Whole picture".
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1000, 0));
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 768));
+    try {
+      const { getByRole } = await renderLab('stage=decode');
+      const whole = await vi.waitFor(() => getByRole('button', { name: 'Whole picture' }));
+      expect(whole.textContent?.trim()).toBe('Whole');
+      expect(within(getByRole('group', { name: 'Zoom' })).getAllByRole('button').map((c) => c.textContent?.trim())).toEqual(['Whole', '2×', '4×', '8×']);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1134, 0));
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 585));
+    }
+  });
+
+  it('fits the Decode controls on a phone stage', async () => {
+    // The canvas at a 375 × 812 viewport.
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(343, 0));
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 447));
+    try {
+      const { container, getByRole } = await renderLab('stage=decode');
+      await vi.waitFor(() => getByRole('slider', { name: 'Wipe' }));
+      const tools = container.querySelector<HTMLElement>('.tools')!;
+      expect(parseFloat(tools.style.width)).toBeCloseTo(343 - 32);
+      expect(getByRole('button', { name: 'Whole picture' }).textContent?.trim()).toBe('Whole picture');
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(1134, 0));
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 585));
+    }
+  });
+
   it('keeps the Decode controls on a short laptop stage', async () => {
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', size(800, 0));
     Object.defineProperty(HTMLElement.prototype, 'clientHeight', size(0, 420));

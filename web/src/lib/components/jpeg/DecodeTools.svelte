@@ -84,6 +84,12 @@
 
   /** Side, in picture pixels, of the window the wipe and the error map show (null for the whole picture). */
   const windowSide = $derived(decodeWindow(zoom, image.w, image.h));
+  /**
+   * Below this width the zoom chips' row (Whole picture, 2×, 4×, 8×: about 220 px of chips and gaps) would wrap,
+   * so the first chip says Whole; its accessible name and its card still say Whole picture.
+   */
+  const ZOOM_ROW_W = 224;
+  const compact = $derived(rect.w < ZOOM_ROW_W);
   const W = $derived(Math.max(0, rect.w - 8));
   // The rows above the chart (the sliders, the zoom chips and their window line, the hints and Re-save) take `DECODE_TOOLS`.
   const H = $derived(Math.max(0, rect.h - DECODE_TOOLS));
@@ -144,8 +150,12 @@
     </label>
     <div class="zoom" role="group" aria-label="Zoom">
       {#each DECODE_ZOOMS as f (f)}
-        <button class="chip" aria-pressed={zoom === f} onclick={() => onzoom(f)} use:tooltip={{ ctl, target: { id: 'decode.zoom', factor: f }, acts: true }}
-          >{f === 1 ? 'Whole picture' : `${f}×`}</button
+        <button
+          class="chip"
+          aria-pressed={zoom === f}
+          aria-label={f === 1 ? 'Whole picture' : undefined}
+          onclick={() => onzoom(f)}
+          use:tooltip={{ ctl, target: { id: 'decode.zoom', factor: f }, acts: true }}>{f === 1 ? (compact ? 'Whole' : 'Whole picture') : `${f}×`}</button
         >
       {/each}
     </div>
@@ -207,11 +217,13 @@
 {/if}
 
 <style>
-  .tools { position: absolute; display: flex; flex-direction: column; gap: 8px; color: rgba(255, 255, 255, 0.8); font-size: 12px; pointer-events: auto; overflow: auto; }
-  .ctl { display: flex; align-items: center; gap: 8px; }
+  /* Row heights and gaps here are what the layout's DECODE_TOOLS_FIT and DECODE_TOOLS_MIN_W count on. */
+  .tools { position: absolute; display: flex; flex-direction: column; gap: 6px; color: rgba(255, 255, 255, 0.8); font-size: 12px; pointer-events: auto; overflow: auto; }
+  .ctl { display: flex; align-items: center; gap: 8px; height: 20px; flex: none; }
   .ctl > span { width: 70px; flex: none; }
-  .ctl input { flex: 1; accent-color: var(--accent); }
+  .ctl input { flex: 1; min-width: 96px; margin: 0; accent-color: var(--accent); }
   .zoom, .hints, .resave { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .window { line-height: 15px; }
   .chip {
     height: 26px;
     padding: 0 10px;

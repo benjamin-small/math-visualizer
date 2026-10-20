@@ -1038,7 +1038,7 @@
 
     <div class="marks" bind:this={overlayEl}>
       {#each layout.panels as p (p.kind)}
-        <span class="caption" style:left="{p.rect.x}px" style:top="{p.rect.y - 20}px" style:max-width="{Math.max(p.captionW ?? p.rect.w, CAPTION_MIN)}px">{p.label}</span>
+        <span class="caption" style:left="{p.rect.x}px" style:top="{p.rect.y - 20}px" style:max-width="{p.captionW ?? Math.max(p.rect.w, CAPTION_MIN)}px">{p.label}</span>
       {/each}
       {#if layout.image.w > 0 && stage !== 'overview'}
         <button
