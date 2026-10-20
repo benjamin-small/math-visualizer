@@ -7,8 +7,8 @@
 //! The scan position and the selection are one "current block": the rule keeps
 //! the selection on the last scanned MCU, and every panel that shows the
 //! picture outlines it in the accent colour (there is no separate scan-front
-//! outline). A plane or coded panel with `zoom` set takes its window from the
-//! selection, so it follows the scan without the page re-pushing a crop.
+//! outline). A plane, coded, `wipe` or `error` panel with `zoom` set takes its
+//! window from the selection, so it follows the scan without the page re-pushing a crop.
 //!
 //! Panel kinds: `image` (the scan: decoded where scanned, the original dimmed
 //! elsewhere, the current block outlined), `image_grid` (the same plus the
@@ -26,11 +26,12 @@
 //! second, restarting when the block or the encode changes; the viz reports
 //! how far it has got through `readout()`),
 //! `wipe` (the original with the decoded image over its left `wipe` share, the
-//! current block outlined),
+//! current block outlined; `crop` or `zoom` magnifies, the line staying at
+//! the same share of the panel),
 //! `original` and `decoded` (the whole picture before and after compression at
 //! full brightness, whatever the scan position) and `error` (per-pixel
 //! |decoded − original|, brightened by `error_gain`, the current block
-//! outlined).
+//! outlined; `crop` or `zoom` magnifies, like the plane panels).
 
 use jpeg::color::{rgb_to_ycbcr, ycbcr_to_rgb};
 use jpeg::dct::{basis, idct, idct_partial};
@@ -57,12 +58,12 @@ pub struct Panel {
     pub kind: String,
     /// `[x, y, w, h]` in device pixels, y down.
     pub rect: [f32; 4],
-    /// For plane panels: the part of the image to show, `[x, y, w, h]` in
+    /// For plane, coded, wipe and error panels: the part of the image to show, `[x, y, w, h]` in
     /// image pixels (default: all of it). A small crop magnifies, which is
     /// how the lab shows subsampled chroma's blocks.
     #[serde(default)]
     pub crop: Option<[f32; 4]>,
-    /// For plane and coded panels: the side, in image pixels, of a square
+    /// For plane, coded, wipe and error panels: the side, in image pixels, of a square
     /// window centred on the selected block. Replaces `crop`, so the zoom
     /// follows the selection (and so the scan) without the page re-pushing
     /// a crop on every step.
@@ -249,6 +250,23 @@ pub fn zoom_window(anchor: (usize, usize), side: f32, iw: usize, ih: usize) -> [
     ]
 }
 
+/// The part of the picture a zooming panel shows, `[x, y, w, h]` in image
+/// pixels: the `zoom`-pixel window centred on the selection if `zoom` is set,
+/// else `crop`, else the whole `iw × ih` picture.
+pub fn panel_crop(
+    zoom: Option<f32>,
+    crop: Option<[f32; 4]>,
+    sel: Selection,
+    s: Subsampling,
+    iw: usize,
+    ih: usize,
+) -> [f32; 4] {
+    match zoom {
+        Some(side) => zoom_window(luma_anchor(sel, s), side, iw, ih),
+        None => crop.unwrap_or([0.0, 0.0, iw as f32, ih as f32]),
+    }
+}
+
 /// Where to draw a texture spanning `span` image pixels (`[w, h]`, from the
 /// image's top-left) so that `crop` (image pixels) lands exactly on `rect`
 /// (device pixels). Scissor to `rect` to hide the rest.
@@ -324,22 +342,6 @@ fn visible(rect: [f32; 4]) -> bool {
 fn outline_if_visible(rect: [f32; 4], color: [f32; 4], out: &mut Vec<LineVertex>) {
     if visible(rect) {
         outline(rect, color, out);
-    }
-}
-
-/// The current block outlined on a whole-picture panel at `rect`, in the
-/// accent colour. Does nothing until there is an encode to name the block's
-/// size.
-fn outline_current_block(
-    state: &JpegState,
-    cfg: &JpegVizConfig,
-    rect: [f32; 4],
-    out: &mut Vec<LineVertex>,
-) {
-    if let Some(enc) = &state.encoded {
-        let cur = block_rect(state.selection, enc.trace.options.subsampling);
-        let (iw, ih) = (state.original.w, state.original.h);
-        outline(map_rect(cur, rect, iw, ih), cfg.accent, out);
     }
 }
 
@@ -1076,13 +1078,14 @@ impl Visualization for JpegViz {
                         continue;
                     };
                     let (iw, ih) = (state.original.w as f32, state.original.h as f32);
-                    let crop = match panel.zoom {
-                        Some(side) => {
-                            let anchor = luma_anchor(sel, tr.options.subsampling);
-                            zoom_window(anchor, side, state.original.w, state.original.h)
-                        }
-                        None => panel.crop.unwrap_or([0.0, 0.0, iw, ih]),
-                    };
+                    let crop = panel_crop(
+                        panel.zoom,
+                        panel.crop,
+                        sel,
+                        tr.options.subsampling,
+                        state.original.w,
+                        state.original.h,
+                    );
                     let (tex, span) = match panel.kind.as_str() {
                         "plane_y" => (Some(&t.planes[0]), [iw, ih]),
                         "plane_cb" => (Some(&t.planes[1]), [iw, ih]),
@@ -1183,18 +1186,24 @@ impl Visualization for JpegViz {
                 }
                 "wipe" => {
                     if let (Some(q), Some(t)) = (&self.quad, &self.textures) {
-                        q.draw(gl, &t.original, rect, canvas, 1.0);
+                        let (iw, ih) = (state.original.w, state.original.h);
+                        let sub = trace.map_or(Subsampling::S444, |t| t.options.subsampling);
+                        let crop = panel_crop(panel.zoom, panel.crop, sel, sub, iw, ih);
+                        let target = crop_target(rect, crop, [iw as f32, ih as f32]);
+                        gl.enable(Gl::SCISSOR_TEST);
+                        let [x, y, w, h] = scissor_box(canvas[1], rect);
+                        gl.scissor(x, y, w, h);
+                        q.draw(gl, &t.original, target, canvas, 1.0);
                         let share = cfg.wipe.clamp(0.0, 1.0);
                         if share > 0.0 {
-                            gl.enable(Gl::SCISSOR_TEST);
                             let [x, y, w, h] = scissor_box(
                                 canvas[1],
                                 [rect[0], rect[1], rect[2] * share, rect[3]],
                             );
                             gl.scissor(x, y, w, h);
-                            q.draw(gl, &t.decoded, rect, canvas, 1.0);
-                            gl.disable(Gl::SCISSOR_TEST);
+                            q.draw(gl, &t.decoded, target, canvas, 1.0);
                         }
+                        gl.disable(Gl::SCISSOR_TEST);
                         let edge = rect[0] + rect[2] * share;
                         self.line_scratch.push(LineVertex {
                             position: [edge, rect[1]],
@@ -1204,13 +1213,35 @@ impl Visualization for JpegViz {
                             position: [edge, rect[1] + rect[3]],
                             color: cfg.accent,
                         });
-                        outline_current_block(state, cfg, rect, &mut self.line_scratch);
+                        if trace.is_some() {
+                            let cur = block_rect(sel, sub);
+                            outline_if_visible(
+                                map_rect_in_crop(cur, rect, crop),
+                                cfg.accent,
+                                &mut self.line_scratch,
+                            );
+                        }
                     }
                 }
                 "error" => {
                     if let (Some(q), Some(t)) = (&self.quad, &self.textures) {
-                        q.draw(gl, &t.error, rect, canvas, cfg.error_gain.max(0.0));
-                        outline_current_block(state, cfg, rect, &mut self.line_scratch);
+                        let (iw, ih) = (state.original.w, state.original.h);
+                        let sub = trace.map_or(Subsampling::S444, |t| t.options.subsampling);
+                        let crop = panel_crop(panel.zoom, panel.crop, sel, sub, iw, ih);
+                        gl.enable(Gl::SCISSOR_TEST);
+                        let [x, y, w, h] = scissor_box(canvas[1], rect);
+                        gl.scissor(x, y, w, h);
+                        let target = crop_target(rect, crop, [iw as f32, ih as f32]);
+                        q.draw(gl, &t.error, target, canvas, cfg.error_gain.max(0.0));
+                        gl.disable(Gl::SCISSOR_TEST);
+                        if trace.is_some() {
+                            let cur = block_rect(sel, sub);
+                            outline_if_visible(
+                                map_rect_in_crop(cur, rect, crop),
+                                cfg.accent,
+                                &mut self.line_scratch,
+                            );
+                        }
                     }
                 }
                 "atlas" => self.draw_atlas(rect, hover, cfg.accent),
@@ -1309,6 +1340,43 @@ mod tests {
         );
         // Smaller than the window: the window shrinks to the picture's short side.
         assert_eq!(zoom_window((2, 1), 32.0, 40, 24), [8.0, 0.0, 24.0, 24.0]);
+    }
+
+    #[test]
+    fn panel_crop_prefers_zoom_then_crop_then_the_whole_picture() {
+        let sel = Selection {
+            component: 0,
+            bx: 21,
+            by: 17,
+        };
+        let s = Subsampling::S420;
+        let crop = [4.0, 8.0, 50.0, 60.0];
+        // Zoom wins over a crop and is the zoom window around the block.
+        assert_eq!(
+            panel_crop(Some(32.0), Some(crop), sel, s, 256, 256),
+            zoom_window(luma_anchor(sel, s), 32.0, 256, 256)
+        );
+        assert_eq!(
+            panel_crop(Some(32.0), Some(crop), sel, s, 256, 256),
+            [156.0, 124.0, 32.0, 32.0]
+        );
+        // A chroma selection is anchored through the sampling factors.
+        let cb = Selection {
+            component: 1,
+            bx: 3,
+            by: 2,
+        };
+        assert_eq!(
+            panel_crop(Some(64.0), None, cb, s, 256, 256),
+            zoom_window((6, 4), 64.0, 256, 256)
+        );
+        // No zoom: the crop as given.
+        assert_eq!(panel_crop(None, Some(crop), sel, s, 256, 256), crop);
+        // Neither: the whole picture.
+        assert_eq!(
+            panel_crop(None, None, sel, s, 256, 128),
+            [0.0, 0.0, 256.0, 128.0]
+        );
     }
 
     #[test]
