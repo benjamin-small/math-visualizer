@@ -238,6 +238,13 @@ describe('the transport controls and the position readout', () => {
     }
   });
 
+  it('keeps Pause honest while the scan runs behind the overview', () => {
+    const e = card(play, makeContext({ stage: 'overview', playing: true }));
+    expect(e.title).toBe('Pause the scan');
+    expect(e.consequence).toBe('The scan keeps running behind the overview. Pause stops it where it is.');
+    expect(e.consequence).not.toContain('nothing to show');
+  });
+
   it('keeps the live readout and details on the overview', () => {
     const overview = makeContext({ stage: 'overview' });
     for (const t of [play, reset, back, forward]) {

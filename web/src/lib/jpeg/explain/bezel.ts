@@ -275,6 +275,9 @@ function scanFacts(ctx: ExplainContext) {
 const OVERVIEW_NO_SCAN =
   'The overview shows the whole picture at once, so the scan has nothing to show here. Pick a stage to follow it one block at a time.';
 
+/** Pause stays live on the overview while a scan runs behind it. */
+const OVERVIEW_PLAYING = 'The scan keeps running behind the overview. Pause stops it where it is.';
+
 const STEP_DETAIL: Detail = {
   kind: 'text',
   text: 'The scan replays the way the file is written, one patch of the picture at a time. A step is a 16 × 16-pixel patch at 4:2:0 (8 × 8 at 4:4:4, 16 × 8 at 4:2:2): the smallest piece the file is written in. Its technical name is an MCU. These buttons only move the replay; the file never changes.',
@@ -293,7 +296,7 @@ function playCard(ctx: ExplainContext): Explanation {
     body =
       'Plays the scan: the lab walks across the picture one step at a time, in the order the file is written, and the panels follow each block as it is scanned.';
   let consequence = `Each step scans a ${f.patch}.`;
-  if (ctx.stage === 'overview') consequence = OVERVIEW_NO_SCAN;
+  if (ctx.stage === 'overview') consequence = ctx.playing ? OVERVIEW_PLAYING : OVERVIEW_NO_SCAN;
   else if (where && done) consequence = `All ${count(f.total)} steps are done. Reset to scan again.`;
   else if (where) consequence = `${count(f.n)} of ${count(f.total)} steps done; each step scans a ${f.patch}${secs ? `, so the rest takes ${secs} s at ${stepsPerSecond(ctx.speed)}` : ''}.`;
   return {
