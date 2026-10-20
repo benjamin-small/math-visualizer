@@ -18,7 +18,8 @@ export type Target =
   | { id: 'readout.size' | 'readout.ratio' | 'readout.bpp' | 'readout.psnr' | 'chip.custom' }
   | { id: 'image.pixel'; x: number; y: number }
   | { id: 'overview.pixel'; which: 'original' | 'decoded'; x: number; y: number }
-  | { id: 'overview.sizes' }
+  /** `block`: the bytes in each block the overview drew (it picks fewer, bigger ones on a narrow slot). */
+  | { id: 'overview.sizes'; block?: number }
   | { id: 'overview.hist'; kind: 'raw' | 'diff' | 'jpeg'; bin: number }
   | { id: 'overview.entropy'; kind: 'raw' | 'diff' | 'jpeg' }
   | { id: 'gallery.tile'; picture: ImageId | 'upload' }

@@ -50,3 +50,25 @@ export function entropyBits(hist: Uint32Array): number {
   }
   return bits;
 }
+
+// The overview draws both sizes as blocks of memory: equal cells of a whole
+// power-of-two number of bytes, the same for the raw pixels and the file.
+
+/** The smallest power-of-two block (in bytes, at least 1) that lays `rawBytes` out in at most `maxBlocks` blocks. */
+export function blockSize(rawBytes: number, maxBlocks: number): number {
+  let block = 1;
+  while (block * Math.max(1, maxBlocks) < rawBytes) block *= 2;
+  return block;
+}
+
+/** How many whole blocks `bytes` fills, and the share (0 to 1) of the next one. */
+export function blockFill(bytes: number, block: number): { full: number; part: number } {
+  if (!(bytes > 0) || !(block > 0)) return { full: 0, part: 0 };
+  const full = Math.floor(bytes / block);
+  return { full, part: (bytes - full * block) / block };
+}
+
+/** A block's size in whole units, as the overview's legend says it: 512 B, 4 KB. */
+export function formatBlock(block: number): string {
+  return block < 1024 ? `${block} B` : `${block / 1024} KB`;
+}

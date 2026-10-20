@@ -1,9 +1,9 @@
-// The overview's cards: a pixel before and after JPEG, the size bars, the three
+// The overview's cards: a pixel before and after JPEG, the size blocks, the three
 // byte histograms (one card per bar) and their bits-per-byte figures. The
 // counts come from `bytes.ts`, worked out on demand the first time a card needs
 // them and cached per picture and per file, so pointing at a bar costs nothing
 // after that. Nothing here encodes.
-import { entropyBits, histogram, neighbourDiffs, rgbSamples } from '../bytes';
+import { blockSize, entropyBits, formatBlock, histogram, neighbourDiffs, rgbSamples } from '../bytes';
 import { formatBytes } from '../summary';
 import { settings } from './bezel';
 import type { ExplainContext } from './context';
@@ -128,37 +128,48 @@ function pixelCard(which: 'original' | 'decoded', x: number, y: number, ctx: Exp
 
 // --- Sizes -------------------------------------------------------------------------------
 
-function sizesCard(ctx: ExplainContext): Explanation | null {
+/** How many blocks some bytes fill, as the card says it: 48, 2.5, or less than one. */
+function blocksOf(bytes: number, block: number): string {
+  const n = bytes / block;
+  if (n < 1) return 'less than one';
+  return n >= 10 ? String(Math.round(n)) : String(Number(n.toFixed(1)));
+}
+
+function sizesCard(ctx: ExplainContext, drawn?: number): Explanation | null {
   const dims = sizeOf(ctx);
   if (!dims) return null;
   const raw = dims.w * dims.h * 3;
   const file = ctx.jpeg?.length ?? ctx.summary?.bytes ?? 0;
   const rawText = `${dims.w} × ${dims.h} pixels, 3 bytes each`;
+  // The block the overview drew; a card opened without one counts as the wide overview does.
+  const block = drawn && drawn > 0 ? drawn : blockSize(raw, 64);
+  const each = `Each block is ${formatBlock(block)}`;
   if (file <= 0) {
     return {
       title: 'File size against the raw pixels',
       value: `${formatBytes(raw)} raw`,
-      body: `The long bar is the picture as raw pixels: ${rawText}. The JPEG is still being made.`,
-      consequence: `The JPEG's bar appears beside it, drawn to the same scale as the ${formatBytes(raw)}.`,
-      details: [{ kind: 'text', text: 'Raw pixels store every colour of every pixel. A JPEG keeps only what the eye is most likely to notice, so its bar is much shorter.' }],
+      body: `The long row of blocks is the picture as raw pixels: ${rawText}. The JPEG is still being made.`,
+      consequence: `${each}: the ${formatBytes(raw)} of raw pixels fill ${blocksOf(raw, block)}. The JPEG's row appears below it, in blocks of the same size.`,
+      details: [{ kind: 'text', text: 'Raw pixels store every colour of every pixel. A JPEG keeps only what the eye is most likely to notice, so its row is much shorter.' }],
     };
   }
   const ratio = raw / file;
   return {
     title: 'File size against the raw pixels',
     value: `${formatBytes(file)} of ${formatBytes(raw)}`,
-    body: `The long bar is the picture as raw pixels (${rawText}). The short bar is the JPEG file, drawn to the same scale.`,
-    consequence: `${settings(ctx)}, the file is ${percent(file / raw)} of the raw size: ${ratio.toFixed(1)} : 1.`,
+    body: `The long row of blocks is the picture as raw pixels (${rawText}). The short row is the JPEG file, in blocks of the same size.`,
+    consequence: `${settings(ctx)}, the file is ${percent(file / raw)} of the raw size: ${ratio.toFixed(1)} : 1. ${each}: the raw pixels fill ${blocksOf(raw, block)}, the file ${blocksOf(file, block)}.`,
     details: [
       {
         kind: 'text',
-        text: 'Lower quality or less colour detail makes the short bar shorter, and the copy less like the original. Both bars are exact byte counts.',
+        text: 'Lower quality or less colour detail makes the short row shorter, and the copy less like the original. Both rows are exact byte counts; the last block of each is filled only as far as the bytes go.',
       },
       {
         kind: 'rows',
         rows: [
           ['Raw pixels', `${count(raw)} bytes`],
           ['JPEG file', `${count(file)} bytes`],
+          ['Each block', `${count(block)} bytes`],
           ['Cost per pixel', `${((file * 8) / (dims.w * dims.h)).toFixed(2)} bits, against 24 raw`],
         ],
       },
@@ -260,7 +271,7 @@ export function explainOverview(t: Target, ctx: ExplainContext): Explanation | n
     case 'overview.pixel':
       return pixelCard(t.which, t.x, t.y, ctx);
     case 'overview.sizes':
-      return sizesCard(ctx);
+      return sizesCard(ctx, t.block);
     case 'overview.hist':
       return histCard(t.kind, t.bin, ctx);
     case 'overview.entropy':

@@ -1,6 +1,7 @@
 <script lang="ts">
   // The overview's numbers: how big the file is against the raw pixels (two
-  // bars to scale), then three byte histograms read left to right as a story.
+  // rows of equal blocks, like memory, in a card of their own), then three byte
+  // histograms read left to right as a story.
   // Raw pixel bytes already look random; neighbour differences pile up near 0,
   // which is where the pattern hides; the JPEG file looks random again, but
   // there are far fewer bytes of it. Each histogram carries its Shannon
@@ -9,12 +10,12 @@
   // The slot has a fixed size. The sizes and the three histograms always show,
   // each histogram keeping a minimum height of its own; the credit and the
   // caption are laid out too, then measured: if they push the content past the
-  // slot, the caption is dropped first, then the credit, then the size bars. Wide slots put the
+  // slot, the caption is dropped first, then the credit, then the size card. Wide slots put the
   // histograms side by side; narrow ones (phones) stack them, one per row.
   import { tick, untrack } from 'svelte';
   import type { Rect } from '../../jpeg/layout';
   import type { Credit, RgbaImage } from '../../jpeg/images';
-  import { entropyBits, histogram, neighbourDiffs, rgbSamples } from '../../jpeg/bytes';
+  import { blockFill, blockSize, entropyBits, formatBlock, histogram, neighbourDiffs, rgbSamples } from '../../jpeg/bytes';
   import { formatBytes } from '../../jpeg/summary';
   import type { Target } from '../../jpeg/explain';
   import { tooltip, type TooltipController } from './tooltip.svelte';
@@ -34,7 +35,7 @@
     credit?: Credit;
     /** Messages to show at the top (a picture that would not load, an encode that failed). */
     errors?: string[];
-    /** The page's cards: the size bars, each histogram bar and the entropy figures explain themselves. */
+    /** The page's cards: the size card, each histogram bar and the entropy figures explain themselves. */
     ctl: TooltipController;
   }
 
@@ -44,6 +45,9 @@
   const H = 100;
   /** Below this slot width the histograms stack, one per row. */
   const NARROW = 520;
+  /** The most blocks the raw pixels may take: a phone gets fewer, bigger ones. */
+  const MAX_BLOCKS = 64;
+  const MAX_BLOCKS_NARROW = 32;
   // The pixel histograms only move with the picture; the file's only with the file.
   const raw = $derived(histogram(rgbSamples(image.rgba)));
   const diffs = $derived(histogram(neighbourDiffs(image.rgba, image.w, image.h)));
@@ -52,8 +56,6 @@
   const rawBytes = $derived(image.w * image.h * 3);
   const jpegBytes = $derived(jpeg?.length ?? 0);
   const ratio = $derived(jpegBytes > 0 ? `${(rawBytes / jpegBytes).toFixed(1)} : 1` : '');
-  /** The JPEG bar's width as a share of the raw bar's, never thinner than a sliver. */
-  const jpegShare = $derived(jpegBytes > 0 ? Math.max(0.004, Math.min(1, jpegBytes / rawBytes)) : 0);
 
   const charts = $derived<{ key: Key; name: string; hist: Uint32Array | null; accent: boolean }[]>([
     { key: 'raw', name: 'Raw bytes', hist: raw, accent: false },
@@ -68,6 +70,17 @@
   const creditText = $derived(credit ? `${credit.title} · ${credit.author} · ${credit.licence}` : '');
 
   const narrow = $derived(rect.w < NARROW);
+
+  // Both sizes in blocks of one power-of-two size. The grid follows the raw pixels
+  // alone, so a new encode only changes how many of the file's blocks are filled.
+  const block = $derived(blockSize(rawBytes, narrow ? MAX_BLOCKS_NARROW : MAX_BLOCKS));
+  const rawFill = $derived(blockFill(rawBytes, block));
+  const columns = $derived(rawFill.full + (rawFill.part > 0 ? 1 : 0));
+  // A tiny upload's file can outgrow its raw pixels: its row stops at the raw row's end, never wrapping the grid.
+  const fileFill = $derived.by(() => {
+    const { full, part } = blockFill(jpegBytes, block);
+    return { full: Math.min(full, columns), part: full >= columns ? 0 : part };
+  });
 
   let box = $state<HTMLDivElement | null>(null);
   let showCredit = $state(true);
@@ -151,18 +164,27 @@
   }
 </script>
 
+<!-- A row of blocks on the shared grid: the whole ones, then the last filled only as far as its bytes go (never thinner than a sliver). -->
+{#snippet blocks(kind: 'raw' | 'file', fill: { full: number; part: number })}
+  <div class="blocks {kind}" style:--n={columns}>
+    {#each { length: fill.full }, i (i)}<span class="cell full"></span>{/each}
+    {#if fill.part > 0}<span class="cell part"><span class="fill" style:width="{fill.part * 100}%"></span></span>{/if}
+  </div>
+{/snippet}
+
 {#if rect.w > 160 && rect.h > 80}
   <div class="overview" class:narrow bind:this={box} style:left="{rect.x}px" style:top="{rect.y}px" style:width="{rect.w}px" style:height="{rect.h}px">
     {#each errors as message (message)}
       <p class="alert" role="alert">{message}</p>
     {/each}
     {#if showSizes}
-    <!-- The two bars explain themselves together: focusable, and a click pins the card. -->
+    <!-- The two rows explain themselves together: focusable, and a click pins the card. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <div class="sizes" role="group" tabindex="0" aria-label="File size against the raw pixels" use:tooltip={{ ctl, target: { id: 'overview.sizes' } }}>
-      <div class="track"><span class="bar raw" style:width="100%"></span></div>
+    <div class="sizes" role="group" tabindex="0" aria-label="File size against the raw pixels" use:tooltip={{ ctl, target: { id: 'overview.sizes', block } }}>
+      <div class="head"><span class="heading">File size</span><span class="legend">Each block is {formatBlock(block)}</span></div>
+      {@render blocks('raw', rawFill)}
       <span class="what">Raw pixels <span class="mono">{formatBytes(rawBytes)}</span></span>
-      <div class="track">{#if jpeg}<span class="bar file" style:width="{jpegShare * 100}%"></span>{/if}</div>
+      {@render blocks('file', jpeg ? fileFill : { full: 0, part: 0 })}
       <span class="what">
         {#if jpeg}JPEG <span class="mono">{formatBytes(jpegBytes)}</span> <span class="mono ratio">{ratio}</span>{:else}JPEG: encoding{/if}
       </span>
@@ -233,13 +255,36 @@
     pointer-events: auto;
   }
 
-  /* Bars to scale on the left; each label sits in its own column beside its bar, never inside it. */
-  .sizes { display: grid; grid-template-columns: 1fr max-content; align-items: center; gap: 4px 10px; flex: none; }
-  .track { height: 18px; }
-  .bar { display: block; height: 100%; border-radius: 3px; }
-  .bar.raw { background: rgba(255, 255, 255, 0.22); }
-  .bar.file { background: var(--accent); opacity: 0.9; }
-  .what { color: #fff; white-space: nowrap; line-height: 18px; }
+  /* The sizes in a card of their own: a heading and the block legend, then the rows of blocks to
+     scale on the left, each label in its own column beside its row, never inside it. */
+  .sizes {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: center;
+    gap: 2px 10px;
+    flex: none;
+    padding: 5px 10px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: 8px; line-height: 16px; }
+  .heading { color: rgba(255, 255, 255, 0.9); }
+  .legend { color: rgba(255, 255, 255, 0.55); }
+  /* Both rows share one grid of equal blocks, so a block is the same size in each. */
+  .blocks { display: grid; grid-template-columns: repeat(var(--n, 1), minmax(0, 1fr)); gap: 2px; height: 12px; }
+  /* A phone's slot is short: the card packs tighter, so it still fits above the stacked charts' minimum. */
+  .narrow .sizes { gap: 2px 8px; padding: 4px 8px 5px; }
+  .narrow .head { line-height: 14px; }
+  .narrow .what { line-height: 15px; }
+  .narrow .blocks { gap: 1px; height: 10px; }
+  .cell { position: relative; min-width: 0; border-radius: 2px; overflow: hidden; }
+  .raw .full, .raw .fill { background: rgba(255, 255, 255, 0.22); }
+  .file .full, .file .fill { background: var(--accent); opacity: 0.9; }
+  /* The last block, partly filled: a faint outline for the rest of it. */
+  .cell.part { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14); }
+  .fill { position: absolute; inset: 0 auto 0 0; min-width: 2px; }
+  .what { color: #fff; white-space: nowrap; line-height: 16px; }
   .ratio { margin-left: 4px; }
 
   /* The charts never shrink below their own minimum (the overflow check drops the text instead), so nothing overlaps. */

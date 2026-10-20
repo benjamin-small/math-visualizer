@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { entropyBits, histogram, neighbourDiffs, rgbSamples } from '../bytes';
+import { blockFill, blockSize, entropyBits, formatBlock, histogram, neighbourDiffs, rgbSamples } from '../bytes';
 
 describe('byte statistics', () => {
   it('drops alpha', () => {
@@ -30,5 +30,39 @@ describe('byte statistics', () => {
     expect(entropyBits(histogram(new Uint8Array([0, 1, 0, 1])))).toBeCloseTo(1);
     expect(entropyBits(histogram(Uint8Array.from({ length: 256 }, (_, i) => i)))).toBeCloseTo(8);
     expect(entropyBits(new Uint32Array(256))).toBe(0);
+  });
+});
+
+describe('blocks of memory', () => {
+  const KB = 1024;
+
+  it('picks a whole power-of-two block so the raw pixels fill at most the given number', () => {
+    expect(blockSize(192 * KB, 64)).toBe(4 * KB); // 48 blocks
+    expect(blockSize(192 * KB, 32)).toBe(8 * KB); // 24 blocks
+    expect(blockSize(64 * KB, 64)).toBe(KB); // exactly 64
+    expect(blockSize(64 * KB + 1, 64)).toBe(2 * KB);
+    for (const raw of [768, 12 * KB, 300 * KB, 3 * 1024 * KB]) {
+      const b = blockSize(raw, 64);
+      expect(Math.log2(b) % 1).toBe(0);
+      expect(Math.ceil(raw / b)).toBeLessThanOrEqual(64);
+      expect(Math.ceil(raw / b)).toBeGreaterThan(32); // never needlessly coarse
+    }
+    expect(blockSize(0, 64)).toBe(1);
+  });
+
+  it('fills whole blocks, then a share of the last', () => {
+    expect(blockFill(10 * KB, 4 * KB)).toEqual({ full: 2, part: 0.5 });
+    expect(blockFill(192 * KB, 4 * KB)).toEqual({ full: 48, part: 0 });
+    expect(blockFill(0, 4 * KB)).toEqual({ full: 0, part: 0 });
+    const tiny = blockFill(300, 4 * KB);
+    expect(tiny.full).toBe(0);
+    expect(tiny.part).toBeGreaterThan(0);
+    expect(tiny.part).toBeLessThan(1);
+  });
+
+  it('names a block in whole units', () => {
+    expect(formatBlock(4 * KB)).toBe('4 KB');
+    expect(formatBlock(KB)).toBe('1 KB');
+    expect(formatBlock(512)).toBe('512 B');
   });
 });
