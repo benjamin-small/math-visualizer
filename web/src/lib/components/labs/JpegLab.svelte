@@ -2,9 +2,11 @@
   // The JPEG lab: one image followed through the compression pipeline, one
   // stage at a time. The engine encodes the image (Rust `jpeg` crate) and its
   // clock walks the scan MCU by MCU; this page owns the settings, the stage
-  // rail and the layout. Settings re-encode through a rule-config push (which
-  // rewinds the engine), after which the page puts the scan back where it was.
-  // The selected block is view state and moves through a rule action.
+  // rail and the layout. The scan and the selected block are one current
+  // block: the rule keeps the selection on the MCU just scanned, and a pick
+  // (click, key, hint) pauses the scan and jumps it to the picked block's MCU.
+  // Settings re-encode through a rule-config push (which rewinds the engine),
+  // after which the page puts the scan back on the current block.
   import { onDestroy, tick, untrack } from 'svelte';
   import LabShell from '../LabShell.svelte';
   import Icon from '../Icon.svelte';
@@ -30,7 +32,9 @@
   import {
     buildParams,
     clampQuality,
+    lumaAnchorOf,
     mcuCount,
+    mcuIndexOf,
     parseParams,
     type HuffmanId,
     type ImageId,
@@ -48,8 +52,12 @@
   import { readSegments, readTables, type HuffTableView, type SegmentView } from '../../jpeg/huffman';
   import { loadVizCore } from '../../wasm/loader';
 
-  /** MCUs scanned per second by default: the 256² gradient (256 MCUs) scans in four seconds. */
-  const DEFAULT_SPEED = 64;
+  /** MCUs scanned per second by default: the 256² gradient (256 MCUs) scans in about a minute, slowly enough to follow. */
+  const DEFAULT_SPEED = 4;
+  /** The zigzag path's growth in cells a second while paused (mirrors `default_zigzag_speed` in the viz); 0 while playing shows it whole. */
+  const ZIGZAG_SPEED = 24;
+  /** Why the transport is off on the overview, which has no single block. */
+  const OVERVIEW_TRANSPORT_OFF = 'The overview shows the whole picture at once. Pick a stage to follow the scan one block at a time.';
   /** The decoded copy is made this long after the last encode, so a quality drag decodes once. */
   const DECODE_DELAY_MS = 120;
 
@@ -108,8 +116,12 @@
   let fileInput: HTMLInputElement | null = null;
   let pictureSelect: HTMLSelectElement | null = null;
   let ro: ResizeObserver | null = null;
-  /** True until the first encode has started playing. */
-  let first = true;
+  /** The encoder's default block (the luma block with the most AC energy) while `anchor` is null, read back at each encode. */
+  let defaultBlock: [number, number] | null = null;
+  /** The scan step the current block was last checked against (-1 until the first picture is in). */
+  let followedAt = -1;
+  /** Whether the scan was playing at the last look, so only a change of it acts. */
+  let lastPlaying = false;
   /** Each picture load takes a ticket; only the latest one is applied when it arrives. */
   let loadTicket = 0;
   /** The animation frame a quality drag has scheduled its encode on (0 = none). */
@@ -175,6 +187,7 @@
       else if (encodeChanged) encode();
       else {
         selectAnchor();
+        if (anchor) jumpToAnchor(); // the scan sits on the link's block (with none, the rule's selection stays, and so does the scan)
         if (currentQuery() !== q) syncUrl(); // the block was off the grid and has been clamped
       }
       pushLayout();
@@ -184,10 +197,45 @@
   // The shell replaces `snapshot` every frame; the summary only moves with the scan cursor.
   const iteration = $derived(api?.snapshot.iteration ?? 0);
   $effect(() => {
-    void iteration;
+    const n = iteration;
     const a = api;
     if (!a || !image) return;
     summary = readSummary(a.readSummary());
+    untrack(() => {
+      // Only a scan move is followed: a new picture or the first look at the clock moves nothing.
+      if (n === followedAt) return;
+      if (followedAt >= 0) followScan();
+      followedAt = n;
+    });
+  });
+
+  /**
+   * The rule has moved the selection with the scan: make it the current block.
+   * Runs once per scan step, so it never pushes viz config (that would restart
+   * the viz's clock) and writes the link only while paused (a step, or Back).
+   */
+  function followScan() {
+    const s = summary?.selected;
+    if (!s || !image) return;
+    const at = anchor ?? defaultBlock;
+    const [fh, fv] = planeFactors(component);
+    if (at && s.component === component && s.bx === Math.floor(at[0] / fh) && s.by === Math.floor(at[1] / fv)) return;
+    anchor = lumaAnchorOf(s, subsampling);
+    component = s.component;
+    if (!api?.snapshot.playing) syncUrl();
+  }
+
+  // Play and Pause. While the scan plays the zigzag path is drawn whole (animating it would restart it on
+  // every step); paused, it grows again. A pause, the engine's own at the end included, writes the link.
+  const playing = $derived(api?.snapshot.playing ?? false);
+  $effect(() => {
+    const p = playing;
+    untrack(() => {
+      if (p === lastPlaying) return;
+      lastPlaying = p;
+      api?.patchVizConfig({ zigzag_speed: p ? 0 : ZIGZAG_SPEED });
+      if (!p && image) syncUrl();
+    });
   });
 
   // The viz animates the zigzag path itself; read how far it has got each frame.
@@ -285,17 +333,30 @@
   function selectAnchor() {
     if (!api || !anchor) return;
     anchor = clampBlock(anchor);
-    const [fh, fv] = component === 0 ? [1, 1] : subsampling === '444' ? [1, 1] : subsampling === '422' ? [2, 1] : [2, 2];
+    const [fh, fv] = planeFactors(component);
     api.ruleAction({ kind: 'select_block', component, bx: Math.floor(anchor[0] / fh), by: Math.floor(anchor[1] / fv) });
     summary = readSummary(api.readSummary());
   }
 
+  /** How many luma blocks one block of plane `c` spans, across and down. */
+  function planeFactors(c: number): [number, number] {
+    return c === 0 || subsampling === '444' ? [1, 1] : subsampling === '422' ? [2, 1] : [2, 2];
+  }
+
+  /** Put the scan just after the current block's MCU (`anchor`, else the encoder's default), so the panels show it. */
+  function jumpToAnchor() {
+    const at = anchor ?? defaultBlock;
+    if (!api || !image || !at) return;
+    api.dispatch(cmd.jumpTo(mcuIndexOf(at, subsampling, image.w) + 1));
+  }
+
   /**
    * Re-encode with the current settings. The push rewinds the engine to 0,
-   * paused; put the scan back at the same share of the image and resume if it
-   * was playing (the very first encode starts playing from 0).
+   * paused; put the scan back on the current block, in the new MCU grid, and
+   * with `resume`, play on if it was playing. Nothing here starts a scan that
+   * was not playing: a new picture waits at its block until Play.
    */
-  function encode(writeUrl = true) {
+  function encode(writeUrl = true, resume = true) {
     if (qualityFrame) {
       cancelAnimationFrame(qualityFrame);
       qualityFrame = 0;
@@ -303,9 +364,7 @@
     const a = api;
     const img = image;
     if (!a?.engine || !img) return;
-    const snap = a.snapshot;
-    const share = snap.max_iterations > 0 ? snap.iteration / snap.max_iterations : 0;
-    const wasPlaying = snap.playing;
+    const wasPlaying = a.snapshot.playing;
     const max = mcuCount(img.w, img.h, subsampling);
     a.setRuleConfigWithImage(
       { image_id: imageId, quality, subsampling, huffman, max_iterations: max, tables: customTables },
@@ -313,15 +372,12 @@
       img.h,
       img.rgba,
     );
-    if (first) {
-      first = false;
-      a.dispatch(cmd.play());
-    } else {
-      const at = Math.round(share * max);
-      if (at > 0) a.dispatch(cmd.jumpTo(at));
-      if (wasPlaying) a.dispatch(cmd.play());
-    }
     selectAnchor();
+    summary = readSummary(a.readSummary());
+    // With no block picked, the encoder chose one: read it back, so the scan can wait just after it.
+    if (!anchor) defaultBlock = summary?.selected ? lumaAnchorOf(summary.selected, subsampling) : null;
+    jumpToAnchor();
+    if (resume && wasPlaying) a.dispatch(cmd.play());
     summary = readSummary(a.readSummary());
     if (writeUrl) syncUrl();
   }
@@ -370,8 +426,7 @@
     imageTag = id === 'upload' ? `upload-${++uploads}` : id;
     anchor = block ?? null;
     component = 0;
-    first = true;
-    encode(!fellBack);
+    encode(!fellBack, false);
     pushLayout();
     return fellBack;
   }
@@ -438,17 +493,29 @@
     selectAnchor();
   }
 
+  /**
+   * The one way the reader picks a block (a click, the arrow keys, a Decode hint):
+   * luma block `b`, shown from plane `c`, becomes the current block, and the
+   * scan pauses just after its MCU, so the blocks before it show as scanned.
+   */
+  function pick(b: [number, number], c = component) {
+    if (!api || !image) return;
+    anchor = clampBlock(b);
+    component = c;
+    selectAnchor();
+    api.dispatch(cmd.pause());
+    api.dispatch(cmd.jumpTo(mcuIndexOf(anchor, subsampling, image.w) + 1));
+    pushLayout(); // the subsample stage's zoom window centres on the block
+    syncUrl();
+  }
+
   /** A click on the image picks the luma block under the pointer. */
   function onImageClick(e: MouseEvent) {
     // A keyboard "click" has no pointer position; the arrow keys pick blocks instead.
     if (!image || e.detail === 0) return;
     const box = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
     const b = blockAt(e.clientX - box.left, e.clientY - box.top, layout.image, image.w, image.h);
-    if (!b) return;
-    anchor = b;
-    selectAnchor();
-    pushLayout();
-    syncUrl();
+    if (b) pick(b);
   }
 
   /** The arrow keys on the image move the selected luma block one step, within the grid. */
@@ -461,10 +528,7 @@
     e.stopPropagation(); // not also a stage switch
     const sel = summary?.selected;
     const [bx, by] = anchor ?? (sel && sel.component === 0 ? [sel.bx, sel.by] : [0, 0]);
-    anchor = clampBlock([bx + d[0], by + d[1]]);
-    selectAnchor();
-    pushLayout();
-    syncUrl();
+    pick([bx + d[0], by + d[1]]);
   }
 
   /** Outline pattern `uv` in the atlas and the coefficients (null for none), and let the formula follow it. */
@@ -598,11 +662,7 @@
 
   /** Follow the luma block a Decode hint points at. */
   function pickBlock(b: [number, number]) {
-    anchor = b;
-    component = 0;
-    selectAnchor();
-    pushLayout();
-    syncUrl();
+    pick(b, 0);
   }
 
   function saveJpeg() {
@@ -641,7 +701,7 @@
       // only encoded again, so its block and scan stay.
       if (!isLabPicture(h, imageId, image)) {
         if (!api) handedOff = true;
-        await loadImage(() => Promise.resolve(h.image), h.imageId);
+        await loadImage(() => Promise.resolve(h.image), h.imageId); // waits at its block, like any new picture
       } else {
         encode();
       }
@@ -702,8 +762,8 @@
     a.patchVizConfig({ panels: toDevicePanels(BLANK_PANELS, 1) });
     if (handedOff) {
       // The tour handed a picture over while the engine was loading: encode that one (if it is
-      // still being read, its own load encodes it when it lands).
-      encode();
+      // still being read, its own load encodes it when it lands). Like any new picture, it waits for Play.
+      encode(true, false);
       pushLayout();
       return;
     }
@@ -764,6 +824,8 @@
   thesis="Follow one picture, and one 8 × 8 block of it, from pixels to bits and back."
   zoom={false}
   nativeTitles={false}
+  firstStep={1}
+  transportOff={stage === 'overview' ? OVERVIEW_TRANSPORT_OFF : null}
   {onReady}
 >
   {#snippet headerAction()}
@@ -1176,9 +1238,10 @@
       packs what is left into as few bits as it can.
     </p>
     <p class="tip">
-      On stages 1–9, Play runs the scan block by block: the image fills in as it would arrive over a slow connection, and
-      clicking anywhere on the image follows that block through every stage. The left and right arrow keys move between
-      stages, the overview included.
+      On stages 1–9, Play runs the scan block by block: the picture fills in as it would arrive over a slow connection,
+      and the panels follow each block as it is scanned. Clicking a block on the picture, or moving with the arrow keys
+      there, puts the scan on that block. The left and right arrow keys elsewhere move between stages, the overview
+      included.
     </p>
     <p class="shoutout">
       A shout-out to Reducible, whose video
