@@ -89,12 +89,14 @@ export const ZOOM_WINDOW = 32;
 export const DECODE_ZOOMS = [1, 2, 4, 8] as const;
 /** Share of the decode stage's focus area (below its caption) the wipe may take in height. */
 const WIPE_SHARE = 0.64;
-/** Height the decode tools' rows (sliders, zoom, hints, Re-save) take above the re-save chart. */
-export const DECODE_TOOLS = 184;
+/** Height the decode tools' rows (sliders, zoom and its window line, hints, Re-save) take above the re-save chart. */
+export const DECODE_TOOLS = 206;
 /** The decode tools' slot height that leaves a re-save chart worth drawing. */
 const DECODE_TOOLS_ROOM = DECODE_TOOLS + 48;
 /** The narrowest column beside the wipe the decode tools may take. */
 const DECODE_SIDE_MIN = 200;
+/** The scan picture's share (of the width, or of the height in portrait) on the decode stage, so the wipe leads. */
+const DECODE_IMAGE_SHARE = 0.28;
 
 /**
  * Side, in image pixels, of the square window the decode stage shows at zoom
@@ -177,7 +179,8 @@ function overviewLayout(cssW: number, cssH: number, imgW: number, imgH: number):
 /**
  * The stage's panels. Landscape: the image at the left (up to 45% of the
  * width), the stage's focus panels to its right. Portrait (narrower than
- * `PORTRAIT_BELOW`): the image on top (42% of the height), focus below.
+ * `PORTRAIT_BELOW`): the image on top (42% of the height), focus below. The
+ * decode stage gives the image 28% in both, so its wipe is the largest panel.
  * The magnified windows of the subsample and decode stages are the viz's to
  * place (`zoom`), so the layout does not depend on the current block.
  * `decodeZoom` is the decode stage's zoom factor (one of `DECODE_ZOOMS`; 1
@@ -198,12 +201,13 @@ export function jpegLayout(
   if (stage === 'overview') return overviewLayout(cssW, cssH, imgW, imgH);
   let imageArea: Rect;
   let focus: Rect;
-  if (cssW >= PORTRAIT_BELOW) {
-    const colW = Math.min(cssH - 2 * m - LABEL, (cssW - 3 * m) * 0.45);
+  const landscape = cssW >= PORTRAIT_BELOW;
+  if (landscape) {
+    const colW = Math.min(cssH - 2 * m - LABEL, (cssW - 3 * m) * (stage === 'decode' ? DECODE_IMAGE_SHARE : 0.45));
     imageArea = { x: m, y: m, w: colW, h: cssH - 2 * m };
     focus = { x: 2 * m + colW, y: m, w: cssW - 3 * m - colW, h: cssH - 2 * m };
   } else {
-    const rowH = (cssH - 3 * m) * 0.42;
+    const rowH = (cssH - 3 * m) * (stage === 'decode' ? DECODE_IMAGE_SHARE : 0.42);
     imageArea = { x: m, y: m, w: cssW - 2 * m, h: rowH };
     focus = { x: m, y: 2 * m + rowH, w: cssW - 2 * m, h: cssH - 3 * m - rowH };
   }
@@ -310,9 +314,9 @@ export function jpegLayout(
       const side = decodeWindow(decodeZoom, imgW, imgH);
       const [aw, ah] = side === null ? [imgW, imgH] : [1, 1];
       const zoom = side === null ? {} : { zoom: side };
-      const around = side === null ? '' : `, ${side} × ${side} px around the block`;
-      const wipeLabel = `Decoded (left of the line) against the original${around}`;
-      const errorLabel = `What was lost, brightened${around}`;
+      // The window's size is said under the zoom chips (DecodeTools), so the captions stay short enough for a phone.
+      const wipeLabel = 'Decoded (left of the line) against the original';
+      const errorLabel = 'What was lost, brightened';
       const area = belowLabel(focus);
       let topH = Math.max(0, Math.min(area.h * WIPE_SHARE, (area.w * ah) / aw));
       const sideW = area.w - (topH * aw) / ah - g;
@@ -328,9 +332,10 @@ export function jpegLayout(
         slots.resave = { x: area.x + wipe.w + g, y: area.y, w: sideW, h: area.h };
         break;
       }
-      // The controls go below, beside the error map: the wipe gives up some height so their chart fits, down to half.
+      // The controls go below, beside the error map. On a landscape stage the wipe gives up some height so their
+      // chart fits, down to half; a phone keeps the wipe large and lets the controls scroll.
       const roomy = area.h - g - DECODE_TOOLS_ROOM;
-      if (roomy >= area.h * 0.5) topH = Math.min(topH, roomy);
+      if (landscape && roomy >= area.h * 0.5) topH = Math.min(topH, roomy);
       const wipe = fit({ x: area.x, y: area.y, w: area.w, h: topH }, aw, ah);
       panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: area.x + area.w - wipe.x, ...zoom });
       const below = belowLabel({ x: area.x, y: area.y + topH + g, w: area.w, h: area.y + area.h - (area.y + topH + g) });

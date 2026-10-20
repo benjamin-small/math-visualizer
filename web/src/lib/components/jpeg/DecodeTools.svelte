@@ -7,7 +7,7 @@
   // each generation has drifted from the original.
   import { onDestroy } from 'svelte';
   import { loadVizCore } from '../../wasm/loader';
-  import { DECODE_TOOLS, DECODE_ZOOMS, type Rect } from '../../jpeg/layout';
+  import { DECODE_TOOLS, DECODE_ZOOMS, decodeWindow, type Rect } from '../../jpeg/layout';
   import type { RgbaImage } from '../../jpeg/images';
   import type { Hints } from '../../jpeg/summary';
   import { psnrOf } from '../../jpeg/math';
@@ -82,8 +82,10 @@
     frame = requestAnimationFrame(step);
   }
 
+  /** Side, in picture pixels, of the window the wipe and the error map show (null for the whole picture). */
+  const windowSide = $derived(decodeWindow(zoom, image.w, image.h));
   const W = $derived(Math.max(0, rect.w - 8));
-  // The rows above the chart (the sliders, the zoom chips, the hints and Re-save) take `DECODE_TOOLS`.
+  // The rows above the chart (the sliders, the zoom chips and their window line, the hints and Re-save) take `DECODE_TOOLS`.
   const H = $derived(Math.max(0, rect.h - DECODE_TOOLS));
   const finite = $derived(history.filter((v) => Number.isFinite(v)));
   const top = $derived(Math.max(10, ...finite) + 2);
@@ -147,6 +149,9 @@
         >
       {/each}
     </div>
+    {#if windowSide !== null}
+      <span class="note window">{windowSide} × {windowSide} px around the block</span>
+    {/if}
     <label class="ctl">
       <span>Error × <span class="mono">{gain}</span></span>
       <input type="range" min="1" max="16" step="1" value={gain} oninput={(e) => ongain(Number((e.currentTarget as HTMLInputElement).value))} use:tooltip={{ ctl, target: { id: 'decode.gainSlider' }, acts: true }} />

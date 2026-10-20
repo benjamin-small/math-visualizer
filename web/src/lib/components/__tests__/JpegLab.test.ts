@@ -728,7 +728,9 @@ describe('JpegLab.svelte', () => {
     const chips = within(group).getAllByRole('button');
     expect(chips.map((c) => c.textContent?.trim())).toEqual(['Whole picture', '2×', '4×', '8×']);
     expect(chips.map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true', 'false']);
-    expect(document.querySelector('.caption')?.parentElement?.textContent).toContain('64 × 64 px around the block');
+    // The window's size is said once, under the chips; the captions stay short.
+    expect(document.querySelector('.tools .window')?.textContent).toBe('64 × 64 px around the block');
+    expect([...document.querySelectorAll('.caption')].map((c) => c.textContent).join(' | ')).not.toContain('px around');
   });
 
   it('zooms in and out from the chips, and keeps the zoom out of the link', async () => {
@@ -738,12 +740,14 @@ describe('JpegLab.svelte', () => {
     await fireEvent.click(getByRole('button', { name: '8×' }));
     await vi.waitFor(() => expect(zoomOf('wipe')).toBe(32));
     expect(zoomOf('error')).toBe(32);
+    expect(document.querySelector('.tools .window')?.textContent).toBe('32 × 32 px around the block');
     expect(getByRole('button', { name: '8×' }).getAttribute('aria-pressed')).toBe('true');
     expect(getByRole('button', { name: '4×' }).getAttribute('aria-pressed')).toBe('false');
     await fireEvent.click(getByRole('button', { name: 'Whole picture' }));
     await vi.waitFor(() => expect(zoomOf('wipe')).toBeNull());
     expect(zoomOf('error')).toBeNull();
     expect(getByRole('button', { name: 'Whole picture' }).getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('.tools .window')).toBeNull();
     expect(route.query).toBe(before);
   });
 

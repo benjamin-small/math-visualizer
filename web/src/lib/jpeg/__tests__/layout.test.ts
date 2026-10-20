@@ -129,8 +129,9 @@ describe('jpegLayout', () => {
       for (const p of l.panels.filter((q) => q.kind !== 'image')) expect(area(wipe.rect)).toBeGreaterThanOrEqual(area(p.rect));
       // It spans the focus area's width or about 64% of its height, whichever is less.
       expect(error.rect.y).toBeGreaterThan(wipe.rect.y + wipe.rect.h);
-      expect(wipe.label).toBe('Decoded (left of the line) against the original, 64 × 64 px around the block');
-      expect(error.label).toBe('What was lost, brightened, 64 × 64 px around the block');
+      // The window's size is said once, under the zoom chips, not in the captions (a phone cut them off).
+      expect(wipe.label).toBe('Decoded (left of the line) against the original');
+      expect(error.label).toBe('What was lost, brightened');
       expect(toDevicePanels([wipe], 2)[0].zoom).toBe(64);
     }
     // The wide stage gives the wipe the focus area's height share.
@@ -138,7 +139,7 @@ describe('jpegLayout', () => {
     expect(wide.h).toBeCloseTo((585 - 2 * MARGIN - LABEL) * 0.64);
     // So does a phone, whose controls scroll in their slot.
     const phone = jpegLayout('decode', 375, 812, 256, 256);
-    const focusH = 812 - 3 * MARGIN - (812 - 3 * MARGIN) * 0.42;
+    const focusH = 812 - 3 * MARGIN - (812 - 3 * MARGIN) * 0.28;
     expect(phone.panels.find((p) => p.kind === 'wipe')!.rect.h).toBeCloseTo((focusH - LABEL) * 0.64);
   });
 
@@ -188,6 +189,30 @@ describe('jpegLayout', () => {
     }
   });
 
+  it('gives the scan picture less room on the decode stage, so the wipe is the largest panel of all', () => {
+    for (const [w, h] of [
+      [1024, 768],
+      [1134, 585],
+      [800, 420],
+      [375, 812],
+      [343, 520],
+    ]) {
+      const l = jpegLayout('decode', w, h, 256, 256);
+      const wipe = l.panels.find((p) => p.kind === 'wipe')!.rect;
+      for (const p of l.panels.filter((q) => q.kind !== 'wipe')) {
+        expect(wipe.w * wipe.h, `${w}×${h}: wipe against ${p.kind}`).toBeGreaterThan(p.rect.w * p.rect.h);
+      }
+    }
+    // Landscape: 28% of the width (still capped by the height); portrait: 28% of the height.
+    expect(jpegLayout('decode', 1024, 768, 256, 256).image.w).toBeCloseTo((1024 - 3 * MARGIN) * 0.28);
+    expect(jpegLayout('decode', 375, 812, 256, 256).image.h).toBeCloseTo((812 - 3 * MARGIN) * 0.28 - LABEL);
+  });
+
+  it('keeps the scan picture as it was on every other stage', () => {
+    expect(jpegLayout('dct', 1024, 768, 256, 256).image.w).toBeCloseTo((1024 - 3 * MARGIN) * 0.45);
+    expect(jpegLayout('quantize', 375, 812, 256, 256).image.h).toBeCloseTo((812 - 3 * MARGIN) * 0.42 - LABEL);
+  });
+
   it('puts the controls beside a square wipe that leaves room at its right', () => {
     const l = jpegLayout('decode', 1134, 585, 256, 256);
     const wipe = l.panels.find((p) => p.kind === 'wipe')!.rect;
@@ -203,7 +228,10 @@ describe('jpegLayout', () => {
     const of = (ps: ReturnType<typeof at>, kind: string) => ps.find((p) => p.kind === kind)!;
     expect(of(at(8), 'wipe').zoom).toBe(32);
     expect(of(at(8), 'error').zoom).toBe(32);
-    expect(of(at(2), 'wipe').label).toBe('Decoded (left of the line) against the original, 128 × 128 px around the block');
+    for (const f of DECODE_ZOOMS) {
+      expect(of(at(f), 'wipe').label).toBe('Decoded (left of the line) against the original');
+      expect(of(at(f), 'error').label).toBe('What was lost, brightened');
+    }
     const whole = at(1, 320, 203);
     const wipe = of(whole, 'wipe');
     const error = of(whole, 'error');
