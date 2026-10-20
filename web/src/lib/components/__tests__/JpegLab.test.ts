@@ -1226,16 +1226,21 @@ describe('JpegLab.svelte cards', () => {
     });
 
     it('keeps the transport buttons clicking', async () => {
-      const { container } = await renderLab();
-      const [reset, , , forward] = await vi.waitFor(() => {
-        const found = [...container.querySelectorAll<HTMLButtonElement>('.transport button')];
-        expect(found).toHaveLength(4);
-        return found;
-      });
-      dispatchSpy.mockClear();
-      await fireEvent.click(reset);
-      await fireEvent.click(forward);
-      expect(kinds()).toEqual(expect.arrayContaining(['Reset', 'StepForward']));
+      snapshotFixture.iteration = 10; // mid-scan: at 0 the shell disables Reset
+      try {
+        const { container } = await renderLab();
+        const [reset, , , forward] = await vi.waitFor(() => {
+          const found = [...container.querySelectorAll<HTMLButtonElement>('.transport button')];
+          expect(found).toHaveLength(4);
+          return found;
+        });
+        dispatchSpy.mockClear();
+        await fireEvent.click(reset);
+        await fireEvent.click(forward);
+        expect(kinds()).toEqual(expect.arrayContaining(['Reset', 'StepForward']));
+      } finally {
+        snapshotFixture.iteration = 0;
+      }
     });
 
     it('renders no native tooltip anywhere, the shell included', async () => {

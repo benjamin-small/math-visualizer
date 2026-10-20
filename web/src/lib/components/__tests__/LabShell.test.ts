@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { installRafPolyfill, freeSpy } from '../../test/fakeViz';
+import { installRafPolyfill, freeSpy, dispatchSpy, snapshotFixture } from '../../test/fakeViz';
 import { navigate } from '../../router.svelte';
 
 installRafPolyfill();
@@ -75,14 +75,19 @@ describe('LabShell layout', () => {
   });
 
   it('keeps its native tooltips unless a lab turns them off', async () => {
-    const on = render(LabShellHost);
-    await vi.waitFor(() => expect(on.container.textContent).toMatch(/360/));
-    expect(on.getByRole('button', { name: 'Reset' }).getAttribute('title')).toBe('Back to iteration 0');
-    expect(on.container.querySelector('.readout')?.getAttribute('title')).toBe('Iteration / total');
-    on.unmount();
-    const off = render(LabShellHost, { props: { nativeTitles: false } });
-    await vi.waitFor(() => expect(off.container.textContent).toMatch(/360/));
-    expect(off.container.querySelectorAll('[title]')).toHaveLength(0);
+    snapshotFixture.iteration = 10; // mid-run, so no button is disabled (a disabled one carries its reason as its title)
+    try {
+      const on = render(LabShellHost);
+      await vi.waitFor(() => expect(on.container.textContent).toMatch(/360/));
+      expect(on.getByRole('button', { name: 'Reset' }).getAttribute('title')).toBe('Back to the start');
+      expect(on.container.querySelector('.readout')?.getAttribute('title')).toBe('Iteration / total');
+      on.unmount();
+      const off = render(LabShellHost, { props: { nativeTitles: false } });
+      await vi.waitFor(() => expect(off.container.textContent).toMatch(/360/));
+      expect(off.container.querySelectorAll('[title]')).toHaveLength(0);
+    } finally {
+      snapshotFixture.iteration = 0;
+    }
   });
 
   it('fills the clock line with playback progress', async () => {
@@ -141,5 +146,125 @@ describe('LabShell layout', () => {
     const { container } = render(LabShellHost);
     await vi.waitFor(() => expect(container.querySelector('canvas')).toBeTruthy());
     expect(container.querySelector('.overlay')).toBeNull();
+  });
+});
+
+describe('LabShell transport', () => {
+  afterEach(() => {
+    Object.assign(snapshotFixture, { iteration: 0, max_iterations: 360, playing: false });
+  });
+
+  /** Wait for the engine and its first frame (the fake reports 360 as the total). */
+  async function waitForEngine(container: HTMLElement) {
+    await vi.waitFor(() => expect(container.textContent).toMatch(/360/));
+  }
+
+  it('disables Back and Reset at the start, and says why', async () => {
+    snapshotFixture.iteration = 0;
+    const { getByRole, container } = render(LabShellHost);
+    await waitForEngine(container);
+    for (const name of [/Reset/, /Back/]) {
+      const b = getByRole('button', { name });
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(b.getAttribute('title')).toBe('Already at the start.');
+    }
+    dispatchSpy.mockClear();
+    await fireEvent.click(getByRole('button', { name: /Back/ }));
+    await fireEvent.click(getByRole('button', { name: /Reset/ }));
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it('disables Play and Forward at the end, and says why', async () => {
+    snapshotFixture.iteration = 360; // max_iterations
+    const { getByRole, container } = render(LabShellHost);
+    await waitForEngine(container);
+    for (const name of [/Play/, /Forward/]) {
+      const b = getByRole('button', { name });
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(b.getAttribute('title')).toBe('At the end: Reset to run it again.');
+    }
+    dispatchSpy.mockClear();
+    await fireEvent.click(getByRole('button', { name: /Play/ }));
+    await fireEvent.click(getByRole('button', { name: /Forward/ }));
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps Pause available while playing', async () => {
+    Object.assign(snapshotFixture, { iteration: 360, playing: true });
+    const { getByRole, container } = render(LabShellHost);
+    await waitForEngine(container);
+    const pause = getByRole('button', { name: /Pause/ });
+    expect(pause.getAttribute('aria-disabled')).toBeNull();
+    expect(pause.hasAttribute('title')).toBe(false);
+    dispatchSpy.mockClear();
+    await fireEvent.click(pause);
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'TogglePlay' });
+  });
+
+  it('leaves every button live mid-run, with the usual titles', async () => {
+    snapshotFixture.iteration = 10;
+    const { getByRole, container } = render(LabShellHost);
+    await waitForEngine(container);
+    for (const name of [/Reset/, /Back/, /Play/, /Forward/]) {
+      expect(getByRole('button', { name }).getAttribute('aria-disabled')).toBeNull();
+    }
+    expect(getByRole('button', { name: /Reset/ }).getAttribute('title')).toBe('Back to the start');
+    expect(getByRole('button', { name: /Back/ }).getAttribute('title')).toBe('Step back one iteration');
+    expect(getByRole('button', { name: /Play/ }).hasAttribute('title')).toBe(false);
+  });
+
+  it("treats the lab's first step as the start, and Reset goes there", async () => {
+    snapshotFixture.iteration = 1;
+    const { getByRole, container } = render(LabShellHost, { props: { firstStep: 1 } });
+    await waitForEngine(container);
+    expect(getByRole('button', { name: /Back/ }).getAttribute('aria-disabled')).toBe('true');
+    snapshotFixture.iteration = 2;
+    await vi.waitFor(() => expect(getByRole('button', { name: /Back/ }).getAttribute('aria-disabled')).toBeNull());
+    dispatchSpy.mockClear();
+    await fireEvent.click(getByRole('button', { name: /Reset/ }));
+    expect(dispatchSpy.mock.calls.map((c) => c[0])).toEqual([{ kind: 'Reset' }, { kind: 'JumpTo', iteration: 1 }]);
+  });
+
+  it('turns the whole transport off with its reason', async () => {
+    snapshotFixture.iteration = 10;
+    const { getByRole, container } = render(LabShellHost, { props: { transportOff: 'Pick a stage first.' } });
+    await waitForEngine(container);
+    dispatchSpy.mockClear();
+    for (const name of [/Reset/, /Back/, /Play/, /Forward/]) {
+      const b = getByRole('button', { name });
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(b.getAttribute('title')).toBe('Pick a stage first.');
+      await fireEvent.click(b);
+    }
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps Pause live while playing even when the transport is off', async () => {
+    Object.assign(snapshotFixture, { iteration: 10, playing: true });
+    const { getByRole, container } = render(LabShellHost, { props: { transportOff: 'Pick a stage first.' } });
+    await waitForEngine(container);
+    const pause = getByRole('button', { name: /Pause/ });
+    expect(pause.getAttribute('aria-disabled')).toBeNull();
+    dispatchSpy.mockClear();
+    await fireEvent.click(pause);
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'TogglePlay' });
+  });
+
+  it('marks buttons disabled without native titles when the lab draws its own cards', async () => {
+    snapshotFixture.iteration = 0;
+    const { getByRole, container } = render(LabShellHost, { props: { nativeTitles: false } });
+    await waitForEngine(container);
+    const back = getByRole('button', { name: /Back/ });
+    expect(back.getAttribute('aria-disabled')).toBe('true');
+    expect(back.hasAttribute('title')).toBe(false);
+  });
+
+  it('keeps disabled buttons focusable and in DOM order', async () => {
+    snapshotFixture.iteration = 0;
+    const { container } = render(LabShellHost, { props: { transportOff: 'Off.' } });
+    await waitForEngine(container);
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('.transport button')];
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual(['Reset', 'Back', 'Play', 'Forward']);
+    for (const b of buttons) expect(b.disabled).toBe(false);
   });
 });
