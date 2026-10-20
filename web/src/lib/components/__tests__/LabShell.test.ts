@@ -225,6 +225,37 @@ describe('LabShell transport', () => {
     expect(dispatchSpy.mock.calls.map((c) => c[0])).toEqual([{ kind: 'Reset' }, { kind: 'JumpTo', iteration: 1 }]);
   });
 
+  it('disables Back and Reset below the first step too', async () => {
+    snapshotFixture.iteration = 0;
+    const { getByRole, container } = render(LabShellHost, { props: { firstStep: 1 } });
+    await waitForEngine(container);
+    for (const name of [/Reset/, /Back/]) expect(getByRole('button', { name }).getAttribute('aria-disabled')).toBe('true');
+    dispatchSpy.mockClear();
+    await fireEvent.click(getByRole('button', { name: /Back/ }));
+    await fireEvent.click(getByRole('button', { name: /Reset/ }));
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it('ramps the speed on a Play from the first step, not only from iteration 0', async () => {
+    snapshotFixture.iteration = 1;
+    const { getByRole, container } = render(LabShellHost, { props: { firstStep: 1, speedRamp: { target: 4, durationMs: 60_000 } } });
+    await waitForEngine(container);
+    dispatchSpy.mockClear();
+    await fireEvent.click(getByRole('button', { name: /Play/ }));
+    // The ramp's first rAF tick sets the speed (the polyfill's clock is 0, so the value itself is not the point).
+    await vi.waitFor(() => expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'SetSpeed' })));
+  });
+
+  it('does not ramp a Play from past the first step', async () => {
+    snapshotFixture.iteration = 2;
+    const { getByRole, container } = render(LabShellHost, { props: { firstStep: 1, speedRamp: { target: 4, durationMs: 60_000 } } });
+    await waitForEngine(container);
+    dispatchSpy.mockClear();
+    await fireEvent.click(getByRole('button', { name: /Play/ }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(dispatchSpy.mock.calls.map((c) => (c[0] as { kind: string }).kind)).toEqual(['TogglePlay']);
+  });
+
   it('turns the whole transport off with its reason', async () => {
     snapshotFixture.iteration = 10;
     const { getByRole, container } = render(LabShellHost, { props: { transportOff: 'Pick a stage first.' } });

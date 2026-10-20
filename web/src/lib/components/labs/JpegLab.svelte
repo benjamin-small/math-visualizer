@@ -561,7 +561,10 @@
   function hitTarget(e: MouseEvent): Target | null {
     if (!image || !overlayEl) return null;
     const box = overlayEl.getBoundingClientRect();
-    return canvasTarget(layout, stage, image, e.clientX - box.left, e.clientY - box.top, sel, subsampling);
+    // The viz draws the zoom from the encoded picture's subsampling, which trails the lab's own during a re-encode.
+    const s = summary?.subsampling;
+    const encoded = s === '444' || s === '422' || s === '420' ? s : subsampling;
+    return canvasTarget(layout, stage, image, e.clientX - box.left, e.clientY - box.top, sel, encoded);
   }
 
   /** For the keyboard: the card of the first pixel of the block being followed. */
