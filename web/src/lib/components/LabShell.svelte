@@ -374,6 +374,8 @@
   .bezel :global(.btn.primary:hover) { background: var(--accent-deep); border-color: var(--accent-deep); }
   .bezel :global(.btn.icon) { padding: 0 9px; }
   .bezel :global(.btn[aria-disabled='true']) { opacity: 0.45; cursor: default; }
+  .bezel :global(.btn[aria-disabled='true']:hover) { border-color: var(--line); }
+  .bezel :global(.btn.primary[aria-disabled='true']:hover) { background: var(--accent); border-color: var(--accent); }
   .bezel :global(.btn.quiet) { background: none; border-color: transparent; color: var(--accent-deep); }
   .readout { font-size: 15px; margin-left: -14px; white-space: nowrap; }
   .readout .of { color: var(--stone); }

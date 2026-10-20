@@ -116,7 +116,7 @@
   let fileInput: HTMLInputElement | null = null;
   let pictureSelect: HTMLSelectElement | null = null;
   let ro: ResizeObserver | null = null;
-  /** The encoder's default block (the luma block with the most AC energy) while `anchor` is null, read back at each encode. */
+  /** The encoder's default block (the luma block with the most AC energy), read back at each encode. */
   let defaultBlock: [number, number] | null = null;
   /** The scan step the current block was last checked against (-1 until the first picture is in). */
   let followedAt = -1;
@@ -183,11 +183,14 @@
       quality = p.quality;
       subsampling = p.subsampling;
       huffman = p.huffman;
+      // A link always opens paused on its block (the encoder's default with none): a new picture or new settings
+      // rewind the engine and nothing plays it on again.
       if (p.img !== imageId) void chooseImage(p.img, p.block);
-      else if (encodeChanged) encode();
+      else if (encodeChanged) encode(true, false);
       else {
-        selectAnchor();
-        if (anchor) jumpToAnchor(); // the scan sits on the link's block (with none, the rule's selection stays, and so does the scan)
+        if (anchor) selectAnchor();
+        else selectDefault(); // the rule may still sit on a chroma block of the last link
+        jumpToAnchor();
         if (currentQuery() !== q) syncUrl(); // the block was off the grid and has been clamped
       }
       pushLayout();
@@ -338,6 +341,14 @@
     summary = readSummary(api.readSummary());
   }
 
+  /** With no block picked, put the rule's selection back on the encoder's default (a luma block), so the scan follows the luma plane. */
+  function selectDefault() {
+    if (!api || !defaultBlock) return;
+    component = 0;
+    api.ruleAction({ kind: 'select_block', component: 0, bx: defaultBlock[0], by: defaultBlock[1] });
+    summary = readSummary(api.readSummary());
+  }
+
   /** How many luma blocks one block of plane `c` spans, across and down. */
   function planeFactors(c: number): [number, number] {
     return c === 0 || subsampling === '444' ? [1, 1] : subsampling === '422' ? [2, 1] : [2, 2];
@@ -372,10 +383,11 @@
       img.h,
       img.rgba,
     );
+    // The push leaves the rule on the encoder's default block: keep it, whether or not a block is picked, so a later link with none can return to it.
+    const fresh = readSummary(a.readSummary());
+    defaultBlock = fresh?.selected ? lumaAnchorOf(fresh.selected, subsampling) : null;
     selectAnchor();
     summary = readSummary(a.readSummary());
-    // With no block picked, the encoder chose one: read it back, so the scan can wait just after it.
-    if (!anchor) defaultBlock = summary?.selected ? lumaAnchorOf(summary.selected, subsampling) : null;
     jumpToAnchor();
     if (resume && wasPlaying) a.dispatch(cmd.play());
     summary = readSummary(a.readSummary());

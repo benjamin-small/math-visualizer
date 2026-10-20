@@ -819,6 +819,44 @@ describe('JpegLab.svelte current block', () => {
     expect(kinds()).not.toContain('Play');
   });
 
+  it('a link pasted with other settings opens paused on its block, even while the scan was playing', async () => {
+    Object.assign(snapshotFixture, { iteration: 64, max_iterations: 256, playing: true });
+    await renderLab('stage=dct');
+    await atStep(64);
+    dispatchSpy.mockClear();
+    navigate('jpeg', 'stage=dct&q=20&b=2,3');
+    await vi.waitFor(() => expect(lastPush()[0].quality).toBe(20));
+    // MCU (1, 1) of a 16-MCU row: step 18 has scanned it. The re-encode rewinds the engine, and nothing plays it on.
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 18 });
+    expect(kinds()).not.toContain('Play');
+  });
+
+  it('a link with no block, opened from a chroma plane, goes back to the encoder\'s luma block', async () => {
+    const { getByRole } = await renderLab('stage=blocks&b=2,3');
+    await fireEvent.click(getByRole('button', { name: 'Cb' }));
+    expect(ruleActionSpy).toHaveBeenLastCalledWith({ kind: 'select_block', component: 1, bx: 1, by: 1 });
+    ruleActionSpy.mockClear();
+    dispatchSpy.mockClear();
+    navigate('jpeg', 'stage=blocks');
+    // The summary's default is luma (21, 17), in MCU 138; the rule must not stay on chroma for the next step to follow.
+    await vi.waitFor(() => expect(ruleActionSpy).toHaveBeenCalledWith({ kind: 'select_block', component: 0, bx: 21, by: 17 }));
+    expect(dispatchSpy).toHaveBeenCalledWith({ kind: 'JumpTo', iteration: 139 });
+    expect(kinds()).not.toContain('Play');
+  });
+
+  it('turns Reset and Back off at the first step and Play and Forward off at the end', async () => {
+    Object.assign(snapshotFixture, { iteration: 1, max_iterations: 256, playing: false });
+    const { container } = await renderLab('stage=dct');
+    await atStep(1);
+    const transport = within(container.querySelector<HTMLElement>('.transport')!);
+    const off = (name: RegExp) => transport.getByRole('button', { name }).getAttribute('aria-disabled');
+    // The lab's first step is 1 (the scan waits just after a block), so Reset and Back have nowhere to go.
+    expect([off(/Reset/), off(/Back/), off(/Play/), off(/Forward/)]).toEqual(['true', 'true', null, null]);
+    snapshotFixture.iteration = 256;
+    await atStep(256);
+    expect([off(/Reset/), off(/Back/), off(/Play/), off(/Forward/)]).toEqual([null, null, 'true', 'true']);
+  });
+
   it('switches the transport off on the overview and on at a stage', async () => {
     snapshotFixture.iteration = 64; // mid-scan, so nothing is off for being at the start or the end
     const { container, getByRole } = await renderLab(); // opens on the overview
