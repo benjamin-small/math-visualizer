@@ -47,6 +47,8 @@ export type Target =
   | { id: 'huffman.segment'; i: number }
   | { id: 'decode.wipe' | 'decode.error'; x: number; y: number }
   | { id: 'decode.wipeSlider' | 'decode.gainSlider' }
+  /** A chip of the decode stage's zoom control: `factor` is the one pointed at (1 = the whole picture). */
+  | { id: 'decode.zoom'; factor: number }
   | { id: 'decode.hint'; kind: 'blocking' | 'ringing' | 'bleed' }
   | { id: 'decode.resave'; generation: number }
   /** The guided tour: a step on its strip, its quality slider, and the lab's button that opens it. */
@@ -115,6 +117,7 @@ const ID_SET: Record<Target['id'], true> = {
   'decode.error': true,
   'decode.wipeSlider': true,
   'decode.gainSlider': true,
+  'decode.zoom': true,
   'decode.hint': true,
   'decode.resave': true,
   'tour.step': true,

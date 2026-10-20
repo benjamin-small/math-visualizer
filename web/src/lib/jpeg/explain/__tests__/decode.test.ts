@@ -57,13 +57,42 @@ describe('Decode cards', () => {
   });
 
   it('shows both pixels of the wipe and which side of the line it is on', () => {
-    const left = explain({ id: 'decode.wipe', x: 10, y: 0 }, ctx())!;
+    const whole = { decodeZoom: 1 };
+    const left = explain({ id: 'decode.wipe', x: 10, y: 0 }, ctx(whole))!;
     expect(left.value).toBe('Decoded 198, 198, 198; original 200, 200, 200');
     expect(left.body).toContain('decoded side');
-    const right = explain({ id: 'decode.wipe', x: 200, y: 0 }, ctx())!;
+    const right = explain({ id: 'decode.wipe', x: 200, y: 0 }, ctx(whole))!;
     expect(right.body).toContain('original side');
     expect(left.consequence).toContain('50%');
-    expect(explain({ id: 'decode.wipe', x: 10, y: 0 }, ctx({ decoded: null }))!.body).toContain('still being decoded');
+    expect(left.consequence).toContain('of the picture');
+    expect(explain({ id: 'decode.wipe', x: 10, y: 0 }, ctx({ ...whole, decoded: null }))!.body).toContain('still being decoded');
+  });
+
+  it('puts a zoomed pixel on its side of the line within the window', () => {
+    // At 4× the window is 64 px around block (21, 17): [140, 108, 64, 64]. The line at 50% is at x = 172.
+    const left = explain({ id: 'decode.wipe', x: 150, y: 120 }, ctx({ decodeZoom: 4 }))!;
+    expect(left.body).toContain('decoded side');
+    const right = explain({ id: 'decode.wipe', x: 190, y: 120 }, ctx({ decodeZoom: 4 }))!;
+    expect(right.body).toContain('original side');
+    expect(left.consequence).toContain('of the magnified view');
+    expect(explain({ id: 'decode.wipeSlider' }, ctx({ decodeZoom: 4 }))!.consequence).toContain('of the magnified view');
+  });
+
+  it('explains each zoom with the window it shows', () => {
+    const four = explain({ id: 'decode.zoom', factor: 4 }, ctx())!;
+    expect(four.title).toBe('Zoom');
+    expect(four.value).toBe('4×: 64 × 64 px around the block');
+    expect(four.body).toBe('Magnifies the before-and-after and the error map around the current block, so a difference of a level or two shows.');
+    expect(four.consequence).toBe('Play walks the window across the picture with the scan; the hints jump it to where each artifact is worst.');
+    expect(four.acts).toBe(true);
+    expect(explain({ id: 'decode.zoom', factor: 8 }, ctx())!.value).toBe('8×: 32 × 32 px around the block');
+    const whole = explain({ id: 'decode.zoom', factor: 1 }, ctx())!;
+    expect(whole.value).toBe('Whole picture');
+    expect(whole.consequence).toBe('The whole picture fits the panel, so single pixels are too small to compare.');
+  });
+
+  it('tells the Wipe slider\'s reader the line can be dragged on the picture', () => {
+    expect(explain({ id: 'decode.wipeSlider' }, ctx())!.body).toContain('drag the line on the picture');
   });
 
   it('explains the two sliders with their numbers', () => {

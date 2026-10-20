@@ -1,12 +1,13 @@
 <script lang="ts">
   // The Decode stage's controls and its generation-loss chart: the wipe
-  // between decoded and original, the error map's brightness, buttons that
+  // between decoded and original, how far the wipe and the error map are
+  // magnified around the current block, the error map's brightness, buttons that
   // jump to where blocking, ringing and colour bleed are worst, and "Re-save"
   // — decode, encode again with the same settings, repeat — plotting how far
   // each generation has drifted from the original.
   import { onDestroy } from 'svelte';
   import { loadVizCore } from '../../wasm/loader';
-  import type { Rect } from '../../jpeg/layout';
+  import { DECODE_TOOLS, DECODE_ZOOMS, type Rect } from '../../jpeg/layout';
   import type { RgbaImage } from '../../jpeg/images';
   import type { Hints } from '../../jpeg/summary';
   import { psnrOf } from '../../jpeg/math';
@@ -23,8 +24,12 @@
     /** True while custom quantization tables are in use (Re-save cannot use them). */
     custom: boolean;
     wipe: number;
+    /** The zoom factor in use (one of `DECODE_ZOOMS`; 1 is the whole picture). */
+    zoom: number;
     gain: number;
     onwipe: (v: number) => void;
+    /** Choose a zoom factor. */
+    onzoom: (f: number) => void;
     ongain: (v: number) => void;
     /** Select a luma block (from a hint). */
     onpick: (block: [number, number]) => void;
@@ -34,7 +39,7 @@
     history?: number[];
   }
 
-  let { rect, image, quality, subsampling, huffman, hints, custom, wipe, gain, onwipe, ongain, onpick, ctl, history = $bindable([]) }: Props = $props();
+  let { rect, image, quality, subsampling, huffman, hints, custom, wipe, zoom, gain, onwipe, onzoom, ongain, onpick, ctl, history = $bindable([]) }: Props = $props();
 
   /** Generations re-saved per click. */
   const GENERATIONS = 20;
@@ -78,7 +83,8 @@
   }
 
   const W = $derived(Math.max(0, rect.w - 8));
-  const H = $derived(Math.max(0, rect.h - 150));
+  // The rows above the chart (the sliders, the zoom chips, the hints and Re-save) take `DECODE_TOOLS`.
+  const H = $derived(Math.max(0, rect.h - DECODE_TOOLS));
   const finite = $derived(history.filter((v) => Number.isFinite(v)));
   const top = $derived(Math.max(10, ...finite) + 2);
   const bottom = $derived(Math.max(0, Math.min(...(finite.length ? finite : [top - 10])) - 2));
@@ -134,6 +140,13 @@
       <span>Wipe</span>
       <input type="range" min="0" max="1" step="0.01" value={wipe} oninput={(e) => onwipe(Number((e.currentTarget as HTMLInputElement).value))} use:tooltip={{ ctl, target: { id: 'decode.wipeSlider' }, acts: true }} />
     </label>
+    <div class="zoom" role="group" aria-label="Zoom">
+      {#each DECODE_ZOOMS as f (f)}
+        <button class="chip" aria-pressed={zoom === f} onclick={() => onzoom(f)} use:tooltip={{ ctl, target: { id: 'decode.zoom', factor: f }, acts: true }}
+          >{f === 1 ? 'Whole picture' : `${f}×`}</button
+        >
+      {/each}
+    </div>
     <label class="ctl">
       <span>Error × <span class="mono">{gain}</span></span>
       <input type="range" min="1" max="16" step="1" value={gain} oninput={(e) => ongain(Number((e.currentTarget as HTMLInputElement).value))} use:tooltip={{ ctl, target: { id: 'decode.gainSlider' }, acts: true }} />
@@ -193,7 +206,7 @@
   .ctl { display: flex; align-items: center; gap: 8px; }
   .ctl > span { width: 70px; flex: none; }
   .ctl input { flex: 1; accent-color: var(--accent); }
-  .hints, .resave { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .zoom, .hints, .resave { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .chip {
     height: 26px;
     padding: 0 10px;
@@ -205,6 +218,7 @@
     cursor: pointer;
   }
   .chip:disabled, .chip[aria-disabled='true'] { opacity: 0.45; cursor: default; }
+  .chip[aria-pressed='true'] { border-color: var(--accent); color: #fff; }
   .note { color: rgba(255, 255, 255, 0.6); }
   svg { display: block; overflow: visible; margin-left: 4px; }
   svg:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }

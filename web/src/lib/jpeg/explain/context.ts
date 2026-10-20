@@ -27,8 +27,10 @@ export interface ExplainContext {
   playing: boolean;
   /** How many DCT patterns the k slider keeps (0-64). */
   dctK: number;
-  /** The decode wipe position (0-1). */
+  /** The decode wipe position (0-1), a share of the wipe panel's width. */
   wipe: number;
+  /** The decode stage's zoom factor (1 = the whole picture; else a window around the current block). */
+  decodeZoom: number;
   /** The error map's brightening. */
   errorGain: number;
   huffTables: HuffTableView[];

@@ -1,7 +1,9 @@
 // The Decode stage's cards: a pixel of the wipe and of the error map, the Wipe
-// and Error sliders, the three hint buttons and the points of the re-save
-// chart. The decoded pixels are the ones the page decoded once per encode;
+// and Error sliders, the zoom chips, the three hint buttons and the points of
+// the re-save chart. The decoded pixels are the ones the page decoded once per encode;
 // nothing here decodes or encodes.
+import { decodeWindow, zoomWindow } from '../layout';
+import { lumaAnchorOf, type SubsamplingId } from '../params';
 import type { Hints } from '../summary';
 import { GLOSS, rgbToYcbcr, settings } from './bezel';
 import type { ExplainContext } from './context';
@@ -26,6 +28,25 @@ function offsetOf(ctx: ExplainContext, x: number, y: number): number | null {
 
 const rgbText = (v: ArrayLike<number>, i: number) => `${v[i]}, ${v[i + 1]}, ${v[i + 2]}`;
 
+/**
+ * The part of the picture the wipe shows, `[x, y, w, h]` in image pixels: the window around the current block when
+ * zoomed (placed as the viz places it), else the whole picture. The wipe line is a share of this.
+ */
+function shownOf(ctx: ExplainContext): [number, number, number, number] | null {
+  const img = ctx.image;
+  if (!img) return null;
+  const side = decodeWindow(ctx.decodeZoom, img.w, img.h);
+  const sel = ctx.summary?.selected;
+  if (side === null || !sel) return [0, 0, img.w, img.h];
+  // The viz anchors the window through the encoded picture's subsampling, which trails the lab's own during a re-encode.
+  const s = ctx.summary?.subsampling;
+  const sub: SubsamplingId = s === '444' || s === '422' || s === '420' ? s : ctx.subsampling;
+  return zoomWindow(lumaAnchorOf(sel, sub), img.w, img.h, side);
+}
+
+/** What the wipe line splits, in words. */
+const shownWords = (ctx: ExplainContext) => (ctx.decodeZoom > 1 ? 'the magnified view' : 'the picture');
+
 // --- Wipe and error pixels --------------------------------------------------------
 
 function wipeCard(x: number, y: number, ctx: ExplainContext): Explanation | null {
@@ -33,10 +54,11 @@ function wipeCard(x: number, y: number, ctx: ExplainContext): Explanation | null
   if (i === null) return null;
   const o = ctx.image!.rgba;
   const d = copyOf(ctx);
-  const decodedSide = (x + 0.5) / ctx.image!.w < ctx.wipe;
-  const line = `The line is at ${percent(ctx.wipe)}: the left ${percent(ctx.wipe)} of the picture shows the JPEG's copy, the rest the original.`;
+  const [sx, , sw] = shownOf(ctx)!;
+  const decodedSide = (x + 0.5 - sx) / sw < ctx.wipe;
+  const line = `The line is at ${percent(ctx.wipe)}: the left ${percent(ctx.wipe)} of ${shownWords(ctx)} shows the JPEG's copy, the rest the original.`;
   const details: Detail[] = [
-    { kind: 'text', text: 'Slide the Wipe control to move the line. Left of it is the picture after JPEG; right of it is the original. A pixel that looks the same on both sides was kept well.' },
+    { kind: 'text', text: 'Drag on the picture or slide the Wipe control to move the line. Left of it is the picture after JPEG; right of it is the original. A pixel that looks the same on both sides was kept well.' },
   ];
   if (!d) {
     return {
@@ -111,8 +133,8 @@ function wipeSliderCard(ctx: ExplainContext): Explanation {
   return {
     title: 'Wipe',
     value: `${share} decoded`,
-    body: 'Slides the line that splits the comparison picture: the JPEG copy on its left, the original on its right.',
-    consequence: `At ${share} the left ${share} of the picture is the copy.${s ? ` ${settings(ctx)}, it is ${db(s.psnr)} from the original${GLOSS}.` : ''}`,
+    body: 'Slides the line that splits the comparison picture: the JPEG copy on its left, the original on its right. You can also drag the line on the picture.',
+    consequence: `At ${share} the left ${share} of ${shownWords(ctx)} is the copy.${s ? ` ${settings(ctx)}, it is ${db(s.psnr)} from the original${GLOSS}.` : ''}`,
     acts: true,
     details: [
       { kind: 'text', text: 'Drag the line across an edge or a smooth patch and watch for the spot where the two sides stop matching. Blocks, ripples near edges and smeared colour are the usual places.' },
@@ -130,6 +152,33 @@ function gainSliderCard(ctx: ExplainContext): Explanation {
     consequence: `At × ${ratio(gain)} an error of 2 levels is drawn as ${Math.min(255, Math.round(2 * gain))} of 255${full !== null ? `, and an average error of ${full} levels or more is drawn at full strength (red-orange)` : ''}.`,
     acts: true,
     details: [{ kind: 'text', text: 'The picture itself is not changed; only the map is brightened. Raise it to hunt for faint errors, lower it to compare how big the large ones really are.' }],
+  };
+}
+
+function zoomCard(factor: number, ctx: ExplainContext): Explanation | null {
+  if (!Number.isInteger(factor) || factor < 1) return null;
+  const img = ctx.image;
+  const side = img ? decodeWindow(factor, img.w, img.h) : null;
+  const zoomed = factor > 1;
+  const label = (f: number) => {
+    const s = img ? decodeWindow(f, img.w, img.h) : null;
+    return f > 1 ? (s === null ? `${f}×` : `${f}×: ${s} × ${s} px around the block`) : 'Whole picture';
+  };
+  return {
+    title: 'Zoom',
+    value: label(factor),
+    body: 'Magnifies the before-and-after and the error map around the current block, so a difference of a level or two shows.',
+    consequence: zoomed
+      ? 'Play walks the window across the picture with the scan; the hints jump it to where each artifact is worst.'
+      : 'The whole picture fits the panel, so single pixels are too small to compare.',
+    acts: true,
+    details: [
+      {
+        kind: 'text',
+        text: `${zoomed && side !== null && img ? `At ${factor}× the window is the picture's shorter side (${Math.min(img.w, img.h)} px) over ${factor}, ${side} px across. ` : ''}Each pixel of the picture is drawn as a crisp square, so a step of one level between neighbours shows as an edge. The wipe line stays at the same share of the panel at every zoom.`,
+      },
+      { kind: 'rows', rows: [['In use now', label(ctx.decodeZoom)]] },
+    ],
   };
 }
 
@@ -257,6 +306,8 @@ export function explainDecode(t: Target, ctx: ExplainContext): Explanation | nul
       return wipeSliderCard(ctx);
     case 'decode.gainSlider':
       return gainSliderCard(ctx);
+    case 'decode.zoom':
+      return zoomCard(t.factor, ctx);
     case 'decode.hint':
       return hintCard(t.kind, ctx);
     case 'decode.resave':

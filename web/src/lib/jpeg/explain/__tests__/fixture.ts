@@ -38,6 +38,7 @@ export function makeContext(overrides: Partial<ExplainContext> & { component?: n
     playing: false,
     dctK: 64,
     wipe: 0.5,
+    decodeZoom: 4,
     errorGain: 8,
     huffTables: readTables(jpegInspectFixture.huffman),
     segments: readSegments(jpegInspectFixture.segments),

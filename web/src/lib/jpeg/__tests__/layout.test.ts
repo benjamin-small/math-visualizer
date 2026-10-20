@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CAPTION_MIN,
+  DECODE_TOOLS,
+  DECODE_ZOOMS,
   LABEL,
   MARGIN,
   PORTRAIT_BELOW,
@@ -9,6 +11,7 @@ import {
   blockAt,
   cellAt,
   cells,
+  decodeWindow,
   fit,
   BLANK_PANELS,
   jpegLayout,
@@ -107,6 +110,121 @@ describe('jpegLayout', () => {
     expect(slots('dct')).toEqual(['charts']);
   });
 
+  it('makes the wipe the decode stage\'s main panel, magnified 4× around the block by default', () => {
+    for (const [w, h] of [
+      [1134, 585],
+      [343, 520],
+      [800, 420],
+    ]) {
+      const l = jpegLayout('decode', w, h, 256, 256);
+      const wipe = l.panels.find((p) => p.kind === 'wipe')!;
+      const error = l.panels.find((p) => p.kind === 'error')!;
+      expect(wipe.zoom).toBe(64);
+      expect(error.zoom).toBe(64);
+      expect(wipe.rect.w).toBeCloseTo(wipe.rect.h);
+      expect(error.rect.w).toBeCloseTo(error.rect.h);
+      expect(wipe.rect.w).toBeGreaterThan(error.rect.w);
+      // The largest of the stage's own panels (the scan picture at the left is every stage's).
+      const area = (r: Rect) => r.w * r.h;
+      for (const p of l.panels.filter((q) => q.kind !== 'image')) expect(area(wipe.rect)).toBeGreaterThanOrEqual(area(p.rect));
+      // It spans the focus area's width or about 64% of its height, whichever is less.
+      expect(error.rect.y).toBeGreaterThan(wipe.rect.y + wipe.rect.h);
+      expect(wipe.label).toBe('Decoded (left of the line) against the original, 64 × 64 px around the block');
+      expect(error.label).toBe('What was lost, brightened, 64 × 64 px around the block');
+      expect(toDevicePanels([wipe], 2)[0].zoom).toBe(64);
+    }
+    // The wide stage gives the wipe the focus area's height share.
+    const wide = jpegLayout('decode', 1134, 585, 256, 256).panels.find((p) => p.kind === 'wipe')!.rect;
+    expect(wide.h).toBeCloseTo((585 - 2 * MARGIN - LABEL) * 0.64);
+    // So does a phone, whose controls scroll in their slot.
+    const phone = jpegLayout('decode', 375, 812, 256, 256);
+    const focusH = 812 - 3 * MARGIN - (812 - 3 * MARGIN) * 0.42;
+    expect(phone.panels.find((p) => p.kind === 'wipe')!.rect.h).toBeCloseTo((focusH - LABEL) * 0.64);
+  });
+
+  it('keeps room for the re-save chart beside or below the wipe on a desktop, at every zoom', () => {
+    for (const [w, h] of [
+      [1134, 585],
+      [1024, 768],
+      [1280, 640],
+    ]) {
+      for (const [iw, ih] of [
+        [256, 256],
+        [320, 203],
+      ]) {
+        for (const f of DECODE_ZOOMS) {
+          const l = jpegLayout('decode', w, h, iw, ih, f);
+          const wipe = l.panels.find((p) => p.kind === 'wipe')!.rect;
+          expect(l.slots.resave!.h, `${w}×${h}, ${iw}×${ih} at ${f}×`).toBeGreaterThanOrEqual(DECODE_TOOLS + 48);
+          // Never less than half the height for the wipe, unless the focus area's width is what limits it.
+          const focusW = w - 3 * MARGIN - Math.min(h - 2 * MARGIN - LABEL, (w - 3 * MARGIN) * 0.45);
+          expect(wipe.h > 0.5 * (h - 2 * MARGIN - LABEL) || Math.abs(wipe.w - focusW) < 1e-6).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('lets the decode captions run past their panels where nothing else is, so the window size reads', () => {
+    for (const [w, h] of [
+      [1134, 585],
+      [1024, 768],
+      [375, 812],
+      [343, 520],
+    ]) {
+      for (const f of DECODE_ZOOMS) {
+        const l = jpegLayout('decode', w, h, 256, 256, f);
+        const wipe = l.panels.find((p) => p.kind === 'wipe')!;
+        const error = l.panels.find((p) => p.kind === 'error')!;
+        // The wipe's caption may run to the right edge of the focus area.
+        expect(wipe.rect.x + wipe.captionW!).toBeCloseTo(w - MARGIN);
+        expect(error.captionW!).toBeGreaterThanOrEqual(error.rect.w);
+        // Neither runs into the controls or another panel.
+        for (const p of [wipe, error]) {
+          const band = { x: p.rect.x, y: p.rect.y - LABEL, w: Math.max(p.captionW!, CAPTION_MIN), h: LABEL };
+          expect(overlap(band, l.slots.resave!), `${w}×${h} ${p.kind} at ${f}×`).toBe(false);
+          for (const q of l.panels) expect(overlap(band, q.rect)).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('puts the controls beside a square wipe that leaves room at its right', () => {
+    const l = jpegLayout('decode', 1134, 585, 256, 256);
+    const wipe = l.panels.find((p) => p.kind === 'wipe')!.rect;
+    const error = l.panels.find((p) => p.kind === 'error')!.rect;
+    const slot = l.slots.resave!;
+    expect(slot.x).toBeGreaterThanOrEqual(wipe.x + wipe.w + MARGIN - 1e-6);
+    expect(slot.y).toBeLessThanOrEqual(wipe.y);
+    expect(error.x).toBeCloseTo(wipe.x);
+  });
+
+  it('zooms the decode stage by the factor asked for, or shows the whole picture', () => {
+    const at = (f: number, w = 256, h = 256) => jpegLayout('decode', 1134, 585, w, h, f).panels;
+    const of = (ps: ReturnType<typeof at>, kind: string) => ps.find((p) => p.kind === kind)!;
+    expect(of(at(8), 'wipe').zoom).toBe(32);
+    expect(of(at(8), 'error').zoom).toBe(32);
+    expect(of(at(2), 'wipe').label).toBe('Decoded (left of the line) against the original, 128 × 128 px around the block');
+    const whole = at(1, 320, 203);
+    const wipe = of(whole, 'wipe');
+    const error = of(whole, 'error');
+    expect('zoom' in wipe).toBe(false);
+    expect('zoom' in error).toBe(false);
+    expect(wipe.label).toBe('Decoded (left of the line) against the original');
+    expect(error.label).toBe('What was lost, brightened');
+    // The whole picture keeps its aspect.
+    expect(wipe.rect.w / wipe.rect.h).toBeCloseTo(320 / 203);
+    expect(error.rect.w / error.rect.h).toBeCloseTo(320 / 203);
+    expect(DECODE_ZOOMS).toEqual([1, 2, 4, 8]);
+  });
+
+  it('sizes the decode window from the picture\'s shorter side', () => {
+    expect(decodeWindow(4, 256, 256)).toBe(64);
+    expect(decodeWindow(8, 320, 240)).toBe(30);
+    expect(decodeWindow(1, 320, 240)).toBeNull();
+    // Never smaller than one block.
+    expect(decodeWindow(8, 40, 30)).toBe(8);
+  });
+
   it('starts the R–D chart clear of the rebuild caption on a phone', () => {
     const l = jpegLayout('quantize', 343, 520, 256, 256);
     const rebuild = l.panels.find((p) => p.kind === 'dequant_rebuild')!.rect;
@@ -182,6 +300,10 @@ describe('geometry helpers', () => {
     expect(zoomWindow([0, 0], 256, 256)).toEqual([0, 0, 32, 32]);
     expect(zoomWindow([31, 31], 256, 256)).toEqual([224, 224, 32, 32]);
     expect(zoomWindow([1, 1], 20, 12)).toEqual([6, 0, 12, 12]); // centred on x = 12, side clipped to the 12 px height
+    // Any side, as the decode stage's zoom asks: the same rule as the viz's `zoom_window`.
+    expect(zoomWindow([0, 0], 256, 256, 64)).toEqual([0, 0, 64, 64]);
+    expect(zoomWindow([10, 10], 256, 256, 64)).toEqual([52, 52, 64, 64]);
+    expect(zoomWindow([31, 31], 256, 256, 64)).toEqual([192, 192, 64, 64]);
   });
 
   it('finds the luma block under a click', () => {

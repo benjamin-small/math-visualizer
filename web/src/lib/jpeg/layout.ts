@@ -52,11 +52,13 @@ export interface Panel {
   rect: Rect;
   /** Caption the overlay prints above the panel. */
   label: string;
-  /** For plane panels: the part of the image shown, `[x, y, w, h]` in image pixels (default: all). */
+  /** How wide (CSS px) the caption may run when that is wider than the panel: the band above it is free that far. */
+  captionW?: number;
+  /** For plane, wipe and error panels: the part of the image shown, `[x, y, w, h]` in image pixels (default: all). */
   crop?: [number, number, number, number];
   /**
-   * For plane and coded panels: the side, in image pixels, of a square window the viz centres on the
-   * current block itself, so the window follows the scan without a layout push. Replaces `crop`.
+   * For plane, coded, wipe and error panels: the side, in image pixels, of a square window the viz
+   * centres on the current block itself, so the window follows the scan without a layout push. Replaces `crop`.
    */
   zoom?: number;
 }
@@ -83,6 +85,26 @@ export const CAPTION_MIN = 120;
 export const TOOLS = 44;
 /** Side, in image pixels, of the window the subsample stage magnifies around the selected block. */
 export const ZOOM_WINDOW = 32;
+/** The decode stage's zoom factors: 1 is the whole picture. */
+export const DECODE_ZOOMS = [1, 2, 4, 8] as const;
+/** Share of the decode stage's focus area (below its caption) the wipe may take in height. */
+const WIPE_SHARE = 0.64;
+/** Height the decode tools' rows (sliders, zoom, hints, Re-save) take above the re-save chart. */
+export const DECODE_TOOLS = 184;
+/** The decode tools' slot height that leaves a re-save chart worth drawing. */
+const DECODE_TOOLS_ROOM = DECODE_TOOLS + 48;
+/** The narrowest column beside the wipe the decode tools may take. */
+const DECODE_SIDE_MIN = 200;
+
+/**
+ * Side, in image pixels, of the square window the decode stage shows at zoom
+ * `factor` (the picture's shorter side over the factor, at least one block),
+ * or null for the whole picture.
+ */
+export function decodeWindow(factor: number, imgW: number, imgH: number): number | null {
+  if (!(factor > 1)) return null;
+  return Math.max(8, Math.round(Math.min(imgW, imgH) / factor));
+}
 
 const ZERO: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
@@ -107,11 +129,12 @@ function belowLabel(r: Rect): Rect {
 }
 
 /**
- * A `ZOOM_WINDOW`-pixel square of the image centred on luma block `block`,
- * kept inside the image (smaller images are shown whole).
+ * A square of the image `side` pixels across (`ZOOM_WINDOW` unless given)
+ * centred on luma block `block`, kept inside the image (smaller images are
+ * shown whole). The viz's `zoom_window` places it the same way.
  */
-export function zoomWindow(block: [number, number], imgW: number, imgH: number): [number, number, number, number] {
-  const side = Math.min(ZOOM_WINDOW, imgW, imgH);
+export function zoomWindow(block: [number, number], imgW: number, imgH: number, side0: number = ZOOM_WINDOW): [number, number, number, number] {
+  const side = Math.max(0, Math.min(side0, imgW, imgH));
   const cx = block[0] * 8 + 4;
   const cy = block[1] * 8 + 4;
   const x = Math.max(0, Math.min(imgW - side, Math.round(cx - side / 2)));
@@ -155,9 +178,10 @@ function overviewLayout(cssW: number, cssH: number, imgW: number, imgH: number):
  * The stage's panels. Landscape: the image at the left (up to 45% of the
  * width), the stage's focus panels to its right. Portrait (narrower than
  * `PORTRAIT_BELOW`): the image on top (42% of the height), focus below.
- * The subsample stage's magnified window is the viz's to place (`zoom`), so
- * the layout does not depend on the current block. A canvas too small for
- * anything gives empty panels.
+ * The magnified windows of the subsample and decode stages are the viz's to
+ * place (`zoom`), so the layout does not depend on the current block.
+ * `decodeZoom` is the decode stage's zoom factor (one of `DECODE_ZOOMS`; 1
+ * shows the whole picture). A canvas too small for anything gives empty panels.
  */
 export function jpegLayout(
   stage: StageId,
@@ -165,6 +189,7 @@ export function jpegLayout(
   cssH: number,
   imgW: number,
   imgH: number,
+  decodeZoom = 4,
 ): StageLayout {
   const m = MARGIN;
   if (!(cssW > 2 * m + 40 && cssH > 2 * m + LABEL + 40 && imgW > 0 && imgH > 0)) {
@@ -280,12 +305,39 @@ export function jpegLayout(
       break;
     }
     case 'decode': {
+      // The wipe is the main panel: the full width and most of the height, a square window around the
+      // block when zoomed (the error map shows the same window), the whole picture otherwise.
+      const side = decodeWindow(decodeZoom, imgW, imgH);
+      const [aw, ah] = side === null ? [imgW, imgH] : [1, 1];
+      const zoom = side === null ? {} : { zoom: side };
+      const around = side === null ? '' : `, ${side} × ${side} px around the block`;
+      const wipeLabel = `Decoded (left of the line) against the original${around}`;
+      const errorLabel = `What was lost, brightened${around}`;
       const area = belowLabel(focus);
-      const topH = Math.max(0, area.h * 0.56);
-      panels.push({ kind: 'wipe', rect: fit({ x: area.x, y: area.y, w: area.w, h: topH }, imgW, imgH), label: 'Decoded (left of the line) against the original' });
+      let topH = Math.max(0, Math.min(area.h * WIPE_SHARE, (area.w * ah) / aw));
+      const sideW = area.w - (topH * aw) / ah - g;
+      if (sideW >= DECODE_SIDE_MIN) {
+        // Room at the wipe's right (a square on a wide stage): the controls take a full-height column there,
+        // and the error map sits under the wipe.
+        // The column starts below the caption band, so the wipe's caption may run across it.
+        const wipe = { x: area.x, y: area.y, w: (topH * aw) / ah, h: topH };
+        panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: area.w, ...zoom });
+        const below = belowLabel({ x: area.x, y: area.y + topH + g, w: wipe.w, h: area.y + area.h - (area.y + topH + g) });
+        const error = fit(below, aw, ah);
+        panels.push({ kind: 'error', rect: { ...error, x: below.x }, label: errorLabel, captionW: below.w, ...zoom });
+        slots.resave = { x: area.x + wipe.w + g, y: area.y, w: sideW, h: area.h };
+        break;
+      }
+      // The controls go below, beside the error map: the wipe gives up some height so their chart fits, down to half.
+      const roomy = area.h - g - DECODE_TOOLS_ROOM;
+      if (roomy >= area.h * 0.5) topH = Math.min(topH, roomy);
+      const wipe = fit({ x: area.x, y: area.y, w: area.w, h: topH }, aw, ah);
+      panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: area.x + area.w - wipe.x, ...zoom });
       const below = belowLabel({ x: area.x, y: area.y + topH + g, w: area.w, h: area.y + area.h - (area.y + topH + g) });
       const [l, r] = columns(below, 2, g);
-      panels.push({ kind: 'error', rect: fit(l, imgW, imgH), label: 'What was lost, brightened' });
+      // At the left of its column, so its caption has the column's width.
+      const error = fit(l, aw, ah);
+      panels.push({ kind: 'error', rect: { ...error, x: l.x }, label: errorLabel, captionW: l.w, ...zoom });
       slots.resave = { x: r.x, y: r.y - LABEL, w: r.w, h: r.h + LABEL };
       break;
     }

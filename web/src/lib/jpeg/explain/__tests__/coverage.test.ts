@@ -70,6 +70,7 @@ const SAMPLES: Record<Target['id'], Target> = {
   'decode.error': { id: 'decode.error', x: 3, y: 4 },
   'decode.wipeSlider': { id: 'decode.wipeSlider' },
   'decode.gainSlider': { id: 'decode.gainSlider' },
+  'decode.zoom': { id: 'decode.zoom', factor: 4 },
   'decode.hint': { id: 'decode.hint', kind: 'blocking' },
   'decode.resave': { id: 'decode.resave', generation: 2 },
   'tour.step': { id: 'tour.step', step: 'round' },
