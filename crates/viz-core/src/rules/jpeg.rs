@@ -219,6 +219,40 @@ impl SceneState for JpegState {
     }
 }
 
+/// Keeps the selection on the last scanned MCU: unchanged if it is already one
+/// of that MCU's blocks, else the MCU's first block of the selection's own
+/// component. Nothing scanned yet, or no encode, leaves it alone.
+fn follow_scan(state: &mut JpegState) {
+    let Some(last) = (state.n as usize).checked_sub(1) else {
+        return;
+    };
+    let Some(e) = &state.encoded else {
+        return;
+    };
+    let layout = &e.trace.layout;
+    let (Some(units), Some(&(cols, _))) = (
+        layout.units.get(last),
+        layout.grids.get(state.selection.component),
+    ) else {
+        return;
+    };
+    if cols == 0 {
+        return;
+    }
+    let Selection { component, bx, by } = state.selection;
+    let mut own = units.iter().filter(|u| u.component == component);
+    if own.clone().any(|u| u.block == by * cols + bx) {
+        return;
+    }
+    if let Some(u) = own.next() {
+        state.selection = Selection {
+            component,
+            bx: u.block % cols,
+            by: u.block / cols,
+        };
+    }
+}
+
 static NEXT_VERSION: AtomicU32 = AtomicU32::new(1);
 
 impl JpegState {
@@ -445,6 +479,7 @@ impl Rule for JpegRule {
 
     fn advance_to(&self, state: &mut Self::State, _cfg: &Self::Config, _seed: u64, n: u32) {
         state.n = n.min(state.total());
+        follow_scan(state);
     }
 
     fn apply_image(&self, cfg: &mut Self::Config, w: u32, h: u32, rgba: &[u8]) -> bool {
@@ -949,5 +984,149 @@ mod tests {
         c.image_id = "text".into();
         let t = JpegRule.init(&c, 0);
         assert!(JpegRule.summary(&t)["hints"]["ringing"].is_array());
+    }
+
+    /// A config around a `w × h` picture of seeded noise-free pixels.
+    fn picture_cfg(w: usize, h: usize, subsampling: &str) -> JpegConfig {
+        let mut c = cfg();
+        let mut rgba = vec![255u8; w * h * 4];
+        for (i, px) in rgba.chunks_mut(4).enumerate() {
+            px[0] = (i * 7 % 256) as u8;
+            px[1] = (i * 3 % 256) as u8;
+            px[2] = (i * 11 % 256) as u8;
+        }
+        c.pixels = Some(Rgb8Image::new(w, h, rgba).unwrap());
+        c.subsampling = subsampling.into();
+        c
+    }
+
+    #[test]
+    fn advance_to_moves_the_selection_to_the_last_scanned_mcu() {
+        // 256² gradient at 4:2:0: 16 MCUs across, luma grid 32 × 32, chroma 16 × 16.
+        let c = cfg();
+        let mut s = JpegRule.init(&c, 0);
+        // Start far from MCU 4, so the encoder's default block cannot already be in it.
+        let far = json!({"kind": "select_block", "component": 0, "bx": 31, "by": 31});
+        JpegRule.apply_action(&mut s, &c, &far).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 5); // MCU 4 = (4, 0)
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 0,
+                bx: 8,
+                by: 0
+            }
+        );
+        let cb = json!({"kind": "select_block", "component": 1, "bx": 0, "by": 0});
+        JpegRule.apply_action(&mut s, &c, &cb).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 18); // MCU 17 = (1, 1)
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 1,
+                bx: 1,
+                by: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_block_already_in_the_current_mcu_is_kept() {
+        let c = cfg();
+        let mut s = JpegRule.init(&c, 0);
+        let pick = json!({"kind": "select_block", "component": 0, "bx": 9, "by": 1}); // in MCU 4
+        JpegRule.apply_action(&mut s, &c, &pick).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 5);
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 0,
+                bx: 9,
+                by: 1
+            }
+        );
+        JpegRule.advance_to(&mut s, &c, 0, 6); // the scan moves on: MCU 5's first luma block
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 0,
+                bx: 10,
+                by: 0
+            }
+        );
+    }
+
+    #[test]
+    fn advance_to_zero_leaves_the_selection() {
+        let c = cfg();
+        let mut s = JpegRule.init(&c, 0);
+        let pick = json!({"kind": "select_block", "component": 0, "bx": 9, "by": 1});
+        JpegRule.apply_action(&mut s, &c, &pick).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 0);
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 0,
+                bx: 9,
+                by: 1
+            }
+        );
+    }
+
+    #[test]
+    fn the_follow_stays_on_the_grid_of_a_padded_picture() {
+        // 24 × 10 at 4:2:0: 2 × 1 MCUs, the second one padded on the right and below.
+        let c = picture_cfg(24, 10, "420");
+        let mut s = JpegRule.init(&c, 0);
+        let first = json!({"kind": "select_block", "component": 0, "bx": 0, "by": 0});
+        JpegRule.apply_action(&mut s, &c, &first).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 2);
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 0,
+                bx: 2,
+                by: 0
+            }
+        );
+        let cr = json!({"kind": "select_block", "component": 2, "bx": 0, "by": 0});
+        JpegRule.apply_action(&mut s, &c, &cr).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 2);
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 2,
+                bx: 1,
+                by: 0
+            }
+        );
+        JpegRule.advance_to(&mut s, &c, 0, 99); // clamped to the last MCU
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 2,
+                bx: 1,
+                by: 0
+            }
+        );
+    }
+
+    #[test]
+    fn at_444_each_step_is_one_block() {
+        // 256² at 4:4:4: 32 MCUs across.
+        let mut c = cfg();
+        c.subsampling = "444".into();
+        let mut s = JpegRule.init(&c, 0);
+        let far = json!({"kind": "select_block", "component": 0, "bx": 31, "by": 31});
+        JpegRule.apply_action(&mut s, &c, &far).unwrap();
+        JpegRule.advance_to(&mut s, &c, 0, 3);
+        assert_eq!(
+            s.selection,
+            Selection {
+                component: 0,
+                bx: 2,
+                by: 0
+            }
+        );
     }
 }
