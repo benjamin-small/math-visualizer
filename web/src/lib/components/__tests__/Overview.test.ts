@@ -3,6 +3,7 @@ import { render } from '@testing-library/svelte';
 import Overview from '../jpeg/Overview.svelte';
 import { IMAGES } from '../../jpeg/images';
 import { TooltipController } from '../jpeg/tooltip.svelte';
+import { blockFill } from '../../jpeg/bytes';
 
 const image = { w: 64, h: 64, rgba: Uint8Array.from({ length: 64 * 64 * 4 }, (_, i) => (i * 7) & 255) };
 const jpeg = Uint8Array.from({ length: 900 }, (_, i) => (i * 31) & 255);
@@ -33,10 +34,49 @@ describe('Overview.svelte', () => {
     expect(custom).not.toContain('At quality');
   });
 
-  it('keeps the labels beside the size bars, never inside them', () => {
+  it('keeps the labels beside the size rows, never inside them', () => {
     const c = show(1102, 216);
-    for (const bar of c.querySelectorAll('.bar')) expect(bar.textContent).toBe('');
-    expect(c.querySelector('.bar.file')).toBeTruthy();
+    const rows = c.querySelectorAll('.blocks');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row.textContent!.trim()).toBe('');
+    expect(c.querySelector('.blocks.file')).toBeTruthy();
+  });
+
+  it('draws the sizes as blocks of memory in a card of their own', () => {
+    // 64 × 64 pixels are 12,288 raw bytes: at most 64 blocks makes each 256 B, 48 of them.
+    // The 900-byte file fills 3 of those and half of a fourth.
+    const c = show(1102, 216);
+    const card = c.querySelector('.sizes')!;
+    expect(card.getAttribute('role')).toBe('group');
+    expect(card.getAttribute('tabindex')).toBe('0');
+    expect(card.querySelector('.heading')?.textContent).toBe('File size');
+    expect(card.querySelector('.legend')?.textContent).toBe('Each block is 256 B');
+    const { full, part } = blockFill(900, 256);
+    expect(card.querySelectorAll('.blocks.raw .cell')).toHaveLength(48);
+    expect(card.querySelectorAll('.blocks.raw .cell.full')).toHaveLength(48);
+    expect(card.querySelectorAll('.blocks.file .cell.full')).toHaveLength(full);
+    const last = card.querySelectorAll<HTMLElement>('.blocks.file .cell.part');
+    expect(last).toHaveLength(1);
+    expect(parseFloat(last[0].querySelector<HTMLElement>('.fill')!.style.width)).toBeCloseTo(part * 100, 1);
+    // Both rows lay their blocks on the same grid, so a block is the same size in each.
+    const raw = card.querySelector<HTMLElement>('.blocks.raw')!;
+    const file = card.querySelector<HTMLElement>('.blocks.file')!;
+    expect(raw.style.getPropertyValue('--n')).toBe('48');
+    expect(file.style.getPropertyValue('--n')).toBe('48');
+  });
+
+  it('draws fewer, bigger blocks on a narrow slot', () => {
+    const card = show(311, 302).querySelector('.sizes')!;
+    expect(card.querySelector('.legend')?.textContent).toBe('Each block is 512 B');
+    expect(card.querySelectorAll('.blocks.raw .cell')).toHaveLength(24);
+    expect(card.querySelectorAll('.blocks.file .cell.full')).toHaveLength(blockFill(900, 512).full);
+  });
+
+  it('still shows a sliver for a file smaller than one block', () => {
+    const c = render(Overview, { rect: { x: 0, y: 0, w: 1102, h: 216 }, image, jpeg: new Uint8Array(20), quality: 50, ctl: new TooltipController() }).container;
+    expect(c.querySelectorAll('.blocks.file .cell.full')).toHaveLength(0);
+    const fill = c.querySelector<HTMLElement>('.blocks.file .cell.part .fill')!;
+    expect(parseFloat(fill.style.width)).toBeGreaterThan(0);
   });
 
   it('stacks the histograms on a narrow slot', () => {

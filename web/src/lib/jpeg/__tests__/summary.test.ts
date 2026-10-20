@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { formatBytes, readSummary, readoutOf } from '../summary';
 import { busiestLine, cumulativeEnergy, mirrored, periodic, psnrOf, termsFor } from '../math';
-import { ENTROPY_TEX, chromaKept, lastNonZero, samplesKept, stageTex, NOTICE } from '../formulas';
+import { CODE_TEX, ENTROPY_TEX, MSE_TEX, PSNR_TEX, QSCALE_TEX, QUANT_TEX, SIZE_TEX, TOKEN_TEX, chromaKept, lastNonZero, samplesKept, stageTex, NOTICE } from '../formulas';
 import { STAGES } from '../stages';
 import { decodeUpload, fitWithin } from '../images';
 import { jpegSummaryFixture } from '../../test/fakeViz';
@@ -97,19 +97,19 @@ describe('formulas', () => {
     expect(stageTex('dct', s, [1, 0])[1]).toContain('-20.0');
     expect(stageTex('subsample', s, null)[1]).toContain('25\\%');
     expect(stageTex('color', null, null)).toHaveLength(1);
-    expect(stageTex('quantize', s, null)[1]).toBe(String.raw`F_Q(0,0) = \operatorname{round}\!\left(\frac{120.0}{16}\right) = 8`);
-    expect(stageTex('quantize', s, [1, 0])[1]).toContain('\\frac{-20.0}{16}');
+    expect(stageTex('quantize', s, null)[2]).toBe(String.raw`F_Q(0,0) = \operatorname{round}\!\left(\frac{120.0}{16}\right) = 8`);
+    expect(stageTex('quantize', s, [1, 0])[2]).toContain('\\frac{-20.0}{16}');
     expect(stageTex('zigzag', s, null)[1]).toContain('\\#1\\text{ of }64');
     expect(stageTex('zigzag', s, null)[1]).toContain('63\\text{ zeros follow}');
-    expect(stageTex('rle', s, null)[1]).toBe(String.raw`\Delta DC = 8 - (6) = 2,\quad \text{size} = 2`);
+    expect(stageTex('rle', s, null)[2]).toBe(String.raw`\Delta DC = 8 - (6) = 2,\quad \text{size} = 2`);
     // Code bits (not the payload) are compared with the bound; the payload adds the amplitude bits.
-    const huffman = stageTex('huffman', s, null)[1];
-    expect(huffman).toBe(
-      String.raw`\text{codes: } 29000\text{ bits} \ge 28000\text{ bits (Shannon bound)},\quad 29000 + 1000\text{ amplitude bits} = 30000\text{ bits written}`,
-    );
-    expect(stageTex('decode', s, null)[1]).toBe(String.raw`\text{PSNR} = 36.5\text{ dB}`);
-    expect(stageTex('decode', { ...s, psnr: null }, null)[1]).toContain('\\infty');
-    expect(stageTex('quantize', null, null)).toHaveLength(1);
+    expect(stageTex('huffman', s, null).slice(1)).toEqual([
+      String.raw`\text{codes: } 29000\text{ bits} \ge 28000\text{ bits (Shannon bound)}`,
+      String.raw`29000 + 1000\text{ amplitude bits} = 30000\text{ bits written}`,
+    ]);
+    expect(stageTex('decode', s, null)[2]).toBe(String.raw`\text{PSNR} = 36.5\text{ dB}`);
+    expect(stageTex('decode', { ...s, psnr: null }, null)[2]).toContain('\\infty');
+    expect(stageTex('quantize', null, null)).toEqual([QUANT_TEX, QSCALE_TEX]);
   });
 
   it('says "all 64 are zero" for a block with no non-zero value, not "#0 of 64"', () => {
@@ -118,6 +118,36 @@ describe('formulas', () => {
     const line = stageTex('zigzag', empty, null)[1];
     expect(line).toBe(String.raw`\text{all 64 are zero}`);
     expect(line).not.toContain('#0');
+  });
+
+  it('puts the error and the PSNR on lines of their own, so each fits a phone', () => {
+    expect(MSE_TEX).toContain('\\text{MSE} =');
+    expect(MSE_TEX).not.toContain('PSNR');
+    expect(PSNR_TEX).toMatch(/^\\text\{PSNR\} = 10 \\log_\{10\}/);
+    expect(stageTex('decode', null, null)).toEqual([MSE_TEX, PSNR_TEX]);
+    expect(stageTex('decode', readSummary(jpegSummaryFixture), null).slice(0, 2)).toEqual([MSE_TEX, PSNR_TEX]);
+  });
+
+  it('splits the long formulas where they join two parts, so each line fits a phone', () => {
+    const s = readSummary(jpegSummaryFixture)!;
+    // The rounding, then how the table is scaled by the quality.
+    expect(QUANT_TEX).toContain('\\operatorname{round}');
+    expect(QUANT_TEX).not.toContain('Q_{\\text{base}}');
+    expect(QSCALE_TEX).toMatch(/^Q = .*\\begin\{cases\}/);
+    expect(stageTex('quantize', s, null).slice(0, 2)).toEqual([QUANT_TEX, QSCALE_TEX]);
+    // A value's size, then the token it makes.
+    expect(SIZE_TEX).not.toContain('token');
+    expect(TOKEN_TEX).toMatch(/^\\text\{token\} = /);
+    expect(stageTex('rle', null, null)).toEqual([SIZE_TEX, TOKEN_TEX]);
+    expect(stageTex('rle', s, null).slice(0, 2)).toEqual([SIZE_TEX, TOKEN_TEX]);
+    // The Huffman stage: the formula, then the bound and what was written on lines of their own.
+    expect(stageTex('huffman', s, null)[0]).toBe(CODE_TEX);
+    for (const line of stageTex('huffman', s, null)) expect(line).not.toContain('\\quad');
+    // The 4:2:0 average keeps its four samples, two to a line.
+    const avg = stageTex('subsample', { ...s, subsampling: '420' }, null)[0];
+    expect(avg).toMatch(/^\\begin\{aligned\}/);
+    expect(avg.split('\\\\')).toHaveLength(2);
+    for (const term of ['C(2i,2j)', 'C(2i{+}1,2j)', 'C(2i,2j{+}1)', 'C(2i{+}1,2j{+}1)']) expect(avg).toContain(term);
   });
 
   it('explains entropy on the overview', () => {

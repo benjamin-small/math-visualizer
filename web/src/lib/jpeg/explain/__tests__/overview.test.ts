@@ -76,6 +76,17 @@ describe('Overview cards', () => {
     expect(early.consequence).toContain('192.0 KB');
   });
 
+  it('counts the blocks of memory the overview draws', () => {
+    // 192 KB of raw pixels in at most 64 blocks: 4 KB each, 48 of them. The 4-byte file fills less than one.
+    const e = explain({ id: 'overview.sizes' }, ctx())!;
+    expect(e.consequence).toContain('Each block is 4 KB: the raw pixels fill 48, the file less than one.');
+    // The overview says which block it drew (a narrow slot draws fewer, bigger ones).
+    const narrow = explain({ id: 'overview.sizes', block: 8192 }, ctx({ jpeg: new Uint8Array(10 * 1024) }))!;
+    expect(narrow.consequence).toContain('Each block is 8 KB: the raw pixels fill 24, the file 1.3.');
+    expect(explain({ id: 'overview.sizes', block: 4096 }, ctx({ jpeg: new Uint8Array(10 * 1024) }))!.consequence).toContain('the file 2.5.');
+    expect(explain({ id: 'overview.sizes' }, ctx({ jpeg: null, summary: null }))!.consequence).toContain('4 KB');
+  });
+
   it('shows a pixel before and after JPEG, and the difference', () => {
     const orig = explain({ id: 'overview.pixel', which: 'original', x: 0, y: 0 }, ctx())!;
     expect(orig.value).toBe('RGB 200, 200, 200');

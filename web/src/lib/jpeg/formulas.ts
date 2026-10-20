@@ -18,17 +18,26 @@ export const COLOR_TEX = String.raw`\begin{bmatrix} Y \\ C_b \\ C_r \end{bmatrix
 /** The 8 × 8 forward DCT as written in the JPEG standard. */
 export const DCT_TEX = String.raw`F(u,v) = \tfrac14\, C(u)\, C(v) \sum_{x=0}^{7} \sum_{y=0}^{7} f(x,y)\, \cos\frac{(2x+1)u\pi}{16}\, \cos\frac{(2y+1)v\pi}{16}`;
 
-/** The Quantize stage's formula: divide by the table entry and round; the table is the base table scaled by the quality `q`. */
-export const QUANT_TEX = String.raw`F_Q(u,v) = \operatorname{round}\!\left(\frac{F(u,v)}{Q(u,v)}\right),\qquad Q = \left\lfloor \frac{Q_{\text{base}}\cdot s + 50}{100} \right\rfloor,\; s = \begin{cases} 5000/q & q < 50 \\ 200 - 2q & q \ge 50 \end{cases}`;
+/** The Quantize stage's first formula: divide by the table entry and round. Each formula of a stage is a line of its own, so each fits a phone. */
+export const QUANT_TEX = String.raw`F_Q(u,v) = \operatorname{round}\!\left(\frac{F(u,v)}{Q(u,v)}\right)`;
 
-/** The Run-length stage's formula: a value's size category, and a token as (zero run, size) followed by that many amplitude bits. */
-export const SIZE_TEX = String.raw`\text{size}(v) = \lceil \log_2(|v| + 1) \rceil,\qquad \text{token} = (\text{run of zeros},\ \text{size})\ \text{then size bits of } v`;
+/** The Quantize stage's second formula: the table is the base table scaled by the quality `q`. */
+export const QSCALE_TEX = String.raw`Q = \left\lfloor \frac{Q_{\text{base}}\cdot s + 50}{100} \right\rfloor,\; s = \begin{cases} 5000/q & q < 50 \\ 200 - 2q & q \ge 50 \end{cases}`;
+
+/** The Run-length stage's first formula: a value's size category. */
+export const SIZE_TEX = String.raw`\text{size}(v) = \lceil \log_2(|v| + 1) \rceil`;
+
+/** The Run-length stage's second formula: a token is (zero run, size), followed by that many amplitude bits. */
+export const TOKEN_TEX = String.raw`\text{token} = (\text{run of zeros},\ \text{size})\ \text{then size bits of } v`;
 
 /** The Huffman stage's formula: a symbol's ideal code length is −log₂ of its probability, so the scan needs at least the entropy sum. */
 export const CODE_TEX = String.raw`\text{code length}(x) \approx -\log_2 p(x),\qquad \text{bits} \ge \sum_x n_x \log_2 \frac{N}{n_x}`;
 
-/** The Decode stage's formula: PSNR from the mean squared error over all colour samples. */
-export const PSNR_TEX = String.raw`\text{MSE} = \frac{1}{3wh}\sum (\hat I - I)^2,\qquad \text{PSNR} = 10 \log_{10} \frac{255^2}{\text{MSE}}`;
+/** The Decode stage's first formula: the mean squared error over all colour samples. On a line of its own, so each fits a phone. */
+export const MSE_TEX = String.raw`\text{MSE} = \frac{1}{3wh}\sum (\hat I - I)^2`;
+
+/** The Decode stage's second formula: PSNR from that error. */
+export const PSNR_TEX = String.raw`\text{PSNR} = 10 \log_{10} \frac{255^2}{\text{MSE}}`;
 
 /** Zigzag index of the last non-zero value (−1 when all are zero). */
 export function lastNonZero(zigzag: readonly number[]): number {
@@ -61,7 +70,8 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
           ? String.raw`C'(i,j) = C(i,j)`
           : s?.subsampling === '422'
             ? String.raw`C'(i,j) = \tfrac12\,[\,C(2i,j) + C(2i{+}1,j)\,]`
-            : String.raw`C'(i,j) = \tfrac14\,[\,C(2i,2j) + C(2i{+}1,2j) + C(2i,2j{+}1) + C(2i{+}1,2j{+}1)\,]`;
+            : // Four samples are too wide for one line on a phone: two to a line.
+              String.raw`\begin{aligned} C'(i,j) = \tfrac14\,[\,&C(2i,2j) + C(2i{+}1,2j) \\ &+ C(2i,2j{+}1) + C(2i{+}1,2j{+}1)\,] \end{aligned}`;
       return [avg, String.raw`\text{chroma kept} = ${Math.round(keep * 100)}\%,\quad \text{all samples kept} = ${Math.round(samplesKept(s?.subsampling ?? null) * 100)}\%`];
     }
     case 'blocks': {
@@ -78,11 +88,12 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
       return [DCT_TEX, String.raw`F(${u},${v}) = \tfrac14 \cdot ${cu} \cdot ${cv} \sum \sum f(x,y)\cos\cdots = ${fmt(val, 1)}`];
     }
     case 'quantize': {
-      if (!sel) return [QUANT_TEX];
+      if (!sel) return [QUANT_TEX, QSCALE_TEX];
       const [u, v] = hover ?? [0, 0];
       const i = u + 8 * v;
       return [
         QUANT_TEX,
+        QSCALE_TEX,
         String.raw`F_Q(${u},${v}) = \operatorname{round}\!\left(\frac{${fmt(sel.dct[i], 1)}}{${fmt(sel.table[i])}}\right) = ${fmt(sel.quant[i])}`,
       ];
     }
@@ -97,9 +108,10 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
       ];
     }
     case 'rle': {
-      if (!sel) return [SIZE_TEX];
+      if (!sel) return [SIZE_TEX, TOKEN_TEX];
       return [
         SIZE_TEX,
+        TOKEN_TEX,
         String.raw`\Delta DC = ${fmt(sel.quant[0])} - (${fmt(sel.dcPrev)}) = ${fmt(sel.dcDiff)},\quad \text{size} = ${sel.dcSize}`,
       ];
     }
@@ -110,13 +122,14 @@ export function stageTex(stage: StageId, s: JpegSummary | null, hover: [number, 
       const payload = Math.round(s.payloadBits);
       return [
         CODE_TEX,
-        String.raw`\text{codes: } ${codes}\text{ bits} \ge ${Math.round(s.entropyBits)}\text{ bits (Shannon bound)},\quad ${codes} + ${payload - codes}\text{ amplitude bits} = ${payload}\text{ bits written}`,
+        String.raw`\text{codes: } ${codes}\text{ bits} \ge ${Math.round(s.entropyBits)}\text{ bits (Shannon bound)}`,
+        String.raw`${codes} + ${payload - codes}\text{ amplitude bits} = ${payload}\text{ bits written}`,
       ];
     }
     case 'decode': {
-      if (!s) return [PSNR_TEX];
+      if (!s) return [MSE_TEX, PSNR_TEX];
       const psnr = s.psnr == null ? String.raw`\infty` : String.raw`${fmt(s.psnr, 1)}\text{ dB}`;
-      return [PSNR_TEX, String.raw`\text{PSNR} = ${psnr}`];
+      return [MSE_TEX, PSNR_TEX, String.raw`\text{PSNR} = ${psnr}`];
     }
     default:
       return [];
