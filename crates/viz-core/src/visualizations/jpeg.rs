@@ -1343,6 +1343,15 @@ mod tests {
     }
 
     #[test]
+    fn zoom_window_places_the_decode_stages_64_pixel_window_like_the_web_hit_test() {
+        // The twin of hit.test.ts's 4x decode case: luma block (10, 10) centres at 84, so the window starts at 52.
+        assert_eq!(
+            zoom_window((10, 10), 64.0, 256, 256),
+            [52.0, 52.0, 64.0, 64.0]
+        );
+    }
+
+    #[test]
     fn panel_crop_prefers_zoom_then_crop_then_the_whole_picture() {
         let sel = Selection {
             component: 0,

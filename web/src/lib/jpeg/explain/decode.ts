@@ -58,7 +58,10 @@ function wipeCard(x: number, y: number, ctx: ExplainContext): Explanation | null
   const decodedSide = (x + 0.5 - sx) / sw < ctx.wipe;
   const line = `The line is at ${percent(ctx.wipe)}: the left ${percent(ctx.wipe)} of ${shownWords(ctx)} shows the JPEG's copy, the rest the original.`;
   const details: Detail[] = [
-    { kind: 'text', text: 'Drag on the picture or slide the Wipe control to move the line. Left of it is the picture after JPEG; right of it is the original. A pixel that looks the same on both sides was kept well.' },
+    {
+      kind: 'text',
+      text: 'Drag on the picture or slide the Wipe control to move the line. Left of it is the picture after JPEG; right of it is the original. A pixel that looks the same on both sides was kept well. A click on the picture moves the line rather than pinning this card; hover a pixel, or use the keyboard, to read it.',
+    },
   ];
   if (!d) {
     return {

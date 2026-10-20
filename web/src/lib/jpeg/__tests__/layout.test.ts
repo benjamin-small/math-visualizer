@@ -137,9 +137,9 @@ describe('jpegLayout', () => {
       expect(error.label).toBe(error.captionW! >= 150 ? 'What was lost, brightened' : 'What was lost');
       expect(toDevicePanels([wipe], 2)[0].zoom).toBe(64);
     }
-    // The wide stage gives the wipe the focus area's height share.
+    // A wide stage gives the wipe the focus area's full height, the controls column beside it.
     const wide = jpegLayout('decode', 1134, 585, 256, 256).panels.find((p) => p.kind === 'wipe')!.rect;
-    expect(wide.h).toBeCloseTo((585 - 2 * MARGIN - LABEL) * 0.64);
+    expect(wide.h).toBeCloseTo(585 - 2 * MARGIN - LABEL);
     // So does a phone, whose controls scroll in their slot.
     const phone = jpegLayout('decode', 375, 812, 256, 256);
     const focusH = 812 - 3 * MARGIN - (812 - 3 * MARGIN) * 0.28;
@@ -180,8 +180,8 @@ describe('jpegLayout', () => {
         const l = jpegLayout('decode', w, h, 256, 256, f);
         const wipe = l.panels.find((p) => p.kind === 'wipe')!;
         const error = l.panels.find((p) => p.kind === 'error')!;
-        // The wipe's caption may run to the right edge of the focus area.
-        expect(wipe.rect.x + wipe.captionW!).toBeCloseTo(w - MARGIN);
+        // The wipe's caption may run at least its own width (to the stage's edge when nothing is beside it).
+        expect(wipe.captionW!).toBeGreaterThanOrEqual(wipe.rect.w - 1e-6);
         expect(error.captionW!).toBeGreaterThanOrEqual(error.rect.w);
         // No caption runs into the controls or another panel, or off the stage. A `captionW` is the caption's
         // width; without one it is the panel's, at least `CAPTION_MIN`.
@@ -196,17 +196,33 @@ describe('jpegLayout', () => {
   });
 
   it('gives the scan picture less room on the decode stage, so the wipe is the largest panel of all', () => {
+    // Desktop canvases are at most 1136 wide (the lab's 1200 px less its padding) and 420-820 tall (65vh).
     for (const [w, h] of [
       [1024, 768],
       [1134, 585],
       [800, 420],
+      [1136, 420],
+      [1136, 468],
+      [1136, 499],
+      [1136, 520],
+      [960, 420],
+      [1280, 640],
       [375, 812],
       [343, 520],
+      [343, 447],
     ]) {
-      const l = jpegLayout('decode', w, h, 256, 256);
-      const wipe = l.panels.find((p) => p.kind === 'wipe')!.rect;
-      for (const p of l.panels.filter((q) => q.kind !== 'wipe')) {
-        expect(wipe.w * wipe.h, `${w}×${h}: wipe against ${p.kind}`).toBeGreaterThan(p.rect.w * p.rect.h);
+      for (const [iw, ih] of [
+        [256, 256],
+        [203, 320],
+        [320, 203],
+      ]) {
+        for (const f of [4, 1]) {
+          const l = jpegLayout('decode', w, h, iw, ih, f);
+          const wipe = l.panels.find((p) => p.kind === 'wipe')!.rect;
+          for (const p of l.panels.filter((q) => q.kind !== 'wipe')) {
+            expect(wipe.w * wipe.h, `${w}×${h}, ${iw}×${ih} at ${f}×: wipe against ${p.kind}`).toBeGreaterThan(p.rect.w * p.rect.h);
+          }
+        }
       }
     }
     // Landscape: 28% of the width (still capped by the height); portrait: 28% of the height.
@@ -248,14 +264,23 @@ describe('jpegLayout', () => {
     expect(l.slots.resave!.y).toBeGreaterThanOrEqual(wipe.y + wipe.h);
   });
 
-  it('puts the controls beside a square wipe that leaves room at its right', () => {
-    const l = jpegLayout('decode', 1134, 585, 256, 256);
-    const wipe = l.panels.find((p) => p.kind === 'wipe')!.rect;
-    const error = l.panels.find((p) => p.kind === 'error')!.rect;
-    const slot = l.slots.resave!;
-    expect(slot.x).toBeGreaterThanOrEqual(wipe.x + wipe.w + MARGIN - 1e-6);
-    expect(slot.y).toBeLessThanOrEqual(wipe.y);
-    expect(error.x).toBeCloseTo(wipe.x);
+  it('puts the error map and the controls in a column beside a full-height wipe', () => {
+    for (const [w, h] of [
+      [1134, 585],
+      [1136, 420],
+      [1024, 768],
+    ]) {
+      const l = jpegLayout('decode', w, h, 256, 256);
+      const wipe = l.panels.find((p) => p.kind === 'wipe')!.rect;
+      const error = l.panels.find((p) => p.kind === 'error')!.rect;
+      const slot = l.slots.resave!;
+      // The full height, unless the column's 200 px is what limits it (1024 × 768).
+      expect(Math.abs(wipe.h - (h - 2 * MARGIN - LABEL)) < 1e-6 || Math.abs(slot.w - 200) < 1e-6).toBe(true);
+      for (const r of [error, slot]) expect(r.x).toBeGreaterThanOrEqual(wipe.x + wipe.w + MARGIN - 1e-6);
+      expect(error.y).toBeCloseTo(wipe.y);
+      expect(slot.y).toBeGreaterThanOrEqual(error.y + error.h + MARGIN - 1e-6);
+      expect(slot.w).toBeGreaterThanOrEqual(200);
+    }
   });
 
   it('zooms the decode stage by the factor asked for, or shows the whole picture', () => {

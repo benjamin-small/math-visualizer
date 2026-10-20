@@ -118,6 +118,18 @@ export const DECODE_TOOLS_FIT = 168;
 const DECODE_COLUMN_MIN = 88;
 /** Below this caption room (CSS px) a decode caption keeps its first words rather than be cut off. */
 const CAPTION_FULL = 150;
+/** On the decode stage the scan picture covers at most this share of the wipe's area, so the wipe leads. */
+const DECODE_IMAGE_MAX = 0.8;
+/** The smallest error map worth keeping a re-save chart for; a shorter stage drops the chart instead. */
+const DECODE_ERROR_MIN = 48;
+
+/** `r` scaled about its centre so its area is at most `max`. */
+function shrinkTo(r: Rect, max: number): Rect {
+  const a = r.w * r.h;
+  if (!(a > max) || !(max > 0)) return r;
+  const s = Math.sqrt(max / a);
+  return { x: r.x + (r.w * (1 - s)) / 2, y: r.y + (r.h * (1 - s)) / 2, w: r.w * s, h: r.h * s };
+}
 
 /**
  * Side, in image pixels, of the square window the decode stage shows at zoom
@@ -294,7 +306,7 @@ export function jpegLayout(
     imageArea = { x: m, y: m, w: cssW - 2 * m, h: rowH };
     focus = { x: m, y: 2 * m + rowH, w: cssW - 2 * m, h: cssH - 3 * m - rowH };
   }
-  const image = fit(belowLabel(imageArea), imgW, imgH);
+  let image = fit(belowLabel(imageArea), imgW, imgH);
   const panels: Panel[] = [
     { kind: stage === 'blocks' ? 'image_grid' : 'image', rect: image, label: 'The image — click a block' },
   ];
@@ -401,24 +413,36 @@ export function jpegLayout(
       const wipeLabel = 'Decoded (left of the line) against the original';
       const errorLabel = 'What was lost, brightened';
       const area = belowLabel(focus);
+      // Two arrangements; the one with the larger wipe wins. Beside: the wipe takes the full height (as wide as
+      // leaves the column `DECODE_SIDE_MIN`), the error map and the controls one above the other in the column.
+      const sideW = Math.max(0, Math.min(area.w - g - DECODE_SIDE_MIN, (area.h * aw) / ah));
+      const sideH = (sideW * ah) / aw;
+      // Below: the wipe across the top (64% of the height), the error map and the controls under it; the wipe gives
+      // up some height so the controls' chart fits, down to half.
       let topH = Math.max(0, Math.min(area.h * WIPE_SHARE, (area.w * ah) / aw));
-      const sideW = area.w - (topH * aw) / ah - g;
-      if (sideW >= DECODE_SIDE_MIN) {
-        // Room at the wipe's right (a square on a wide stage): the controls take a full-height column there,
-        // and the error map sits under the wipe.
-        // The column starts below the caption band, so the wipe's caption may run across it.
-        const wipe = { x: area.x, y: area.y, w: (topH * aw) / ah, h: topH };
-        panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: area.w, ...zoom });
-        const below = belowLabel({ x: area.x, y: area.y + topH + g, w: wipe.w, h: area.y + area.h - (area.y + topH + g) });
-        const error = fit(below, aw, ah);
-        panels.push({ kind: 'error', rect: { ...error, x: below.x }, label: errorLabel, captionW: below.w, ...zoom });
-        slots.resave = { x: area.x + wipe.w + g, y: area.y, w: sideW, h: area.h };
-        break;
-      }
-      // The controls go below, beside the error map: the wipe gives up some height so their chart fits, down to half.
       const roomy = area.h - g - DECODE_TOOLS_ROOM;
       if (roomy >= area.h * 0.5) topH = Math.min(topH, roomy);
+      // The scan picture steps back further where it would rival the wipe (a tall picture on a short stage).
+      const lead = (wipeArea: number) => {
+        image = shrinkTo(image, wipeArea * DECODE_IMAGE_MAX);
+        panels[0] = { ...panels[0], rect: image };
+      };
+      if (sideW * sideH >= ((topH * aw) / ah) * topH) {
+        const wipe = { x: area.x, y: area.y, w: sideW, h: sideH };
+        // The column's error caption shares the wipe's caption band, so the wipe's runs only its own width.
+        panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: sideW, ...zoom });
+        const col = { x: area.x + sideW + g, w: area.w - sideW - g };
+        let errH = Math.min(col.w, area.h - g - DECODE_TOOLS_ROOM);
+        if (errH < DECODE_ERROR_MIN) errH = Math.max(0, Math.min(col.w, area.h - g - DECODE_TOOLS_FIT));
+        const error = fit({ x: col.x, y: area.y, w: col.w, h: errH }, aw, ah);
+        panels.push({ kind: 'error', rect: { ...error, x: col.x, y: area.y }, label: errorCaption(col.w), captionW: col.w, ...zoom });
+        const top = area.y + error.h + g;
+        slots.resave = { x: col.x, y: top, w: col.w, h: Math.max(0, area.y + area.h - top) };
+        lead(wipe.w * wipe.h);
+        break;
+      }
       const wipe = fit({ x: area.x, y: area.y, w: area.w, h: topH }, aw, ah);
+      lead(wipe.w * wipe.h);
       panels.push({ kind: 'wipe', rect: wipe, label: wipeLabel, captionW: area.x + area.w - wipe.x, ...zoom });
       const below = belowLabel({ x: area.x, y: area.y + topH + g, w: area.w, h: area.y + area.h - (area.y + topH + g) });
       const [l, r] = columns(below, 2, g);

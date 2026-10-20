@@ -1379,7 +1379,8 @@
   }
   .hit { position: absolute; padding: 0; border: 0; background: none; cursor: crosshair; pointer-events: auto; }
   .hover-area { position: absolute; pointer-events: auto; }
-  .wipe-drag { position: absolute; pointer-events: auto; cursor: ew-resize; touch-action: none; }
+  /* A drag past the panel selects no text. */
+  .wipe-drag { position: absolute; pointer-events: auto; cursor: ew-resize; touch-action: none; -webkit-user-select: none; user-select: none; }
   .kept:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   .hover-area:focus-visible { outline: 1px dashed var(--accent); outline-offset: 2px; }
   /* The cell the arrow keys are on; shown only while the grid has the keyboard. */
