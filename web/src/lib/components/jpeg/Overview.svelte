@@ -75,8 +75,12 @@
   // alone, so a new encode only changes how many of the file's blocks are filled.
   const block = $derived(blockSize(rawBytes, narrow ? MAX_BLOCKS_NARROW : MAX_BLOCKS));
   const rawFill = $derived(blockFill(rawBytes, block));
-  const fileFill = $derived(blockFill(jpegBytes, block));
   const columns = $derived(rawFill.full + (rawFill.part > 0 ? 1 : 0));
+  // A tiny upload's file can outgrow its raw pixels: its row stops at the raw row's end, never wrapping the grid.
+  const fileFill = $derived.by(() => {
+    const { full, part } = blockFill(jpegBytes, block);
+    return { full: Math.min(full, columns), part: full >= columns ? 0 : part };
+  });
 
   let box = $state<HTMLDivElement | null>(null);
   let showCredit = $state(true);

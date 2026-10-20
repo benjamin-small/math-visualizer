@@ -72,6 +72,19 @@ describe('Overview.svelte', () => {
     expect(card.querySelectorAll('.blocks.file .cell.full')).toHaveLength(blockFill(900, 512).full);
   });
 
+  it('never draws the file past the raw row, even when it is the bigger of the two', () => {
+    // A 1 × 1 upload: 3 raw bytes in 1-byte blocks, and a 630-byte file.
+    const tiny = { w: 1, h: 1, rgba: new Uint8Array([10, 20, 30, 255]) };
+    const c = render(Overview, { rect: { x: 0, y: 0, w: 1102, h: 216 }, image: tiny, jpeg: new Uint8Array(630), quality: 50, ctl: new TooltipController() }).container;
+    expect(c.querySelectorAll('.blocks.raw .cell')).toHaveLength(3);
+    expect(c.querySelectorAll('.blocks.file .cell.full')).toHaveLength(3);
+    expect(c.querySelector('.blocks.file .cell.part')).toBeNull();
+    // The same for a file a little bigger than 48 blocks of 256 B.
+    const big = render(Overview, { rect: { x: 0, y: 0, w: 1102, h: 216 }, image, jpeg: new Uint8Array(12_288 + 100), quality: 50, ctl: new TooltipController() }).container;
+    expect(big.querySelectorAll('.blocks.file .cell.full')).toHaveLength(48);
+    expect(big.querySelector('.blocks.file .cell.part')).toBeNull();
+  });
+
   it('still shows a sliver for a file smaller than one block', () => {
     const c = render(Overview, { rect: { x: 0, y: 0, w: 1102, h: 216 }, image, jpeg: new Uint8Array(20), quality: 50, ctl: new TooltipController() }).container;
     expect(c.querySelectorAll('.blocks.file .cell.full')).toHaveLength(0);
