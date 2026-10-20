@@ -115,3 +115,24 @@ export function mcuCount(w: number, h: number, s: SubsamplingId): number {
   const [mw, mh] = mcuSize(s);
   return Math.ceil(w / mw) * Math.ceil(h / mh);
 }
+
+/**
+ * The scan index of the MCU holding luma block `block` in a `imgW`-wide image
+ * (MCUs run row by row; the last column may be padded).
+ */
+export function mcuIndexOf(block: [number, number], s: SubsamplingId, imgW: number): number {
+  const [mw, mh] = mcuSize(s);
+  const cols = Math.ceil(imgW / mw);
+  return Math.floor((block[1] * 8) / mh) * cols + Math.floor((block[0] * 8) / mw);
+}
+
+/**
+ * The top-left luma block of a selection: a luma block is itself, a chroma
+ * block scales up by the subsampling factors. The twin of `luma_anchor` in
+ * `crates/viz-core/src/visualizations/jpeg.rs`.
+ */
+export function lumaAnchorOf(sel: { component: number; bx: number; by: number }, s: SubsamplingId): [number, number] {
+  if (sel.component === 0) return [sel.bx, sel.by];
+  const [fh, fv] = s === '444' ? [1, 1] : s === '422' ? [2, 1] : [2, 2];
+  return [sel.bx * fh, sel.by * fv];
+}

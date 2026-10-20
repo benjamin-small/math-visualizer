@@ -37,6 +37,10 @@
     zoom?: boolean;
     /** Put native `title` tooltips on the shell's own buttons and readout (default true); a lab that draws its own cards sets false. */
     nativeTitles?: boolean;
+    /** The iteration the lab starts from (default 0): Reset returns here, and Back and Reset are disabled at or before it. */
+    firstStep?: number;
+    /** When set, Reset, Back, Play and Forward are all disabled, and this is the reason why. */
+    transportOff?: string | null;
   }
 
   let {
@@ -54,6 +58,8 @@
     playback = true,
     zoom = true,
     nativeTitles = true,
+    firstStep = 0,
+    transportOff = null,
   }: Props = $props();
 
   // The engine is created once for this component's lifetime; later prop
@@ -76,7 +82,18 @@
   });
 
   /** A native tooltip, unless the lab turned them off. */
-  const tip = (text: string) => (nativeTitles ? text : undefined);
+  const tip = (text: string | undefined) => (nativeTitles ? text : undefined);
+
+  // A transport button that would do nothing says so rather than going quiet. It
+  // stays focusable and hoverable (aria-disabled, never `disabled`) so a lab's own
+  // card can still explain it; the guards in the handlers below do the refusing.
+  const atStart = $derived(api.snapshot.iteration <= firstStep);
+  const atEnd = $derived(api.snapshot.iteration >= api.snapshot.max_iterations);
+  const backOff = $derived(!!transportOff || atStart);
+  const playOff = $derived(!api.snapshot.playing && (!!transportOff || atEnd));
+  const forwardOff = $derived(!!transportOff || atEnd);
+  const startReason = $derived(transportOff || 'Already at the start.');
+  const endReason = $derived(transportOff || 'At the end: Reset to run it again.');
 
   const fmt = (n: number) => n.toLocaleString('en-US');
   const progressPct = $derived(
@@ -126,6 +143,7 @@
   }
 
   function onTogglePlay() {
+    if (playOff) return;
     const wasPlaying = api.snapshot.playing;
     const wasAtStart = api.snapshot.iteration === 0;
     api.dispatch(cmd.togglePlay());
@@ -142,16 +160,20 @@
   }
 
   function onReset() {
+    if (backOff) return;
     cancelRamp();
     api.dispatch(cmd.reset());
+    if (firstStep > 0) api.dispatch(cmd.jumpTo(firstStep));
   }
 
   function onStepBack() {
+    if (backOff) return;
     cancelRamp();
     api.dispatch(cmd.stepBack());
   }
 
   function onStepForward() {
+    if (forwardOff) return;
     cancelRamp();
     api.dispatch(cmd.stepForward());
   }
@@ -238,12 +260,12 @@
     <div class="bezel">
       {#if playback}
         <div class="group transport">
-          <button class="btn" onclick={onReset} title={tip('Back to iteration 0')}><Icon name="rotate-ccw" />Reset</button>
-          <button class="btn" onclick={onStepBack} title={tip('Step back one iteration')}><Icon name="skip-back" />Back</button>
-          <button class="btn primary" onclick={onTogglePlay}>
+          <button class="btn" aria-disabled={backOff ? 'true' : undefined} onclick={onReset} title={tip(backOff ? startReason : 'Back to the start')}><Icon name="rotate-ccw" />Reset</button>
+          <button class="btn" aria-disabled={backOff ? 'true' : undefined} onclick={onStepBack} title={tip(backOff ? startReason : 'Step back one iteration')}><Icon name="skip-back" />Back</button>
+          <button class="btn primary" aria-disabled={playOff ? 'true' : undefined} onclick={onTogglePlay} title={tip(playOff ? endReason : undefined)}>
             <Icon name={api.snapshot.playing ? 'pause' : 'play'} />{api.snapshot.playing ? 'Pause' : 'Play'}
           </button>
-          <button class="btn" onclick={onStepForward} title={tip('Step forward one iteration')}><Icon name="skip-forward" />Forward</button>
+          <button class="btn" aria-disabled={forwardOff ? 'true' : undefined} onclick={onStepForward} title={tip(forwardOff ? endReason : 'Step forward one iteration')}><Icon name="skip-forward" />Forward</button>
         </div>
         <span class="readout mono" title={tip('Iteration / total')}>{fmt(api.snapshot.iteration)} <span class="of">/ {fmt(api.snapshot.max_iterations)}</span></span>
       {/if}
@@ -351,6 +373,9 @@
   .bezel :global(.btn.primary) { background: var(--accent); border-color: var(--accent); color: var(--paper); }
   .bezel :global(.btn.primary:hover) { background: var(--accent-deep); border-color: var(--accent-deep); }
   .bezel :global(.btn.icon) { padding: 0 9px; }
+  .bezel :global(.btn[aria-disabled='true']) { opacity: 0.45; cursor: default; }
+  .bezel :global(.btn[aria-disabled='true']:hover) { border-color: var(--line); }
+  .bezel :global(.btn.primary[aria-disabled='true']:hover) { background: var(--accent); border-color: var(--accent); }
   .bezel :global(.btn.quiet) { background: none; border-color: transparent; color: var(--accent-deep); }
   .readout { font-size: 15px; margin-left: -14px; white-space: nowrap; }
   .readout .of { color: var(--stone); }
