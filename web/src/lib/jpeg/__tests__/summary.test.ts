@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { formatBytes, readSummary, readoutOf } from '../summary';
 import { busiestLine, cumulativeEnergy, mirrored, periodic, psnrOf, termsFor } from '../math';
-import { CODE_TEX, ENTROPY_TEX, MSE_TEX, PSNR_TEX, QSCALE_TEX, QUANT_TEX, SIZE_TEX, TOKEN_TEX, chromaKept, lastNonZero, samplesKept, stageTex, NOTICE } from '../formulas';
+import { CODE_TEX, DCT_TEX, ENTROPY_TEX, MSE_TEX, PSNR_TEX, QSCALE_TEX, QUANT_TEX, SIZE_TEX, TOKEN_TEX, chromaKept, lastNonZero, samplesKept, stageTex, NOTICE } from '../formulas';
 import { STAGES } from '../stages';
 import { decodeUpload, fitWithin } from '../images';
 import { jpegSummaryFixture } from '../../test/fakeViz';
@@ -148,6 +148,15 @@ describe('formulas', () => {
     expect(avg).toMatch(/^\\begin\{aligned\}/);
     expect(avg.split('\\\\')).toHaveLength(2);
     for (const term of ['C(2i,2j)', 'C(2i{+}1,2j)', 'C(2i,2j{+}1)', 'C(2i{+}1,2j{+}1)']) expect(avg).toContain(term);
+    // The DCT: the sums over the block on one line, the two cosines on the next.
+    expect(DCT_TEX).toMatch(/^\\begin\{aligned\}/);
+    const [sums, cosines] = DCT_TEX.split('\\\\');
+    expect(sums).toContain('\\sum_{x=0}^{7} \\sum_{y=0}^{7} f(x,y)');
+    expect(sums).not.toContain('\\cos');
+    expect(cosines).toContain('\\cos\\frac{(2x+1)u\\pi}{16}');
+    expect(cosines).toContain('\\cos\\frac{(2y+1)v\\pi}{16}');
+    expect(stageTex('dct', null, null)).toEqual([DCT_TEX]);
+    expect(stageTex('dct', s, null)[0]).toBe(DCT_TEX);
   });
 
   it('explains entropy on the overview', () => {
