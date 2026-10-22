@@ -15,8 +15,8 @@ export const COLOR_TEX = String.raw`\begin{bmatrix} Y \\ C_b \\ C_r \end{bmatrix
 \begin{bmatrix} 0.299 & 0.587 & 0.114 \\ -0.1687 & -0.3313 & 0.5 \\ 0.5 & -0.4187 & -0.0813 \end{bmatrix}
 \begin{bmatrix} R \\ G \\ B \end{bmatrix} + \begin{bmatrix} 0 \\ 128 \\ 128 \end{bmatrix}`;
 
-/** The 8 × 8 forward DCT as written in the JPEG standard. */
-export const DCT_TEX = String.raw`F(u,v) = \tfrac14\, C(u)\, C(v) \sum_{x=0}^{7} \sum_{y=0}^{7} f(x,y)\, \cos\frac{(2x+1)u\pi}{16}\, \cos\frac{(2y+1)v\pi}{16}`;
+/** The 8 × 8 forward DCT as written in the JPEG standard: the sums over the block, then the two cosines on a line of their own, so it fits a phone. */
+export const DCT_TEX = String.raw`\begin{aligned} F(u,v) &= \tfrac14\, C(u)\, C(v) \sum_{x=0}^{7} \sum_{y=0}^{7} f(x,y) \\ &\qquad \cdot \cos\frac{(2x+1)u\pi}{16}\, \cos\frac{(2y+1)v\pi}{16} \end{aligned}`;
 
 /** The Quantize stage's first formula: divide by the table entry and round. Each formula of a stage is a line of its own, so each fits a phone. */
 export const QUANT_TEX = String.raw`F_Q(u,v) = \operatorname{round}\!\left(\frac{F(u,v)}{Q(u,v)}\right)`;
